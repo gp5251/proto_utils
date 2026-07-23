@@ -1,0 +1,109 @@
+{
+  "name": "proto-utils",
+  "displayName": "Proto Utils",
+  "description": "Proto3 syntax highlighting, go-to-definition, and TypeScript code generation",
+  "version": "0.1.0",
+  "publisher": "proto-utils",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Programming Languages"],
+  "activationEvents": [
+    "onLanguage:proto3"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "proto3",
+        "aliases": ["Protocol Buffers 3", "proto3"],
+        "extensions": [".proto"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "proto3",
+        "scopeName": "source.proto3",
+        "path": "./syntaxes/proto3.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "protoUtils.generateTypes",
+        "title": "Proto Utils: Generate TypeScript Types"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "when": "resourceLangId == proto3",
+          "command": "protoUtils.generateTypes",
+          "group": "protoUtils"
+        }
+      ],
+      "explorer/context": [
+        {
+          "when": "resourceLangId == proto3",
+          "command": "protoUtils.generateTypes",
+          "group": "protoUtils"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Proto Utils",
+      "properties": {
+        "protoUtils.codeGen.outputDir": {
+          "type": "string",
+          "default": "generated",
+          "description": "Output directory for generated TypeScript files (relative to workspace root)"
+        },
+        "protoUtils.codeGen.enumStyle": {
+          "type": "string",
+          "enum": ["enum", "union"],
+          "default": "enum",
+          "description": "Generate enums as TypeScript enum or union type"
+        },
+        "protoUtils.codeGen.optionalMessageFields": {
+          "type": "boolean",
+          "default": true,
+          "description": "Mark non-repeated message-typed fields as optional (?)"
+        },
+        "protoUtils.codeGen.optionalScalarFields": {
+          "type": "boolean",
+          "default": false,
+          "description": "Mark scalar fields as optional (?)"
+        },
+        "protoUtils.codeGen.fieldNaming": {
+          "type": "string",
+          "enum": ["camelCase", "preserve"],
+          "default": "camelCase",
+          "description": "Field naming convention in generated TypeScript"
+        },
+        "protoUtils.codeGen.pathMapping": {
+          "type": "string",
+          "enum": ["package", "file"],
+          "default": "package",
+          "description": "Derive output file path from proto package declaration or file path"
+        },
+        "protoUtils.codeGen.oneofStyle": {
+          "type": "string",
+          "enum": ["optional", "union"],
+          "default": "optional",
+          "description": "Generate oneof as simple optional fields or discriminated union"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "node --test out/test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0"
+  }
+}
