@@ -126,8 +126,8 @@
       ]
     },
     "rpc": {
-      "match": "\\b(rpc)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(\\()\\s*(stream\\s+)?(\\.?[a-zA-Z_][a-zA-Z0-9_.]*)\\s*(\\))\\s*(returns)\\s*(\\()\\s*(stream\\s+)?(\\.?[a-zA-Z_][a-zA-Z0-9_.]*)\\s*(\\))",
-      "captures": {
+      "begin": "\\b(rpc)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(\\()\\s*(stream\\s+)?(\\.?[a-zA-Z_][a-zA-Z0-9_.]*)\\s*(\\))\\s*(returns)\\s*(\\()\\s*(stream\\s+)?(\\.?[a-zA-Z_][a-zA-Z0-9_.]*)\\s*(\\))",
+      "beginCaptures": {
         "1": { "name": "keyword.other.rpc.proto3" },
         "2": { "name": "entity.name.function.rpc.proto3" },
         "3": { "name": "punctuation.definition.parameters.proto3" },
@@ -139,7 +139,16 @@
         "9": { "name": "keyword.other.stream.proto3" },
         "10": { "name": "entity.name.type.proto3" },
         "11": { "name": "punctuation.definition.parameters.proto3" }
-      }
+      },
+      "end": "(;|\\})",
+      "endCaptures": {
+        "0": { "name": "punctuation.terminator.proto3" }
+      },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#option-statement" },
+        { "match": "\\{", "name": "punctuation.definition.block.proto3" }
+      ]
     },
     "oneof": {
       "begin": "\\b(oneof)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(\\{)",
