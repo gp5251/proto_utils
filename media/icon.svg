@@ -1,0 +1,47 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4F8EF7"/>
+      <stop offset="100%" stop-color="#7C5CFC"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38E1C6"/>
+      <stop offset="100%" stop-color="#4F8EF7"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="url(#bg)"/>
+
+  <!-- Subtle inner highlight -->
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="none" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="2"/>
+
+  <!-- Left curly brace { -->
+  <path d="M50 34
+           C42 34 38 38 38 46
+           L38 56
+           C38 60 36 62 32 62
+           L30 62
+           L30 66
+           L32 66
+           C36 66 38 68 38 72
+           L38 82
+           C38 90 42 94 50 94"
+        fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Right curly brace } -->
+  <path d="M78 34
+           C86 34 90 38 90 46
+           L90 56
+           C90 60 92 62 96 62
+           L98 62
+           L98 66
+           L96 66
+           C92 66 90 68 90 72
+           L90 82
+           C90 90 86 94 78 94"
+        fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Center dot / proto node -->
+  <circle cx="64" cy="64" r="7" fill="url(#accent)"/>
+</svg>

@@ -10,25 +10,6 @@
 - 将 `message`、`enum`、`repeated`、`map` 和 `oneof` 生成为 TypeScript 类型
 - 根据多个 `.proto` 文件之间的类型引用生成 TypeScript `import type`
 
-> 目前仅支持 Proto3，不支持 Proto2、运行时序列化代码或 gRPC 客户端/服务端代码生成。
-
-## 安装
-
-### 从 VSIX 安装
-
-1. 下载或获取 `proto-utils-0.1.0.vsix`。
-2. 在 VS Code 中打开扩展视图。
-3. 点击扩展视图右上角的 `...`。
-4. 选择 **Install from VSIX...**。
-5. 选择 VSIX 文件，并在安装完成后按提示重新加载 VS Code。
-
-也可以在终端中安装：
-
-```bash
-code --install-extension proto-utils-0.1.0.vsix
-```
-
-插件要求 VS Code 1.85.0 或更高版本。
 
 ## 基本使用
 
@@ -151,4 +132,3 @@ protos/account/user.proto
 | `message` | `interface` |
 | `enum` | `enum` 或字符串字面量联合类型 |
 
-服务定义会被忽略；插件不会生成 RPC 客户端或服务端代码。
