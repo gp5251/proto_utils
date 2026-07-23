@@ -8,7 +8,7 @@
     "vscode": "^1.85.0"
   },
   "categories": ["Programming Languages"],
-  "icon": "media/icon.svg",
+  "icon": "media/icon.png",
   "activationEvents": [
     "onLanguage:proto3"
   ],
