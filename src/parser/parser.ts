@@ -69,6 +69,18 @@ class Parser {
     return { name: t.text, range: t.range };
   }
 
+  /** Parse a type reference, allowing a leading dot for fully-qualified names (.pkg.Type) */
+  private parseTypeRef(): ast.Ident {
+    let start = this.peek().range.start;
+    let prefix = '';
+    if (this.at('punct', '.')) {
+      prefix = '.';
+      this.next();
+    }
+    const t = this.expectIdent();
+    return { name: prefix + t.text, range: { start, end: t.range.end } };
+  }
+
   // ─── File ────────────────────────────────────────────────
 
   parseFile(): ast.ProtoFile {
@@ -207,7 +219,7 @@ class Parser {
         msg.reserved.push(this.parseReserved());
       } else if (this.atIdent('option')) {
         msg.options.push(this.parseOption());
-      } else if (this.atIdent('repeated') || this.at('ident')) {
+      } else if (this.atIdent('repeated') || this.at('ident') || this.at('punct', '.')) {
         msg.fields.push(this.parseNormalField());
       } else {
         this.error(`Unexpected token "${this.peek().text}" in message body`);
@@ -232,7 +244,7 @@ class Parser {
       startToken = this.next();
     }
 
-    const type = this.identFromToken(this.expectIdent());
+    const type = this.parseTypeRef();
     const name = this.identFromToken(this.expectIdent());
     this.expectPunct('=');
     const numToken = this.expect('number');
@@ -253,7 +265,7 @@ class Parser {
     this.expectPunct('<');
     const keyType = this.identFromToken(this.expectIdent());
     this.expectPunct(',');
-    const valueType = this.identFromToken(this.expectIdent());
+    const valueType = this.parseTypeRef();
     this.expectPunct('>');
     const name = this.identFromToken(this.expectIdent());
     this.expectPunct('=');
@@ -277,8 +289,8 @@ class Parser {
 
     const fields: ast.NormalField[] = [];
     while (!this.at('punct', '}') && !this.at('eof')) {
-      if (this.at('ident')) {
-        const type = this.identFromToken(this.expectIdent());
+      if (this.at('ident') || this.at('punct', '.')) {
+        const type = this.parseTypeRef();
         const fieldName = this.identFromToken(this.expectIdent());
         this.expectPunct('=');
         const numToken = this.expect('number');
@@ -410,7 +422,7 @@ class Parser {
       inputStream = true;
       this.next();
     }
-    const inputType = this.identFromToken(this.expectIdent());
+    const inputType = this.parseTypeRef();
     this.expectPunct(')');
     this.expectIdent('returns');
     this.expectPunct('(');
@@ -419,7 +431,7 @@ class Parser {
       outputStream = true;
       this.next();
     }
-    const outputType = this.identFromToken(this.expectIdent());
+    const outputType = this.parseTypeRef();
     const end = this.expectPunct(')');
 
     // rpc can end with ; or { ... }

@@ -60,6 +60,8 @@ export class SymbolIndex {
    * Resolution order: same file → imported files → global (package match).
    */
   resolve(typeName: string, fromUri: vscode.Uri): { uri: vscode.Uri; symbol: SymbolEntry } | null {
+    // Normalize: strip leading dot from fully-qualified names (.pkg.Type → pkg.Type)
+    typeName = typeName.replace(/^\./, '');
     const fromEntry = this.entries.get(fromUri.fsPath);
 
     // 1. Same file

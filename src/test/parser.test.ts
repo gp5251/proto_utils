@@ -8,6 +8,68 @@ test('parses syntax declaration', () => {
   assert.equal(file.diagnostics.length, 0);
 });
 
+test('parses leading-dot fully-qualified type in field', () => {
+  const file = parse(`
+    syntax = "proto3";
+    message Foo {
+      .other.pkg.Bar bar = 1;
+    }
+  `);
+  const msg = file.definitions[0];
+  if (msg.kind !== 'message') return;
+  const f = msg.fields[0];
+  if (f.kind !== 'field') return;
+  assert.equal(f.type.name, '.other.pkg.Bar');
+  assert.equal(f.name.name, 'bar');
+  assert.equal(file.diagnostics.length, 0);
+});
+
+test('parses leading-dot type in rpc', () => {
+  const file = parse(`
+    syntax = "proto3";
+    service Svc {
+      rpc Get (.pkg.Req) returns (.pkg.Resp);
+    }
+  `);
+  const svc = file.definitions[0];
+  if (svc.kind !== 'service') return;
+  assert.equal(svc.rpcs[0].inputType.name, '.pkg.Req');
+  assert.equal(svc.rpcs[0].outputType.name, '.pkg.Resp');
+  assert.equal(file.diagnostics.length, 0);
+});
+
+test('parses leading-dot type in oneof', () => {
+  const file = parse(`
+    syntax = "proto3";
+    message Foo {
+      oneof v {
+        .pkg.A a = 1;
+        int32 b = 2;
+      }
+    }
+  `);
+  const msg = file.definitions[0];
+  if (msg.kind !== 'message') return;
+  const f = msg.oneofs[0].fields[0];
+  assert.equal(f.type.name, '.pkg.A');
+  assert.equal(file.diagnostics.length, 0);
+});
+
+test('parses leading-dot type in map value', () => {
+  const file = parse(`
+    syntax = "proto3";
+    message Foo {
+      map<string, .pkg.Bar> m = 1;
+    }
+  `);
+  const msg = file.definitions[0];
+  if (msg.kind !== 'message') return;
+  const f = msg.fields[0];
+  if (f.kind !== 'map') return;
+  assert.equal(f.valueType.name, '.pkg.Bar');
+  assert.equal(file.diagnostics.length, 0);
+});
+
 test('parses package', () => {
   const file = parse('syntax = "proto3";\npackage my.service;');
   assert.equal(file.package?.name, 'my.service');
