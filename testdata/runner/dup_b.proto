@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package dupb;
+
+message M {
+  string v = 1;
+}
+
+// 与 dupa.DupService 同名(不同包),方法数更多 → findProtoFileForService 应选本文件
+service DupService {
+  rpc A (M) returns (M);
+  rpc B (M) returns (M);
+}

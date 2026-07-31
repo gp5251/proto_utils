@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseProtoFileComments } from '../utils/protoComments';
+import { parseProtoFileComments } from '../runner/utils/protoComments';
 
 test('parseProtoFileComments extracts message field and enum value comments', () => {
   const content = `

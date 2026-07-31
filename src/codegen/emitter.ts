@@ -1,6 +1,7 @@
 import path from 'node:path';
 import protobuf from 'protobufjs';
 import type { ProtoSchema } from '../runtime/protoFrontend';
+import { walkReflection } from '../runtime/protoFrontend';
 
 export interface CodeGenConfig {
   enumStyle: 'enum' | 'union';
@@ -49,7 +50,7 @@ export function emit(schema: ProtoSchema, filePath: string, config: CodeGenConfi
   lines.push('');
 
   for (const def of topLevelDefs(schema, filePath)) {
-    if (def instanceof protobuf.Type) emitMessage(schema, def, config, resolve, imports, lines, '');
+    if (def instanceof protobuf.Type) emitMessage(def, config, resolve, imports, lines, '');
     else emitEnum(def, config, lines, '');
     // services are skipped (out of scope for type generation)
   }
@@ -122,21 +123,17 @@ function createRelPathResolver(schema: ProtoSchema, options: OutputPathOptions):
 /** 从反射树推导每个 proto 文件的 package(文件内全部顶层类型共享同一条 package 语句)。 */
 function packageByFile(schema: ProtoSchema): Map<string, string> {
   const result = new Map<string, string>();
-  const visit = (ns: protobuf.NamespaceBase): void => {
-    for (const obj of ns.nestedArray) {
-      if (obj instanceof protobuf.Type || obj instanceof protobuf.Enum || obj instanceof protobuf.Service) {
-        const file = declaringFile(schema, obj);
-        if (file && !result.has(normalizeFile(file))) {
-          let outer: protobuf.ReflectionObject = obj;
-          while (outer.parent instanceof protobuf.Type) outer = outer.parent;
-          const pkg = outer.parent ? outer.parent.fullName.replace(/^\./, '') : '';
-          result.set(normalizeFile(file), pkg);
-        }
+  walkReflection(schema.root, (obj) => {
+    if (obj instanceof protobuf.Type || obj instanceof protobuf.Enum || obj instanceof protobuf.Service) {
+      const file = declaringFile(schema, obj);
+      if (file && !result.has(normalizeFile(file))) {
+        let outer: protobuf.ReflectionObject = obj;
+        while (outer.parent instanceof protobuf.Type) outer = outer.parent;
+        const pkg = outer.parent ? outer.parent.fullName.replace(/^\./, '') : '';
+        result.set(normalizeFile(file), pkg);
       }
-      if (obj instanceof protobuf.Namespace) visit(obj);
     }
-  };
-  visit(schema.root);
+  });
   return result;
 }
 
@@ -145,19 +142,15 @@ function packageByFile(schema: ProtoSchema): Map<string, string> {
 /** filePath 声明的顶层 message/enum(嵌套类型随父 message 输出),按声明顺序。 */
 function topLevelDefs(schema: ProtoSchema, filePath: string): Array<protobuf.Type | protobuf.Enum> {
   const defs: Array<protobuf.Type | protobuf.Enum> = [];
-  const visit = (ns: protobuf.NamespaceBase): void => {
-    for (const obj of ns.nestedArray) {
-      if (
-        !(ns instanceof protobuf.Type) &&
-        (obj instanceof protobuf.Type || obj instanceof protobuf.Enum)
-      ) {
-        const file = declaringFile(schema, obj);
-        if (file && sameFile(file, filePath)) defs.push(obj);
-      }
-      if (obj instanceof protobuf.Namespace) visit(obj);
+  walkReflection(schema.root, (obj, parent) => {
+    if (
+      !(parent instanceof protobuf.Type) &&
+      (obj instanceof protobuf.Type || obj instanceof protobuf.Enum)
+    ) {
+      const file = declaringFile(schema, obj);
+      if (file && sameFile(file, filePath)) defs.push(obj);
     }
-  };
-  visit(schema.root);
+  });
   return defs;
 }
 
@@ -217,7 +210,6 @@ function trackImport(field: protobuf.Field, resolve: TypeResolver | undefined, i
 // ─── Emitters ────────────────────────────────────────────────
 
 function emitMessage(
-  schema: ProtoSchema,
   msg: protobuf.Type,
   config: CodeGenConfig,
   resolve: TypeResolver | undefined,
@@ -235,7 +227,7 @@ function emitMessage(
   // Nested messages
   for (const nested of msg.nestedArray) {
     if (nested instanceof protobuf.Type) {
-      emitMessage(schema, nested, config, resolve, imports, lines, indent);
+      emitMessage(nested, config, resolve, imports, lines, indent);
       lines.push('');
     }
   }

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { scanTypeRefs } from '../index/scanner';
+
 import { SymbolIndex } from '../index/symbolIndex';
 
 const SCALAR_TYPES = new Set([
@@ -25,7 +25,7 @@ export class ProtoSemanticTokensProvider implements vscode.DocumentSemanticToken
 
     if (!entry) return builder.build();
 
-    const refs = scanTypeRefs(document.getText());
+    const refs = entry.typeRefs;
     for (const ref of refs) {
       if (SCALAR_TYPES.has(ref.name)) continue;
 

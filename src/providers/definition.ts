@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import { scanTypeRefs } from '../index/scanner';
 import { SymbolIndex } from '../index/symbolIndex';
 
 const SCALAR_TYPES = new Set([
@@ -21,9 +20,8 @@ export class ProtoDefinitionProvider implements vscode.DefinitionProvider {
     const entry = this.index.getFile(document.uri);
     if (!entry) return null;
 
-    // Find type reference at cursor (same text the index just scanned)
-    const refs = scanTypeRefs(document.getText());
-    const ref = refs.find(r =>
+    // 与索引同一次扫描的引用点(避免对同一文本二次 scanProto)
+    const ref = entry.typeRefs.find(r =>
       position.line >= r.range.start.line &&
       position.line <= r.range.end.line &&
       position.character >= r.range.start.character &&

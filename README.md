@@ -1,6 +1,6 @@
 # Proto Utils
 
-面向 VS Code 的 Proto3 插件，提供语法高亮、跳转到定义和 TypeScript 类型生成。插件内置 Proto3 解析器，无需安装 `protoc`、`buf` 或其他命令行工具。
+面向 VS Code 的 Proto3 插件,提供语法高亮、跳转到定义、TypeScript 类型生成,以及直接在编辑器里发起 gRPC 调用的 RPC 工作台。无需安装 `protoc`、`buf` 或其他命令行工具。
 
 ## 功能
 
@@ -9,6 +9,9 @@
 - 支持同文件、导入文件和 package 命名空间中的类型定义跳转
 - 将 `message`、`enum`、`repeated`、`map` 和 `oneof` 生成为 TypeScript 类型
 - 根据多个 `.proto` 文件之间的类型引用生成 TypeScript `import type`
+- 在 rpc 方法上方提供「▶ 调用」CodeLens,一键打开 RPC 工作台并预选方法
+- RPC 工作台:按 proto schema 自动生成请求表单,发起一元与服务端流调用,查看响应
+- 保存 `.proto` 文件时报告语法错误诊断
 
 
 ## 基本使用
@@ -61,6 +64,26 @@ export interface User {
 ```
 
 每次执行生成命令都会覆盖对应的输出文件，请勿手动修改生成文件。
+
+### 调用 RPC(RPC 工作台)
+
+在 `.proto` 文件中,每个一元或服务端流的 rpc 方法上方都会出现「▶ 调用」CodeLens。点击后 RPC 工作台打开并预选该方法;也可以通过命令面板运行 **Proto Utils: Open RPC Runner**,或右键 `.proto` 编辑器选择同名命令,手动选择服务和方法。
+
+- 表单按请求消息的字段 schema 自动生成,嵌套 message 以 JSON 编辑。
+- 一元调用在响应区展示结果;服务端流调用逐条追加响应,可随时取消。
+- proto 文件变更(保存、外部修改)会自动刷新服务列表,不丢表单状态。
+- client-streaming 与双向流暂不支持(见 `docs/adr/0007`)。
+
+工作台依赖的两个设置:
+
+| 配置项 | 默认值 | 作用 |
+| --- | --- | --- |
+| `protoUtils.runner.server` | `"localhost:50051"` | gRPC 服务器地址(host:port) |
+| `protoUtils.runner.protoDir` | `""` | proto 目录;空 = 工作区根;相对路径相对 workspace folder 解析 |
+
+**从 rpc_runner 迁移**:把 `rpc.config.json` 里的 `server` 与 `protoDir` 两个值抄到上述 VS Code 设置即可。`port` 与 `generatedDir` 已删除(不再有 HTTP 服务与 proto-loader-gen-types 生成)。工作台与 gRPC 依赖(@grpc/grpc-js)采用懒加载,只在首次打开工作台时载入,不影响编辑功能激活速度。
+
+修改 `protoUtils.runner.*` 设置后,已打开的工作台会在下次重开时使用新配置。
 
 ## 配置
 

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { scanProto } from './scanner';
-import { SymbolEntry } from './symbols';
+import { SymbolEntry, ServicePoint, TypeRef } from './symbols';
 
 /**
  * 位置索引层(ADR-0003)的单文件条目:只有定义点符号与声明性事实
@@ -12,6 +12,8 @@ export interface FileEntry {
   packageName: string | null;
   imports: string[];
   symbols: SymbolEntry[];
+  services: ServicePoint[];
+  typeRefs: TypeRef[];
 }
 
 export class SymbolIndex {
@@ -43,6 +45,8 @@ export class SymbolIndex {
         packageName: scanned.packageName,
         imports: scanned.imports,
         symbols: scanned.symbols,
+        services: scanned.services,
+        typeRefs: scanned.typeRefs,
       });
     } catch {
       // file may have been deleted between discovery and read
@@ -62,6 +66,8 @@ export class SymbolIndex {
       packageName: scanned.packageName,
       imports: scanned.imports,
       symbols: scanned.symbols,
+      services: scanned.services,
+      typeRefs: scanned.typeRefs,
     });
   }
 

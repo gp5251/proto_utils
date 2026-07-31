@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseFormValue, buildRequestFromForm, buildRequestFromValues } from '../utils/formParser';
-import { FieldInfo } from '../call/types';
+import { parseFormValue, buildRequestFromValues } from '../runner/utils/formParser';
+import { FieldInfo } from '../runner/core/types';
 
 const boolField: FieldInfo = {
   name: 'enabled',
@@ -33,10 +33,8 @@ test('parseFormValue parses numbers', () => {
   assert.equal(parseFormValue(numberField, '42'), 42);
 });
 
-test('buildRequestFromForm includes false bool values', () => {
-  const { request } = buildRequestFromForm(['enabled'], [boolField], {
-    field_enabled: 'false',
-  });
+test('buildRequestFromValues includes false bool values', () => {
+  const request = buildRequestFromValues([boolField], { enabled: 'false' });
   assert.equal(request.enabled, false);
 });
 

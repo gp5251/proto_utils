@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package runner;
+
+message SetVarRequest {
+  optional int32 index = 1;
+  string name = 2;
+}
+
+message SetVarResponse {
+  bool ok = 1;
+}
+
+service VarService {
+  rpc SetVar (SetVarRequest) returns (SetVarResponse);
+}

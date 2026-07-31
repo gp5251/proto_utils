@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { flattenSchemaRows } from '../utils/schemaRows';
-import { FieldInfo } from '../call/types';
+import { flattenSchemaRows } from '../runner/utils/schemaRows';
+import { FieldInfo } from '../runner/core/types';
 
 test('flattenSchemaRows builds field rows for top-level fields', () => {
   const fields: FieldInfo[] = [

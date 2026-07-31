@@ -26,3 +26,18 @@ export interface TypeRef {
   name: string;
   range: Range;
 }
+
+/** An rpc method definition point inside a service body (CodeLens 入口用) */
+export interface RpcMethodPoint {
+  name: string;
+  range: Range;
+  requestStream: boolean;
+  responseStream: boolean;
+}
+
+/** A service definition point with its rpc methods */
+export interface ServicePoint {
+  name: string;
+  range: Range;
+  methods: RpcMethodPoint[];
+}

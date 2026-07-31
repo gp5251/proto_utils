@@ -1,4 +1,4 @@
-import { Range, SymbolEntry, TypeRef } from './symbols';
+import { Range, SymbolEntry, TypeRef, ServicePoint } from './symbols';
 
 /**
  * 零语义扫描器(ADR-0003):从 proto 源码文本提取定义点(名字 + range)、
@@ -138,15 +138,17 @@ export interface ScanResult {
   imports: string[];
   symbols: SymbolEntry[];
   typeRefs: TypeRef[];
+  services: ServicePoint[];
 }
 
 type ScopeKind = 'message' | 'enum' | 'service' | 'oneof' | 'other';
 
 export function scanProto(source: string): ScanResult {
   const tokens = lex(source);
-  const result: ScanResult = { packageName: null, imports: [], symbols: [], typeRefs: [] };
+  const result: ScanResult = { packageName: null, imports: [], symbols: [], typeRefs: [], services: [] };
   const scopes: ScopeKind[] = [];
   const messageNames: string[] = []; // enclosing message names, for qualifiedName
+  let currentService: ServicePoint | null = null;
   let i = 0;
 
   const peek = (offset = 0): Token => tokens[Math.min(i + offset, tokens.length - 1)];
@@ -188,6 +190,11 @@ export function scanProto(source: string): ScanResult {
       i++;
       scopes.push(kind);
       if (kind === 'message') messageNames.push(nameTok.text);
+      if (kind === 'service') {
+        const point: ServicePoint = { name: nameTok.text, range: nameTok.range, methods: [] };
+        result.services.push(point);
+        currentService = point;
+      }
     }
   }
 
@@ -213,18 +220,23 @@ export function scanProto(source: string): ScanResult {
     }
   }
 
-  /** Read one rpc type: `(stream? Type)`; tolerant of a missing '(' */
-  function readRpcType(): void {
+  /** Read one rpc type: `(stream? Type)`; tolerant of a missing '(' . 返回是否带 stream */
+  function readRpcType(): boolean {
+    let sawStream = false;
     while (!at('eof') && !at('punct', '(') && !at('punct', ';') && !at('punct', '{') && !at('punct', '}')) {
-      if (atIdent('returns')) return; // broken rpc without parens
+      if (atIdent('returns')) return false; // broken rpc without parens
       i++;
     }
-    if (!at('punct', '(')) return;
+    if (!at('punct', '(')) return false;
     i++;
-    if (atIdent('stream')) i++;
+    if (atIdent('stream')) {
+      sawStream = true;
+      i++;
+    }
     readTypeRef();
     while (!at('eof') && !at('punct', ')')) i++;
     if (at('punct', ')')) i++;
+    return sawStream;
   }
 
   function scanServiceScope(): void {
@@ -233,11 +245,20 @@ export function scanProto(source: string): ScanResult {
       return;
     }
     i++;
-    if (at('ident')) i++; // rpc name
-    readRpcType();
+    const nameTok = at('ident') ? tokens[i++] : null;
+    const requestStream = readRpcType();
+    let responseStream = false;
     if (atIdent('returns')) {
       i++;
-      readRpcType();
+      responseStream = readRpcType();
+    }
+    if (nameTok && currentService) {
+      currentService.methods.push({
+        name: nameTok.text,
+        range: nameTok.range,
+        requestStream,
+        responseStream,
+      });
     }
     skipStatement();
     if (at('punct', '{')) {
@@ -287,7 +308,9 @@ export function scanProto(source: string): ScanResult {
 
   while (!at('eof')) {
     if (at('punct', '}')) {
-      if (scopes.pop() === 'message') messageNames.pop();
+      const popped = scopes.pop();
+      if (popped === 'message') messageNames.pop();
+      if (popped === 'service') currentService = null;
       i++;
       continue;
     }

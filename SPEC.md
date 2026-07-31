@@ -6,11 +6,14 @@
 
 ## Solution
 
-一款零外部依赖的 VSCode 插件（`proto-utils`），内置 proto3 parser，提供：
+一款 VSCode 插件（`proto-utils`），提供：
 
 1. **语法高亮** — TextMate grammar 即时基础着色 + Semantic Tokens 语义增强（区分自定义类型与内置类型）
 2. **跳转到定义** — 同文件、跨文件（import 链）、package 命名空间全解析
-3. **Code-gen** — 从 proto3 AST 生成纯 TS interface/type/enum，7 项用户可配置行为，右键菜单 + 命令面板触发
+3. **Code-gen** — 从 proto 生成纯 TS interface/type/enum，7 项用户可配置行为，右键菜单 + 命令面板触发
+4. **RPC 工作台** — 编辑器内直接发起 gRPC 调用（一元 + 服务端流），rpc 方法上方 CodeLens 入口（见 docs/adr 0001~0007 的合并决策）
+
+> 依赖说明（2026-07-31 修订，ADR-0002/0004）：编辑面（高亮/跳转/codegen）保持零外部运行时依赖；调用面（RPC 工作台）引入 `@grpc/grpc-js` 与 `@grpc/proto-loader`，经懒加载隔离，首次打开工作台时才载入。原「零外部依赖/内置 proto3 parser」表述随自研 parser 退役废止。
 
 ## User Stories
 
@@ -43,9 +46,9 @@
 
 ## Implementation Decisions
 
-1. **Zero external dependencies** — The plugin bundles its own proto3 parser and TS emitter. No protoc, buf, or any CLI tool is required or invoked.
+1. **Editor plane stays dependency-free** — 编辑面不需要 protoc/buf/CLI;调用面的 grpc 依赖懒加载隔离(见上方依赖说明)。
 
-2. **Single AST, multiple consumers** — One recursive-descent parser produces a position-annotated AST. Syntax highlighting (semantic tokens), go-to-definition, and code-gen all consume the same AST. Parse once per file, cache in the symbol index.
+2. **proto-loader 语义前端 + 零语义位置索引层(ADR-0002/0003)** — proto 语义(合法性、类型解析、codegen 输入)统一由 `@grpc/proto-loader`(protobufjs)提供;编辑器的位置数据(go-to-def、语义高亮、CodeLens)来自一个不做语义判断的薄扫描器,两者永不矛盾。原「Single AST, multiple consumers」随自研 parser 退役废止。
 
 3. **Dual-layer syntax highlighting** — A TextMate grammar (`.tmLanguage.json`) provides instant token coloring (keywords, scalars, strings, comments, numbers). A Semantic Tokens Provider layers on top once the parser is ready, distinguishing custom type references from built-in types.
 

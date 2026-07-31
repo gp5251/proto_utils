@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package dupa;
+
+message M {
+  string v = 1;
+}
+
+// 与 dupb.DupService 同名(不同包),方法数更少
+service DupService {
+  rpc A (M) returns (M);
+}
