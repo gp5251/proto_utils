@@ -1,1 +1,0 @@
-syntax = "proto3"; package c; import "base.proto"; message Bar { a.b.Foo f = 1; repeated int64 nums = 2; }

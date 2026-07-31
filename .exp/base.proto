@@ -1,1 +1,0 @@
-syntax = "proto3"; package a.b; message Foo { string snake_name = 1; }
