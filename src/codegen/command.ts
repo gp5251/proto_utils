@@ -1,12 +1,18 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
-import { parse } from '../parser/parser';
-import { emit, CodeGenConfig, TypeResolver } from './emitter';
-import { SymbolIndex } from '../index/symbolIndex';
+import path from 'node:path';
+import { ProtoFrontend, ProtoLoadError } from '../runtime/protoFrontend';
+import {
+  emit,
+  createOutputPathResolver,
+  createTypeResolver,
+  schemaHasFile,
+  CodeGenConfig,
+  OutputPathOptions,
+} from './emitter';
 
 export function registerCodeGenCommand(
   context: vscode.ExtensionContext,
-  index: SymbolIndex,
+  frontend: ProtoFrontend,
 ): void {
   const cmd = vscode.commands.registerCommand('protoUtils.generateTypes', async (uri?: vscode.Uri) => {
     // Resolve target file: explorer context passes uri, editor context uses active editor
@@ -16,21 +22,38 @@ export function registerCodeGenCommand(
       return;
     }
 
-    const document = await vscode.workspace.openTextDocument(targetUri);
-    const source = document.getText();
-    const file = parse(source);
-    const config = readConfig();
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
       vscode.window.showErrorMessage('Proto Utils: No workspace folder open.');
       return;
     }
 
-    // Build type resolver for cross-file imports
-    const resolver = buildResolver(targetUri, config, workspaceRoot, index);
+    let schema;
+    try {
+      schema = frontend.load();
+    } catch (err) {
+      if (err instanceof ProtoLoadError) {
+        const where = err.file ? ` (${err.file}${err.line ? `:${err.line}` : ''})` : '';
+        vscode.window.showErrorMessage(`Proto Utils: Failed to parse proto files${where}: ${err.message}`);
+        return;
+      }
+      throw err;
+    }
 
-    const output = emit(file, config, resolver);
-    const outPath = resolveOutputPath(targetUri, file, config, workspaceRoot);
+    const filePath = targetUri.fsPath;
+    if (!schemaHasFile(schema, filePath)) {
+      vscode.window.showErrorMessage('Proto Utils: File is not under the configured proto include dirs.');
+      return;
+    }
+
+    const config = readConfig();
+    const pathOptions = readPathOptions(workspaceRoot);
+
+    // Build type resolver for cross-file imports
+    const resolver = createTypeResolver(schema, filePath, pathOptions);
+
+    const output = emit(schema, filePath, config, resolver);
+    const outPath = createOutputPathResolver(schema, pathOptions)(filePath);
 
     // Write file
     const outUri = vscode.Uri.file(outPath);
@@ -55,69 +78,11 @@ function readConfig(): CodeGenConfig {
   };
 }
 
-function resolveOutputPath(
-  protoUri: vscode.Uri,
-  file: ReturnType<typeof parse>,
-  config: CodeGenConfig,
-  workspaceRoot: string,
-): string {
+function readPathOptions(workspaceRoot: string): OutputPathOptions {
   const cfg = vscode.workspace.getConfiguration('protoUtils.codeGen');
-  const outputDir = cfg.get<string>('outputDir', 'generated');
-  const pathMapping = cfg.get<'package' | 'file'>('pathMapping', 'package');
-
-  let relPath: string;
-  if (pathMapping === 'package' && file.package) {
-    // package my.service → my/service.ts
-    relPath = file.package.name.replace(/\./g, '/') + '.ts';
-  } else {
-    // Use proto file path relative to workspace, swap extension
-    const protoRel = path.relative(workspaceRoot, protoUri.fsPath);
-    relPath = protoRel.replace(/\.proto$/, '.ts');
-  }
-
-  return path.join(workspaceRoot, outputDir, relPath);
-}
-
-function buildResolver(
-  fromUri: vscode.Uri,
-  _config: CodeGenConfig,
-  workspaceRoot: string,
-  index: SymbolIndex,
-): TypeResolver {
-  const cfg = vscode.workspace.getConfiguration('protoUtils.codeGen');
-  const outputDir = cfg.get<string>('outputDir', 'generated');
-  const pathMapping = cfg.get<'package' | 'file'>('pathMapping', 'package');
-
-  return (typeName: string): string | null => {
-    const resolved = index.resolve(typeName, fromUri);
-    if (!resolved) return null;
-    // Same file → no import needed
-    if (resolved.uri.fsPath === fromUri.fsPath) return null;
-
-    // Compute the output TS path of the resolved proto file, relative to current output
-    const resolvedEntry = index.getFile(resolved.uri);
-    if (!resolvedEntry) return null;
-
-    let targetRel: string;
-    if (pathMapping === 'package' && resolvedEntry.file.package) {
-      targetRel = resolvedEntry.file.package.name.replace(/\./g, '/') + '.ts';
-    } else {
-      targetRel = path.relative(workspaceRoot, resolved.uri.fsPath).replace(/\.proto$/, '.ts');
-    }
-
-    // Current file's output path
-    const fromEntry = index.getFile(fromUri);
-    let fromRel: string;
-    if (pathMapping === 'package' && fromEntry?.file.package) {
-      fromRel = fromEntry.file.package.name.replace(/\./g, '/') + '.ts';
-    } else {
-      fromRel = path.relative(workspaceRoot, fromUri.fsPath).replace(/\.proto$/, '.ts');
-    }
-
-    // Relative path from current output to target output
-    const fromDir = path.dirname(fromRel);
-    let rel = path.relative(fromDir, targetRel).replace(/\\/g, '/').replace(/\.ts$/, '');
-    if (!rel.startsWith('.')) rel = './' + rel;
-    return rel;
+  return {
+    workspaceRoot,
+    outputDir: cfg.get<string>('outputDir', 'generated'),
+    pathMapping: cfg.get<'package' | 'file'>('pathMapping', 'package'),
   };
 }

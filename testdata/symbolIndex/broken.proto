@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+message Gone {
+  string ok = 1;
+
+message Unclosed {
+  int32 x = ;
+}
+
+enum {

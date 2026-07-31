@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { collectTypeRefs } from '../index/symbols';
+import { scanTypeRefs } from '../index/scanner';
 import { SymbolIndex } from '../index/symbolIndex';
 
 const SCALAR_TYPES = new Set([
@@ -21,8 +21,8 @@ export class ProtoDefinitionProvider implements vscode.DefinitionProvider {
     const entry = this.index.getFile(document.uri);
     if (!entry) return null;
 
-    // Find type reference at cursor
-    const refs = collectTypeRefs(entry.file);
+    // Find type reference at cursor (same text the index just scanned)
+    const refs = scanTypeRefs(document.getText());
     const ref = refs.find(r =>
       position.line >= r.range.start.line &&
       position.line <= r.range.end.line &&

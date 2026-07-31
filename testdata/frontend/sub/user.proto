@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package c;
+
+import "base.proto";
+
+message Bar {
+  a.b.Foo f = 1;
+  repeated int64 nums = 2;
+  Kind kind = 3;
+
+  message Inner {
+    string note = 1;
+  }
+  Inner inner = 4;
+}
+
+enum Kind {
+  KIND_UNSPECIFIED = 0;
+  KIND_FAST = 1;
+}
+
+service Greeter {
+  rpc SayHello (Bar) returns (Bar);
+  rpc Subscribe (Bar) returns (stream Bar);
+}

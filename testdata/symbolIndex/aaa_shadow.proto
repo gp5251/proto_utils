@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package x;
+
+message Thing {
+  string v = 1;
+}
+
+message Foo {
+  string shadow = 1;
+}

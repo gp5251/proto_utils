@@ -1,0 +1,51 @@
+// 仅供 scripts/genGoldens 在 Node 里跑真实 SymbolIndex 的最小 vscode 替身。
+import fs from 'node:fs';
+import path from 'node:path';
+
+export interface StubUri {
+  fsPath: string;
+  scheme: string;
+  path: string;
+}
+
+export const Uri = {
+  file: (fsPath: string): StubUri => ({ fsPath, scheme: 'file', path: fsPath }),
+};
+
+let corpusRoot = '';
+export function setCorpusRoot(dir: string): void {
+  corpusRoot = dir;
+}
+
+// 测试可用环境变量按用例切换根目录,无需 import stub 本体
+function activeRoot(): string {
+  return corpusRoot || process.env.PROTO_UTILS_STUB_ROOT || '';
+}
+
+function walk(dir: string, out: string[]): void {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (!entry.name.startsWith('.')) walk(full, out);
+    } else if (entry.name.endsWith('.proto')) {
+      out.push(full);
+    }
+  }
+}
+
+export const workspace = {
+  findFiles: async () => {
+    const files: string[] = [];
+    walk(activeRoot(), files);
+    return files.map((f) => Uri.file(f));
+  },
+  createFileSystemWatcher: () => ({
+    onDidCreate: () => ({}),
+    onDidChange: () => ({}),
+    onDidDelete: () => ({}),
+    dispose: () => {},
+  }),
+  fs: {
+    readFile: async (uri: StubUri) => fs.readFileSync(uri.fsPath),
+  },
+};

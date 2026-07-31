@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package a.b;
+
+message Foo {
+  string snake_name = 1;
+  message Inner {
+    int32 x = 1;
+  }
+  Inner inner = 2;
+}
+
+enum Color {
+  COLOR_UNSPECIFIED = 0;
+  RED = 1;
+}

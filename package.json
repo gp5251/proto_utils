@@ -7,7 +7,9 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Programming Languages"],
+  "categories": [
+    "Programming Languages"
+  ],
   "icon": "media/icon.png",
   "activationEvents": [
     "onLanguage:proto3"
@@ -17,8 +19,13 @@
     "languages": [
       {
         "id": "proto3",
-        "aliases": ["Protocol Buffers 3", "proto3"],
-        "extensions": [".proto"],
+        "aliases": [
+          "Protocol Buffers 3",
+          "proto3"
+        ],
+        "extensions": [
+          ".proto"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -61,7 +68,10 @@
         },
         "protoUtils.codeGen.enumStyle": {
           "type": "string",
-          "enum": ["enum", "union"],
+          "enum": [
+            "enum",
+            "union"
+          ],
           "default": "enum",
           "description": "Generate enums as TypeScript enum or union type"
         },
@@ -77,19 +87,28 @@
         },
         "protoUtils.codeGen.fieldNaming": {
           "type": "string",
-          "enum": ["camelCase", "preserve"],
+          "enum": [
+            "camelCase",
+            "preserve"
+          ],
           "default": "camelCase",
           "description": "Field naming convention in generated TypeScript"
         },
         "protoUtils.codeGen.pathMapping": {
           "type": "string",
-          "enum": ["package", "file"],
+          "enum": [
+            "package",
+            "file"
+          ],
           "default": "package",
           "description": "Derive output file path from proto package declaration or file path"
         },
         "protoUtils.codeGen.oneofStyle": {
           "type": "string",
-          "enum": ["optional", "union"],
+          "enum": [
+            "optional",
+            "union"
+          ],
           "default": "optional",
           "description": "Generate oneof as simple optional fields or discriminated union"
         }
@@ -97,14 +116,21 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "test": "node --test out/test/*.test.js"
+    "vscode:prepublish": "npm run typecheck && npm run compile -- --production",
+    "compile": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/build.mjs && node --test out/test/*.test.js"
   },
   "devDependencies": {
-    "@types/vscode": "^1.85.0",
     "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.28.1",
     "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.14.4",
+    "@grpc/proto-loader": "^0.8.1",
+    "protobufjs": "^8.7.1"
   }
 }

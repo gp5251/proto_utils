@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package c;
+
+import "../base.proto";
+
+message Bar {
+  a.b.Foo f = 1;
+  map<string, a.b.Color> colors = 2;
+  message Inner {
+    string s = 1;
+  }
+  Inner inner = 3;
+  oneof choice {
+    Foo plain = 4;
+    int32 n = 5;
+  }
+  Color local_color = 6;
+}
+
+message Color {
+  string hex = 1;
+}
+
+enum Kind {
+  KIND_UNSPECIFIED = 0;
+}
+
+service Greeter {
+  rpc Get(Bar) returns (.c.Bar);
+}

@@ -1,11 +1,37 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parse } from '../parser/parser';
+import path from 'node:path';
+import protobuf from 'protobufjs';
+import { ProtoSchema } from '../runtime/protoFrontend';
 import { emit, DEFAULT_CONFIG, CodeGenConfig } from '../codegen/emitter';
 
+const TEST_FILE = path.resolve('test.proto');
+
+/** 用 protobufjs 直接解析内联 proto 构造 ProtoSchema(declarations 归属逻辑对齐 ProtoFrontend)。 */
+function schemaFromSource(source: string, filePath: string = TEST_FILE, foreign?: ReadonlyMap<string, string>): ProtoSchema {
+  const root = new protobuf.Root();
+  protobuf.parse(source, root, { keepCase: true });
+  root.resolveAll();
+  const declarations = new Map<string, string>();
+  const visit = (ns: protobuf.NamespaceBase): void => {
+    for (const obj of ns.nestedArray) {
+      if (
+        obj instanceof protobuf.Type ||
+        obj instanceof protobuf.Enum ||
+        obj instanceof protobuf.Service
+      ) {
+        const fqn = obj.fullName.replace(/^\./, '');
+        declarations.set(fqn, foreign?.get(fqn) ?? filePath);
+      }
+      if (obj instanceof protobuf.Namespace) visit(obj);
+    }
+  };
+  visit(root);
+  return { root, declarations, files: [filePath] };
+}
+
 function generate(proto: string, config?: Partial<CodeGenConfig>): string {
-  const file = parse(proto);
-  return emit(file, { ...DEFAULT_CONFIG, ...config });
+  return emit(schemaFromSource(proto), TEST_FILE, { ...DEFAULT_CONFIG, ...config });
 }
 
 test('basic message → interface with camelCase fields', () => {
@@ -189,14 +215,18 @@ test('header comment present', () => {
 });
 
 test('cross-file import generation', () => {
-  const file = parse(`
+  // Address 声明在另一个文件 → 走 import;Order 留在本文件
+  const schema = schemaFromSource(`
     syntax = "proto3";
     message Order {
       Address shipping = 1;
     }
-  `);
+    message Address {
+      string street = 1;
+    }
+  `, TEST_FILE, new Map([['Address', path.resolve('common/address.proto')]]));
   const resolver = (typeName: string) => typeName === 'Address' ? 'common/address.proto' : null;
-  const out = emit(file, DEFAULT_CONFIG, resolver);
+  const out = emit(schema, TEST_FILE, DEFAULT_CONFIG, resolver);
   assert.ok(out.includes("import type { Address } from './common/address';"));
   assert.ok(out.includes('  shipping?: Address;'));
 });
@@ -208,4 +238,29 @@ test('empty message', () => {
   `);
   assert.ok(out.includes('export interface Empty {'));
   assert.ok(out.includes('}'));
+});
+
+// proto3 optional = 显式 presence:恒渲染 `?`,不受 optionalScalarFields 旋钮影响,
+// 且 protobufjs 的合成 oneof `_name` 不得走 oneof 渲染分支(独立手写断言,非 golden 照抄)。
+test('proto3 optional always renders ? regardless of knobs', () => {
+  const proto = `
+    syntax = "proto3";
+    message Foo {
+      optional string name = 1;
+      optional int32 count = 2;
+      string plain = 3;
+    }
+  `;
+  const out = generate(proto);
+  assert.ok(out.includes('export interface Foo {'));
+  assert.ok(out.includes('  name?: string;'));
+  assert.ok(out.includes('  count?: number;'));
+  assert.ok(out.includes('  plain: string;'));
+  // 合成 oneof 不泄漏:不变 union、不多出 _name 成员
+  assert.ok(!out.includes('_name'));
+  assert.ok(!out.includes('never'));
+
+  const preserved = generate(proto, { fieldNaming: 'preserve', optionalScalarFields: false });
+  assert.ok(preserved.includes('  name?: string;'));
+  assert.ok(preserved.includes('  plain: string;'));
 });
