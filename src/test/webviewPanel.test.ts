@@ -5,7 +5,6 @@ import {
   WorkbenchHost,
   WorkbenchToWebview,
   WorkbenchPanelManager,
-  ManagedWorkbenchPanel,
 } from '../runner/webviewPanel';
 import { CallRunner, CallResultPayload } from '../runner/callHandler';
 import { ServicesPayload } from '../runner/serviceRegistry';
