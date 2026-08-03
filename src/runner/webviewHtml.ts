@@ -70,7 +70,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
       <button type="button" class="btn btn-secondary btn-xs" @click="postRefresh()">刷新</button>
     </div>
   </div>
-  <div class="container" x-data="homePage()" x-cloak>
+  <div class="container" x-data="homePage" x-cloak>
     <h1 class="page-title">gRPC 服务</h1>
 
     <div class="card" id="proto-loading-card" x-show="$store.workbench.state === 'loading'">

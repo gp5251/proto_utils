@@ -41,9 +41,11 @@ const configs = [
 ];
 
 // Webview 工作台静态资源:Alpine 打包进 media/runner,避免 CDN(CSP 不允许远端脚本)。
+// 必须用 @alpinejs/csp 构建:标准 Alpine 的指令表达式走 new Function(),
+// 被 webview CSP(script-src 无 unsafe-eval)拦死,整个面板不渲染。
 async function copyRunnerAssets() {
   await mkdir('media/runner', { recursive: true });
-  await copyFile('node_modules/alpinejs/dist/cdn.min.js', 'media/runner/alpine.min.js');
+  await copyFile('node_modules/@alpinejs/csp/dist/cdn.min.js', 'media/runner/alpine.min.js');
 }
 
 await copyRunnerAssets();

@@ -93,9 +93,9 @@
       server: typeof boot.server === 'string' ? boot.server : '',
       protoDir: typeof boot.protoDir === 'string' ? boot.protoDir : '',
     });
-  });
 
-  window.homePage = function () {
+    // @alpinejs/csp 不回退全局作用域,组件必须经 Alpine.data 注册(标准版 Alpine 才能用 window.homePage)
+    Alpine.data('homePage', function () {
     return {
       query: '',
       expandedServices: {},
@@ -520,5 +520,6 @@
         return this.copiedMethodKey === this.methodKey(svcName, methodName);
       },
     };
-  };
+    });
+  });
 })();

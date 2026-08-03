@@ -2,7 +2,7 @@
   "name": "proto-utils",
   "displayName": "Proto Utils",
   "description": "Proto3 syntax highlighting, go-to-definition, and TypeScript code generation",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "publisher": "proto-utils",
   "engines": {
     "vscode": "^1.85.0"
@@ -143,9 +143,9 @@
     "test": "node scripts/build.mjs && node --test out/test/*.test.js"
   },
   "devDependencies": {
+    "@alpinejs/csp": "^3.15.12",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
-    "alpinejs": "^3.15.12",
     "esbuild": "^0.28.1",
     "typescript": "^5.4.0"
   },
