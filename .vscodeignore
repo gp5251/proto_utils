@@ -1,7 +1,13 @@
 .vscode/**
 src/**
+scripts/**
+testdata/**
+docs/**
 tsconfig.json
 node_modules/**
 out/test/**
 SPEC.md
+CONTEXT.md
 .gitignore
+out/**/*.map
+media/gen_icon.ps1
