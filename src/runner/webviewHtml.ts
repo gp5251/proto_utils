@@ -92,7 +92,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
 
     <div class="empty-state" x-show="$store.workbench.state === 'ready' && $store.workbench.services.length === 0 && !query.trim()">
       <h2 style="font-size:16px">未找到服务</h2>
-      <p>请将 <code>.proto</code> 文件添加到 <code x-text="$store.workbench.protoDir"></code>,或在设置中修改 <code>protoUtils.runner.protoDir</code> 指向你的 proto 目录</p>
+      <p x-show="$store.workbench.protoDir">请将 <code>.proto</code> 文件添加到 <code x-text="$store.workbench.protoDir"></code>,或在设置中修改 <code>protoUtils.runner.protoDir</code> 指向你的 proto 目录</p>
+      <p x-show="!$store.workbench.protoDir">未打开工作区文件夹,也未配置 proto 目录。请用「文件 → 打开文件夹」打开含 .proto 的目录,或在设置中配置 <code>protoUtils.runner.protoDir</code>(可用绝对路径)</p>
     </div>
 
     <template x-for="svc in filteredServices()" :key="svc.name">
