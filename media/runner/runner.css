@@ -442,3 +442,12 @@ input[type="checkbox"] {
   color: var(--text-faint);
   flex-shrink: 0;
 }
+
+/* ---- 聚焦模式:只显示当前接口(活动方法所在卡片与方法块) ---- */
+.focus-bar { margin-bottom: 10px; }
+.focus-mode .service-card { display: none; }
+.focus-mode .service-card:has(.method-row-active) { display: block; }
+.focus-mode .method-block { display: none; }
+.focus-mode .method-block:has(.method-row-active) { display: block; }
+/* 聚焦时隐藏服务卡标题里的折叠图标,避免误点收起 */
+.focus-mode .service-card .collapse-icon { display: none; }

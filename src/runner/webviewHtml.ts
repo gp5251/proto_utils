@@ -57,7 +57,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
 <body>
   <div class="topbar">
     <div class="topbar-brand">RPC 工作台</div>
-    <div class="topbar-search" x-data x-cloak>
+    <div class="topbar-search" x-data x-cloak x-show="!$store.workbench.focusMode">
       <input
         type="search"
         x-model="$store.search.query"
@@ -70,8 +70,12 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
       <button type="button" class="btn btn-secondary btn-xs" @click="postRefresh()">刷新</button>
     </div>
   </div>
-  <div class="container" x-data="homePage" x-cloak>
-    <h1 class="page-title">gRPC 服务</h1>
+  <div class="container" x-data="homePage" x-cloak :class="{ 'focus-mode': $store.workbench.focusMode }">
+    <div class="focus-bar" x-show="$store.workbench.focusMode">
+      <button type="button" class="btn btn-secondary btn-xs" @click="exitFocus()">‹ 返回列表</button>
+    </div>
+
+    <h1 class="page-title" x-show="!$store.workbench.focusMode">gRPC 服务</h1>
 
     <div class="card" id="proto-loading-card" x-show="$store.workbench.state === 'loading'">
       <div class="card-title"><span><span class="proto-loading-spinner"></span>正在解析 proto 文件…</span></div>

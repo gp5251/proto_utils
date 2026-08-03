@@ -20,7 +20,10 @@ function makeView(visible = true) {
       options: {} as Record<string, unknown>,
       html: '',
       cspSource: 'vscode-webview://test',
-      asWebviewUri: (u: { toString(): string }) => ({ toString: () => `webview-uri:${u.toString()}` }),
+      asWebviewUri: (u: { toString(): string }) => ({
+        toString: () => `webview-uri:${u.toString()}`,
+        with: () => ({ toString: () => `webview-uri:${u.toString()}?v=1` }),
+      }),
       postMessage: (m: WorkbenchToWebview) => {
         posted.push(m);
         return Promise.resolve(true);

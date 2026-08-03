@@ -37,12 +37,19 @@ export class RunnerViewProvider implements vscode.WebviewViewProvider {
     view.webview.options = { enableScripts: true, localResourceRoots: [mediaRoot] };
 
     const config = readRunnerConfig();
+    // 资源 URL 带版本参数:扩展升级后 webview 可能命中旧缓存的 css/js(实测复现)
+    const assetVersion = encodeURIComponent(String(Date.now()));
+    const assetUri = (name: string): string =>
+      view.webview
+        .asWebviewUri(vscode.Uri.joinPath(mediaRoot, name))
+        .with({ query: `v=${assetVersion}` })
+        .toString();
     view.webview.html = renderWorkbenchHtml({
       cspSource: view.webview.cspSource,
       nonce: generateNonce(),
-      stylesUri: view.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'runner.css')).toString(),
-      runnerScriptUri: view.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'runner.js')).toString(),
-      alpineScriptUri: view.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'alpine.min.js')).toString(),
+      stylesUri: assetUri('runner.css'),
+      runnerScriptUri: assetUri('runner.js'),
+      alpineScriptUri: assetUri('alpine.min.js'),
       server: config.server,
       protoDir: config.protoDir ?? '',
     });

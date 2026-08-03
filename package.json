@@ -2,7 +2,7 @@
   "name": "proto-utils",
   "displayName": "Proto Utils",
   "description": "Proto3 syntax highlighting, go-to-definition, TypeScript code generation, and gRPC calls from the editor (bottom-panel workbench)",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "publisher": "proto-utils",
   "engines": {
     "vscode": "^1.85.0"

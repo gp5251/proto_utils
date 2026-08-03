@@ -113,4 +113,7 @@ test('交互结构:搜索、刷新按钮、流式徽标、取消按钮、prefill
   assert.ok(html.includes('cancelStream(svc.name, m.name)'));
   assert.ok(html.includes(":id=\"'method-' + svc.name + '-' + m.name\""));
   assert.ok(html.includes('requestStream'), 'client/bidi 方法禁用提示');
+  assert.ok(html.includes('focus-bar'), '聚焦模式顶栏');
+  assert.ok(html.includes('exitFocus()'), '返回列表出口');
+  assert.ok(html.includes('focus-mode'), '聚焦模式 class 绑定');
 });

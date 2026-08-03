@@ -82,6 +82,7 @@
       return;
     }
     if (component.openMethod(pendingPrefill.service, pendingPrefill.method)) {
+      workbenchStore().focusMode = true;
       pendingPrefill = null;
     }
   }
@@ -94,6 +95,8 @@
   document.addEventListener('alpine:init', function () {
     Alpine.store('search', { query: '' });
     Alpine.store('workbench', {
+      // 聚焦模式:true 时只显示当前接口卡片(经 prefill/CodeLens/光标跟随进入)
+      focusMode: false,
       state: Array.isArray(boot.services) ? 'ready' : 'loading',
       services: Array.isArray(boot.services) ? boot.services : [],
       errors: [],
@@ -368,6 +371,10 @@
       },
 
       // prefill 入口:等同于用户手选(展开服务 + 展开方法表单 + 滚动到位)。幂等,只开不合。
+      exitFocus: function () {
+        Alpine.store('workbench').focusMode = false;
+      },
+
       openMethod: function (serviceName, methodName) {
         var services = Alpine.store('workbench').services;
         var svc = null;
