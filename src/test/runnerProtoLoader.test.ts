@@ -6,15 +6,23 @@ import {
   loadProtoDefinitions,
   findProtoFileForService,
 } from '../runner/core/protoLoader';
-import { serializeServicesForClient } from '../runner/serviceRegistry';
+import { serializeServicesForClient, ServiceRegistry } from '../runner/serviceRegistry';
 
 const RUNNER_DIR = path.resolve('testdata/runner');
 const FRONTEND_DIR = path.resolve('testdata/frontend');
 
-test('scanProtoFiles finds protos but skips generated/ and __fixtures__/', () => {
+test('scanProtoFiles finds protos but skips generated/, __fixtures__/ and node_modules/', () => {
   const files = scanProtoFiles(RUNNER_DIR);
   assert.ok(files.some((f) => f.endsWith('dup_a.proto')));
   assert.ok(files.every((f) => !f.includes('__fixtures__')));
+  assert.ok(files.every((f) => !f.includes('node_modules')));
+});
+
+test('registry reports a clear error when protoDir is a file, not a directory', async () => {
+  const registry = new ServiceRegistry();
+  const { services, errors } = await registry.load(path.join(RUNNER_DIR, 'dup_a.proto'));
+  assert.deepEqual(services, []);
+  assert.ok(errors.some((e) => e.includes('不是目录')));
 });
 
 test('loadProtoDefinitions extracts services, methods and ADR-0007 stream flags', () => {

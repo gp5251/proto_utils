@@ -79,7 +79,7 @@ export interface User {
 | 配置项 | 默认值 | 作用 |
 | --- | --- | --- |
 | `protoUtils.runner.server` | `"localhost:50051"` | gRPC 服务器地址(host:port) |
-| `protoUtils.runner.protoDir` | `""` | proto 目录;空 = 工作区根;相对路径相对 workspace folder 解析 |
+| `protoUtils.runner.protoDir` | `""` | proto 目录,**必须指向 .proto 文件所在目录本身**(import 相对它解析,指到父目录会导致跨文件类型解析失败);空 = 工作区根;相对路径相对 workspace folder 解析 |
 
 **从 rpc_runner 迁移**:把 `rpc.config.json` 里的 `server` 与 `protoDir` 两个值抄到上述 VS Code 设置即可。`port` 与 `generatedDir` 已删除(不再有 HTTP 服务与 proto-loader-gen-types 生成)。工作台与 gRPC 依赖(@grpc/grpc-js)采用懒加载,只在首次打开工作台时载入,不影响编辑功能激活速度。
 

@@ -62,10 +62,12 @@ export class ServiceRegistry {
 
     const errors: string[] = [];
     let protoFiles: string[] = [];
-    if (fs.existsSync(protoDir)) {
-      protoFiles = scanProtoFiles(protoDir);
-    } else {
+    if (!fs.existsSync(protoDir)) {
       errors.push(`protoDir not found: ${protoDir}`);
+    } else if (!fs.statSync(protoDir).isDirectory()) {
+      errors.push(`protoDir 不是目录: ${protoDir}`);
+    } else {
+      protoFiles = scanProtoFiles(protoDir);
     }
 
     const result = loadProtoDefinitions(protoFiles, protoDir);

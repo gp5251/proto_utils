@@ -2,7 +2,7 @@
   "name": "proto-utils",
   "displayName": "Proto Utils",
   "description": "Proto3 syntax highlighting, go-to-definition, and TypeScript code generation",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "proto-utils",
   "engines": {
     "vscode": "^1.85.0"
@@ -79,7 +79,7 @@
         "protoUtils.runner.protoDir": {
           "type": "string",
           "default": "",
-          "description": "Proto directory for RPC Runner; empty = workspace root; relative paths resolve against the workspace folder"
+          "description": "Proto 目录,必须指向 .proto 文件所在目录本身(import 相对它解析;指到父目录会导致跨文件类型解析失败)。空 = 工作区根;相对路径相对 workspace folder 解析"
         },
         "protoUtils.codeGen.outputDir": {
           "type": "string",
