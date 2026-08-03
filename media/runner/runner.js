@@ -12,10 +12,10 @@
 
   // webview postMessage 走结构化克隆:Alpine 的响应式数据是 Proxy,直接发会
   // DataCloneError(调用卡死在发送中的根因)。所有出站消息一律先深克隆为纯对象。
-  var rawPostMessage = vscode.postMessage.bind(vscode);
-  vscode.postMessage = function (message) {
-    rawPostMessage(JSON.parse(JSON.stringify(message)));
-  };
+  // 注意不能覆写 vscode.postMessage —— acquireVsCodeApi 返回的对象是只读的。
+  function sendMessage(message) {
+    vscode.postMessage(JSON.parse(JSON.stringify(message)));
+  }
 
   // homePage 组件实例(alpine:init 后可用)与待应用的 prefill。
   // prefill 可能先于 services 到达(CodeLens 入口),先存起来,services 到达后应用。
@@ -88,7 +88,7 @@
 
   // 顶栏「刷新」按钮(x-data 作用域外的全局入口)
   window.postRefresh = function () {
-    vscode.postMessage({ type: 'refresh' });
+    sendMessage({ type: 'refresh' });
   };
 
   document.addEventListener('alpine:init', function () {
@@ -124,7 +124,7 @@
           var q = store.query;
           if (self.query !== q) self.query = q;
         });
-        vscode.postMessage({ type: 'ready' });
+        sendMessage({ type: 'ready' });
       },
 
       methodKey: function (svcName, methodName) {
@@ -448,7 +448,7 @@
         var key = this.methodKey(svcName, methodName);
         this.setLoading(key, true);
         this.setCopied(key, false);
-        vscode.postMessage({
+        sendMessage({
           type: 'call',
           service: svcName,
           method: methodName,
@@ -463,7 +463,7 @@
         this.streams = Object.assign({}, this.streams, {
           [key]: { chunks: [], done: false, cancelled: false, durationMs: 0 },
         });
-        vscode.postMessage({
+        sendMessage({
           type: 'callStream',
           service: svcName,
           method: methodName,
@@ -479,7 +479,7 @@
             [key]: Object.assign({}, stream, { cancelled: true }),
           });
         }
-        vscode.postMessage({ type: 'cancelStream', service: svcName, method: methodName });
+        sendMessage({ type: 'cancelStream', service: svcName, method: methodName });
       },
 
       applyCallResult: function (payload) {
