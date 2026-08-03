@@ -1,8 +1,8 @@
 {
   "name": "proto-utils",
   "displayName": "Proto Utils",
-  "description": "Proto3 syntax highlighting, go-to-definition, and TypeScript code generation",
-  "version": "0.2.6",
+  "description": "Proto3 syntax highlighting, go-to-definition, TypeScript code generation, and gRPC calls from the editor (bottom-panel workbench)",
+  "version": "0.3.0",
   "publisher": "proto-utils",
   "engines": {
     "vscode": "^1.85.0"
@@ -13,7 +13,8 @@
   "icon": "media/icon.png",
   "activationEvents": [
     "onLanguage:proto3",
-    "onCommand:protoUtils.openRpcRunner"
+    "onCommand:protoUtils.openRpcRunner",
+    "onView:protoUtils.runnerView"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -133,6 +134,23 @@
           "description": "Generate oneof as simple optional fields or discriminated union"
         }
       }
+    },
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "protoUtils-runner",
+          "title": "RPC 工作台",
+          "icon": "media/icon.png"
+        }
+      ]
+    },
+    "views": {
+      "protoUtils-runner": [
+        {
+          "id": "protoUtils.runnerView",
+          "name": "RPC 调用"
+        }
+      ]
     }
   },
   "scripts": {

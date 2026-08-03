@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
 import { ProtoDefinitionProvider } from './providers/definition';
 import { ProtoSemanticTokensProvider, SEMANTIC_LEGEND } from './providers/semanticTokens';
-import { ProtoCallLensProvider } from './providers/callLens';
+import { ProtoCallLensProvider, methodAtLine } from './providers/callLens';
 import { SymbolIndex } from './index/symbolIndex';
 import { ProtoFrontend, ProtoLoadError } from './runtime/protoFrontend';
 import { registerCodeGenCommand } from './codegen/command';
-import type { WorkbenchPanelManager } from './runner/webviewPanel';
+import { RunnerViewProvider, RUNNER_VIEW_ID, readRunnerConfig } from './runner/runnerView';
+import type { WorkbenchSession } from './runner/workbenchSession';
 
 const PROTO_SELECTOR: vscode.DocumentSelector = { language: 'proto3', scheme: 'file' };
 
@@ -25,12 +26,47 @@ export async function activate(context: vscode.ExtensionContext) {
 
   registerCodeGenCommand(context, frontend);
 
-  // ---- 调用面(懒加载:grpc-js/proto-loader 只在首次打开工作台时载入) ----
-  const workbench = new LazyWorkbench(context);
+  // ---- 调用面:底部面板工作台(会话工厂首次使用时才懒加载 grpc 依赖) ----
+  const provider = new RunnerViewProvider(context.extensionUri, async () => {
+    const runner = await loadRunnerBundle();
+    const registry = new runner.ServiceRegistry();
+    const config = readRunnerConfig();
+    return new runner.WorkbenchSession({
+      registry,
+      runner: new runner.GrpcCallRunner(config.server, config.protoDir ?? '', registry),
+      getConfig: () => {
+        const c = readRunnerConfig();
+        return { server: c.server, protoDir: c.protoDir ?? '' };
+      },
+    });
+  });
+
   context.subscriptions.push(
-    vscode.commands.registerCommand('protoUtils.openRpcRunner', () => void workbench.reveal()),
+    vscode.window.registerWebviewViewProvider(RUNNER_VIEW_ID, provider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
+    vscode.commands.registerCommand('protoUtils.openRpcRunner', () => {
+      void vscode.commands.executeCommand(`${RUNNER_VIEW_ID}.focus`);
+    }),
     vscode.commands.registerCommand('protoUtils.callMethod', (args: { service: string; method: string }) => {
-      void workbench.reveal({ service: args.service, method: args.method });
+      void provider.showCallTarget(args);
+    }),
+  );
+
+  // 光标跟随「当前接口」:视图可见时,光标停在 rpc 方法行即切换表单(去抖)
+  let followTimer: ReturnType<typeof setTimeout> | undefined;
+  context.subscriptions.push({ dispose: () => clearTimeout(followTimer) });
+  context.subscriptions.push(
+    vscode.window.onDidChangeTextEditorSelection((e) => {
+      if (e.textEditor.document.languageId !== 'proto3') return;
+      clearTimeout(followTimer);
+      followTimer = setTimeout(() => {
+        index.updateFromDocument(e.textEditor.document);
+        const entry = index.getFile(e.textEditor.document.uri);
+        if (!entry) return;
+        const target = methodAtLine(entry, e.selections[0].active.line);
+        if (target) provider.followCallTarget({ service: target.serviceFullName, method: target.method });
+      }, CURSOR_FOLLOW_DEBOUNCE_MS);
     }),
   );
 
@@ -38,7 +74,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const watcher = vscode.workspace.createFileSystemWatcher('**/*.proto');
   const onProtoChanged = (): void => {
     frontend.invalidate();
-    void workbench.reload();
+    void provider.reload();
   };
   watcher.onDidCreate(onProtoChanged);
   watcher.onDidChange(onProtoChanged);
@@ -75,41 +111,14 @@ function reportLoadError(diagnostics: vscode.DiagnosticCollection, err: unknown)
   diagnostics.set(vscode.Uri.file(err.file), [diagnostic]);
 }
 
-/** 工作台单例的懒加载包装:首次使用时才 import ./runner/index,拖入 grpc 依赖 */
-class LazyWorkbench {
-  private managerPromise: Promise<WorkbenchPanelManager> | null = null;
-
-  constructor(private readonly context: vscode.ExtensionContext) {}
-
-  async reveal(prefill?: { service: string; method: string }): Promise<void> {
-    const manager = await this.getManager();
-    manager.reveal(prefill);
-  }
-
-  async reload(): Promise<void> {
-    if (this.managerPromise) {
-      const manager = await this.managerPromise;
-      await manager.reload();
-    }
-  }
-
-  private async getManager(): Promise<WorkbenchPanelManager> {
-    this.managerPromise ??= (async () => {
-      // 动态 import 是刻意的:静态 import 会让 grpc-js/protobufjs 进入编辑器激活路径
-      // (用户 spec 的懒加载约定);esbuild 对本路径 external,产物 out/runner/index.js 独立加载。
-      // 必须带 .js:CJS 里的动态 import 走 ESM 解析器,无扩展名解析失败。
-      const runner = await import('./runner/index.js');
-      const registry = new runner.ServiceRegistry();
-      const config = runner.resolveRunnerConfig();
-      const deps = {
-        registry,
-        runner: new runner.GrpcCallRunner(config.server, config.protoDir, registry),
-        getConfig: () => runner.resolveRunnerConfig(),
-      };
-      return new runner.WorkbenchPanelManager(deps, runner.createVscodePanelFactory(this.context.extensionUri, deps));
-    })();
-    return this.managerPromise;
-  }
+/** 调用面懒加载边界:首次打开工作台时才 import ./runner/index.js,拖入 grpc 依赖(ADR-0008) */
+async function loadRunnerBundle(): Promise<typeof import('./runner/index')> {
+  // 动态 import 是刻意的:静态 import 会让 grpc-js/protobufjs 进入编辑器激活路径。
+  // 必须带 .js:CJS 里的动态 import 走 ESM 解析器,无扩展名解析失败。
+  return import('./runner/index.js');
 }
+
+/** 光标跟随去抖间隔(ms):光标停下才切「当前接口」,避免划过时表单连跳 */
+const CURSOR_FOLLOW_DEBOUNCE_MS = 200;
 
 export function deactivate() {}

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { scanProto } from '../index/scanner';
-import { callableMethods } from '../providers/callLens';
+import { callableMethods, methodAtLine } from '../providers/callLens';
 
 const SOURCE = [
   'syntax = "proto3";',
@@ -40,4 +40,25 @@ test('each target carries the method definition range', () => {
   const targets = callableMethods({ packageName: scanned.packageName, services: scanned.services });
   const subscribe = targets.find((t) => t.method === 'Subscribe');
   assert.equal(subscribe?.range.start.line, 4);
+});
+
+test('methodAtLine: 光标行命中 rpc 方法名所在行时返回调用目标', () => {
+  const scanned = scanProto(SOURCE);
+  const hit = methodAtLine({ packageName: scanned.packageName, services: scanned.services }, 3);
+  assert.deepEqual(hit && { serviceFullName: hit.serviceFullName, method: hit.method }, {
+    serviceFullName: 'a.b.Greeter',
+    method: 'SayHello',
+  });
+});
+
+test('methodAtLine: 未命中(service 外/空白行/方法名外的行)返回 null', () => {
+  const scanned = scanProto(SOURCE);
+  assert.equal(methodAtLine({ packageName: scanned.packageName, services: scanned.services }, 0), null);
+  assert.equal(methodAtLine({ packageName: scanned.packageName, services: scanned.services }, 2), null);
+  assert.equal(methodAtLine({ packageName: scanned.packageName, services: scanned.services }, 6), null);
+});
+
+test('methodAtLine: client-streaming 方法不可调用,不返回', () => {
+  const scanned = scanProto(SOURCE);
+  assert.equal(methodAtLine({ packageName: scanned.packageName, services: scanned.services }, 5), null);
 });

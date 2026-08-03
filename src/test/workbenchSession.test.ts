@@ -4,8 +4,7 @@ import {
   WorkbenchSession,
   WorkbenchHost,
   WorkbenchToWebview,
-  WorkbenchPanelManager,
-} from '../runner/webviewPanel';
+} from '../runner/workbenchSession';
 import { CallRunner, CallResultPayload } from '../runner/callHandler';
 import { ServicesPayload } from '../runner/serviceRegistry';
 import { StreamHandlers } from '../runner/core/types';
@@ -205,6 +204,27 @@ test('prefill 在 ready 前排队,services 送达后按序冲出;就绪后直发
   assert.deepEqual(last, { type: 'prefill', service: 'c.Greeter', method: 'SayHello' });
 });
 
+test('watcher reload 期间到达的 prefill 在加载完成后冲出,不滞留', async () => {
+  const { host, posted, emit } = makeHost();
+  const session = new WorkbenchSession(makeDeps().deps);
+  session.attach(host);
+
+  emit({ type: 'ready' });
+  await nextTick();
+  posted.length = 0;
+
+  // reload 与 prefill 竞速:prefill 先于 services 到达时进入队列
+  const reloadPromise = session.reload();
+  session.prefill('c.Greeter', 'Subscribe');
+  await reloadPromise;
+  await nextTick();
+
+  assert.deepEqual(
+    posted.map((m) => m.type),
+    ['loading', 'services', 'prefill'],
+  );
+});
+
 test('refresh → invalidate 后重载并推 services', async () => {
   const { host, posted, emit } = makeHost();
   const { deps, state } = makeDeps();
@@ -218,30 +238,3 @@ test('refresh → invalidate 后重载并推 services', async () => {
   );
 });
 
-test('面板单例:两次 reveal 只建一次,销毁后重建', () => {
-  let created = 0;
-  let revealed = 0;
-  const disposers: Array<() => void> = [];
-  const { deps } = makeDeps();
-  const manager = new WorkbenchPanelManager(deps, () => {
-    created++;
-    const { host, dispose } = makeHost();
-    disposers.push(dispose);
-    return { host, reveal: () => revealed++ };
-  });
-
-  manager.reveal();
-  manager.reveal();
-  assert.equal(created, 1);
-  // 每次 manager.reveal 都聚焦现有面板
-  assert.equal(revealed, 2);
-
-  // 面板销毁后下次 reveal 重建
-  disposers[0]();
-  manager.reveal();
-  assert.equal(created, 2);
-
-  // prefill 委托给当前会话
-  manager.reveal({ service: 'c.Greeter', method: 'SayHello' });
-  assert.ok(manager.currentSession);
-});

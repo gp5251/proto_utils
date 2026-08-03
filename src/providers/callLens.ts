@@ -27,6 +27,14 @@ export function callableMethods(entry: { packageName: string | null; services: S
   return targets;
 }
 
+/** 光标在某行时该行的可调用方法(rpc 名所在行精确匹配;client-streaming 不可调用) */
+export function methodAtLine(
+  entry: { packageName: string | null; services: ServicePoint[] },
+  line: number,
+): CallTarget | null {
+  return callableMethods(entry).find((t) => t.range.start.line === line) ?? null;
+}
+
 export class ProtoCallLensProvider implements vscode.CodeLensProvider {
   constructor(private readonly index: SymbolIndex) {}
 

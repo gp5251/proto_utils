@@ -67,7 +67,7 @@ export interface User {
 
 ### 调用 RPC(RPC 工作台)
 
-在 `.proto` 文件中,每个一元或服务端流的 rpc 方法上方都会出现「▶ 调用」CodeLens。点击后 RPC 工作台打开并预选该方法;也可以通过命令面板运行 **Proto Utils: Open RPC Runner**,或右键 `.proto` 编辑器选择同名命令,手动选择服务和方法。
+在 `.proto` 文件中,每个一元或服务端流的 rpc 方法上方都会出现「▶ 调用」CodeLens。点击后底部面板的 RPC 工作台自动滑出并预选该方法;光标停在某个 rpc 方法行上时,工作台会跟随切换为当前接口的表单。也可以通过命令面板运行 **Proto Utils: Open RPC Runner**,或右键 `.proto` 编辑器选择同名命令,手动浏览服务和方法。
 
 - 表单按请求消息的字段 schema 自动生成,嵌套 message 以 JSON 编辑。
 - 一元调用在响应区展示结果;服务端流调用逐条追加响应,可随时取消。
@@ -83,7 +83,7 @@ export interface User {
 
 **从 rpc_runner 迁移**:把 `rpc.config.json` 里的 `server` 与 `protoDir` 两个值抄到上述 VS Code 设置即可。`port` 与 `generatedDir` 已删除(不再有 HTTP 服务与 proto-loader-gen-types 生成)。工作台与 gRPC 依赖(@grpc/grpc-js)采用懒加载,只在首次打开工作台时载入,不影响编辑功能激活速度。
 
-修改 `protoUtils.runner.*` 设置后,已打开的工作台会在下次重开时使用新配置。
+修改 `protoUtils.runner.*` 设置后,下次加载(proto 变更触发的刷新或手动刷新)即生效;运行中的 gRPC 调用不受影响。
 
 ## 配置
 

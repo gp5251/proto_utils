@@ -10,6 +10,10 @@ export interface StubUri {
 
 export const Uri = {
   file: (fsPath: string): StubUri => ({ fsPath, scheme: 'file', path: fsPath }),
+  joinPath: (base: StubUri, ...parts: string[]): StubUri => {
+    const joined = [base.fsPath, ...parts].join('/');
+    return { fsPath: joined, scheme: 'file', path: joined };
+  },
 };
 
 let corpusRoot = '';
@@ -33,7 +37,17 @@ function walk(dir: string, out: string[]): void {
   }
 }
 
+export const commands = {
+  log: [] as string[],
+  executeCommand: async (id: string): Promise<void> => {
+    commands.log.push(id);
+  },
+};
+
 export const workspace = {
+  getConfiguration: () => ({
+    get: () => undefined,
+  }),
   findFiles: async () => {
     const files: string[] = [];
     walk(activeRoot(), files);

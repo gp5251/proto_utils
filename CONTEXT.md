@@ -25,9 +25,9 @@ _Avoid_: parser、自研解析器(已随 ADR-0002 退役)
 _Avoid_: 解析器、AST、符号索引(旧 symbolIndex 的接替者,但不是同一物)
 
 **工作台(Workbench)**:
-发起和管理 RPC 调用的 Webview 面板:填参表单、发起调用、查看响应(含服务端流的流式追加)。由编辑器里 rpc 方法上方的「▶ 调用」CodeLens 唤起并预选方法,也可独立命令打开。代码在 `src/runner/`。
-_Avoid_: 面板、页面、EJS 页面(旧实现,已废弃)
+发起和管理 RPC 调用的交互界面:填参表单、发起调用、查看响应(含服务端流的流式追加)。宿主是底部面板的 WebviewView(`protoUtils.runnerView`),由编辑器里 rpc 方法上方的「▶ 调用」CodeLens 唤起并预选方法,光标停在 rpc 行时跟随切换,也可独立命令聚焦。代码在 `src/runner/`。
+_Avoid_: tab 页、独立面板(tab 版 WebviewPanel,已拆除)、EJS 页面(旧实现,已废弃)
 
 **调用面(Call Plane)**:
-`src/runner/` 下从 schema 提取到发 RPC 的整条链路:ServiceRegistry(服务/字段提取)→ CallRunner(表单值→请求对象→调用)→ GrpcClient(grpc-js 通讯,一元 + 服务端流)。与编辑面(位置索引层、emitter)并列,共享语义前端。
+`src/runner/` 下从 schema 提取到发 RPC 的整条链路:ServiceRegistry(服务/字段提取)→ CallRunner(表单值→请求对象→调用)→ GrpcClient(grpc-js 通讯,一元 + 服务端流)。与编辑面(位置索引层、emitter)并列,共享语义前端。例外:`runnerView.ts`/`webviewHtml.ts`/`config.ts` 是无 grpc 依赖的宿主胶水,静态打进编辑器 bundle(ADR-0008 的双 bundle 边界指运行依赖,不指目录归属)。
 _Avoid_: runner 服务、后端
