@@ -11,11 +11,13 @@ import { serializeServicesForClient, ServiceRegistry } from '../runner/serviceRe
 const RUNNER_DIR = path.resolve('testdata/runner');
 const FRONTEND_DIR = path.resolve('testdata/frontend');
 
-test('scanProtoFiles finds protos but skips generated/, __fixtures__/ and node_modules/', () => {
+test('scanProtoFiles finds protos but skips dot dirs, generated/, __fixtures__/ and node_modules/', () => {
   const files = scanProtoFiles(RUNNER_DIR);
   assert.ok(files.some((f) => f.endsWith('dup_a.proto')));
   assert.ok(files.every((f) => !f.includes('__fixtures__')));
   assert.ok(files.every((f) => !f.includes('node_modules')));
+  // .hidden/ghost.proto 存在于 fixture 里,必须被点目录规则排除
+  assert.ok(files.every((f) => !f.endsWith('ghost.proto')));
 });
 
 test('registry reports a clear error when protoDir is a file, not a directory', async () => {

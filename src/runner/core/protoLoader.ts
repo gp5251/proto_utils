@@ -24,9 +24,10 @@ function walkDir(dir: string, results: string[]): void {
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      // generated/__fixtures__ 是历史约定;node_modules 必须排除——protoDir 默认是工作区根,
-      // 扫进去会把依赖内部的 .proto(grpc-js/protobufjs 自带)当业务文件,报出一堆无关加载错误
-      if (entry.name === 'generated' || entry.name === '__fixtures__' || entry.name === 'node_modules') continue;
+      // generated/__fixtures__ 是历史约定;node_modules 与 .git 等点目录必须排除——
+      // protoDir 默认是工作区根,爬进 .git(几十万文件)会冻结扩展宿主,
+      // 扫进 node_modules 会把依赖内部的 .proto 当业务文件报出一堆无关加载错误
+      if (entry.name.startsWith('.') || entry.name === 'generated' || entry.name === '__fixtures__' || entry.name === 'node_modules') continue;
       walkDir(fullPath, results);
     } else if (entry.name.endsWith('.proto')) {
       results.push(fullPath);
