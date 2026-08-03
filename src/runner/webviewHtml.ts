@@ -135,9 +135,9 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                         <div>
                           <div
                             class="method-field-row"
-                            :class="{ 'method-field-row-expandable': row.children?.length || row.enumValues?.length }"
+                            :class="{ 'method-field-row-expandable': (row.children && row.children.length) || (row.enumValues && row.enumValues.length) }"
                             :style="'padding-left:' + (row.depth * 14 + 8) + 'px'"
-                            @click.stop="row.children?.length || row.enumValues?.length ? toggleRow(row.path) : null"
+                            @click.stop="(row.children && row.children.length) || (row.enumValues && row.enumValues.length) ? toggleRow(row.path) : null"
                           >
                             <span class="method-field-name" x-text="row.name"></span>
                             <span class="method-field-meta">
@@ -145,7 +145,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                               <span x-show="row.optional" class="field-optional-badge">可选</span>
                               <span x-show="row.comment" class="field-comment" x-text="row.comment"></span>
                               <span
-                                x-show="row.children?.length || row.enumValues?.length"
+                                x-show="(row.children && row.children.length) || (row.enumValues && row.enumValues.length)"
                                 class="collapse-icon"
                                 x-text="isRowOpen(row.path) ? '▼' : '▶'"
                               ></span>
@@ -189,33 +189,33 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                             <span x-show="row.field.required" class="field-required-badge">必填</span>
                             <span x-show="row.field.comment" class="field-comment" x-text="row.field.comment"></span>
                             <span
-                              x-show="row.field.nestedFields?.length || row.field.enumValues?.length"
+                              x-show="(row.field.nestedFields && row.field.nestedFields.length) || (row.field.enumValues && row.field.enumValues.length)"
                               class="collapse-icon"
                               @click.stop="toggleRow(row.path)"
                               x-text="isRowOpen(row.path) ? '▼' : '▶'"
                             ></span>
                           </label>
                           <div
-                            x-show="isRowOpen(row.path) && (row.field.nestedFields?.length || row.field.enumValues?.length)"
+                            x-show="isRowOpen(row.path) && ((row.field.nestedFields && row.field.nestedFields.length) || (row.field.enumValues && row.field.enumValues.length))"
                             class="method-schema-block"
                             :style="'margin-bottom: 10px; padding-left:' + (row.depth * 14 + 24) + 'px'"
                           >
                             <div
-                              x-show="row.field.protoType === 'TYPE_ENUM' && row.field.enumValues?.length"
+                              x-show="row.field.protoType === 'TYPE_ENUM' && (row.field.enumValues && row.field.enumValues.length)"
                               class="enum-values-list"
                             >
                               <template x-for="ev in row.field.enumValues" :key="ev.name">
                                 <div class="enum-value-item" x-text="enumOptionLabel(ev, row.field.enumValues)"></div>
                               </template>
                             </div>
-                            <div x-show="row.field.protoType === 'TYPE_MESSAGE' && row.field.nestedFields?.length">
+                            <div x-show="row.field.protoType === 'TYPE_MESSAGE' && (row.field.nestedFields && row.field.nestedFields.length)">
                               <template x-for="(sRow, sIdx) in visibleSchemaRows(fieldSchemaRows(row.field))" :key="m.name + '-reqs-' + sIdx">
                                 <div>
                                   <div
                                     class="method-field-row"
-                                    :class="{ 'method-field-row-expandable': sRow.children?.length || sRow.enumValues?.length }"
+                                    :class="{ 'method-field-row-expandable': (sRow.children && sRow.children.length) || (sRow.enumValues && sRow.enumValues.length) }"
                                     :style="'padding-left:' + (sRow.depth * 14 + 8) + 'px'"
-                                    @click.stop="sRow.children?.length || sRow.enumValues?.length ? toggleRow(sRow.path) : null"
+                                    @click.stop="(sRow.children && sRow.children.length) || (sRow.enumValues && sRow.enumValues.length) ? toggleRow(sRow.path) : null"
                                   >
                                     <span class="method-field-name" x-text="sRow.name"></span>
                                     <span class="method-field-meta">
@@ -223,7 +223,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                                       <span x-show="sRow.optional" class="field-optional-badge">可选</span>
                                       <span x-show="sRow.comment" class="field-comment" x-text="sRow.comment"></span>
                                       <span
-                                        x-show="sRow.children?.length || sRow.enumValues?.length"
+                                        x-show="(sRow.children && sRow.children.length) || (sRow.enumValues && sRow.enumValues.length)"
                                         class="collapse-icon"
                                         x-text="isRowOpen(sRow.path) ? '▼' : '▶'"
                                       ></span>
@@ -316,14 +316,14 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                       <div class="result-header">
                         <div class="result-meta">
                           <span
-                            x-show="getResult(svc.name, m.name)?.result?.status === 'ok'"
+                            x-show="resultStatusIs(svc.name, m.name, 'ok')"
                             class="result-ok"
                           >成功</span>
                           <span
-                            x-show="getResult(svc.name, m.name)?.result?.status !== 'ok'"
+                            x-show="resultStatusIsNot(svc.name, m.name, 'ok')"
                             class="result-err"
                           >失败</span>
-                          <span class="result-time" x-text="(getResult(svc.name, m.name)?.result?.durationMs ?? 0) + 'ms'"></span>
+                          <span class="result-time" x-text="resultDurationText(svc.name, m.name)"></span>
                         </div>
                         <button
                           type="button"
@@ -332,7 +332,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                           x-text="isCopied(svc.name, m.name) ? '已复制' : '复制'"
                         ></button>
                       </div>
-                      <pre class="result-body" x-text="getResult(svc.name, m.name)?.resultBody ?? ''"></pre>
+                      <pre class="result-body" x-text="resultBodyText(svc.name, m.name)"></pre>
                     </div>
                   </template>
 
@@ -343,24 +343,24 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                     >
                       <div class="result-header">
                         <div class="result-meta">
-                          <template x-if="getResult(svc.name, m.name)?.result?.status === 'error'">
+                          <template x-if="resultStatusIs(svc.name, m.name, 'error')">
                             <span class="result-err">失败</span>
                           </template>
-                          <template x-if="getResult(svc.name, m.name)?.result?.status !== 'error'">
+                          <template x-if="resultStatusIsNot(svc.name, m.name, 'error')">
                             <span>
-                              <span x-show="getStream(svc.name, m.name) && !getStream(svc.name, m.name)?.done" class="result-ok"><span class="stream-live-dot"></span> 接收中…</span>
-                              <span x-show="getStream(svc.name, m.name)?.done && getStream(svc.name, m.name)?.cancelled" class="result-err">已取消</span>
-                              <span x-show="getStream(svc.name, m.name)?.done && !getStream(svc.name, m.name)?.cancelled" class="result-ok">完成</span>
+                              <span x-show="streamIsLive(svc.name, m.name)" class="result-ok"><span class="stream-live-dot"></span> 接收中…</span>
+                              <span x-show="streamIsCancelled(svc.name, m.name)" class="result-err">已取消</span>
+                              <span x-show="streamIsDone(svc.name, m.name) && !streamIsCancelled(svc.name, m.name)" class="result-ok">完成</span>
                             </span>
                           </template>
-                          <span x-show="getStream(svc.name, m.name)?.done" class="result-time" x-text="(getStream(svc.name, m.name)?.durationMs ?? 0) + 'ms'"></span>
-                          <span x-show="getStream(svc.name, m.name)" class="result-time" x-text="(getStream(svc.name, m.name)?.chunks.length ?? 0) + ' 条消息'"></span>
+                          <span x-show="streamIsDone(svc.name, m.name)" class="result-time" x-text="streamDurationText(svc.name, m.name)"></span>
+                          <span x-show="getStream(svc.name, m.name)" class="result-time" x-text="streamChunkCountText(svc.name, m.name)"></span>
                         </div>
                         <div class="result-actions">
                           <button
                             type="button"
                             class="btn btn-secondary"
-                            x-show="getStream(svc.name, m.name) && !getStream(svc.name, m.name)?.done"
+                            x-show="streamIsLive(svc.name, m.name)"
                             @click="cancelStream(svc.name, m.name)"
                           >取消</button>
                           <button

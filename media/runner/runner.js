@@ -10,6 +10,13 @@
   var vscode = acquireVsCodeApi();
   var boot = window.__PROTO_UTILS_BOOT__ || {};
 
+  // webview postMessage 走结构化克隆:Alpine 的响应式数据是 Proxy,直接发会
+  // DataCloneError(调用卡死在发送中的根因)。所有出站消息一律先深克隆为纯对象。
+  var rawPostMessage = vscode.postMessage.bind(vscode);
+  vscode.postMessage = function (message) {
+    rawPostMessage(JSON.parse(JSON.stringify(message)));
+  };
+
   // homePage 组件实例(alpine:init 后可用)与待应用的 prefill。
   // prefill 可能先于 services 到达(CodeLens 入口),先存起来,services 到达后应用。
   var component = null;
@@ -138,6 +145,53 @@
 
       getStream: function (svcName, methodName) {
         return this.streams[this.methodKey(svcName, methodName)] ?? null;
+      },
+
+      // ---- @alpinejs/csp 表达式解析器不支持 ?. / ??,结果区取值收敛到这里(纯 JS,随便写) ----
+
+      resultStatusIs: function (svcName, methodName, status) {
+        var r = this.getResult(svcName, methodName);
+        return Boolean(r && r.result && r.result.status === status);
+      },
+
+      resultStatusIsNot: function (svcName, methodName, status) {
+        var r = this.getResult(svcName, methodName);
+        return !(r && r.result && r.result.status === status);
+      },
+
+      resultDurationText: function (svcName, methodName) {
+        var r = this.getResult(svcName, methodName);
+        return ((r && r.result && r.result.durationMs) || 0) + 'ms';
+      },
+
+      resultBodyText: function (svcName, methodName) {
+        var r = this.getResult(svcName, methodName);
+        return (r && r.resultBody) || '';
+      },
+
+      streamIsLive: function (svcName, methodName) {
+        var s = this.getStream(svcName, methodName);
+        return Boolean(s && !s.done);
+      },
+
+      streamIsDone: function (svcName, methodName) {
+        var s = this.getStream(svcName, methodName);
+        return Boolean(s && s.done);
+      },
+
+      streamIsCancelled: function (svcName, methodName) {
+        var s = this.getStream(svcName, methodName);
+        return Boolean(s && s.done && s.cancelled);
+      },
+
+      streamDurationText: function (svcName, methodName) {
+        var s = this.getStream(svcName, methodName);
+        return ((s && s.durationMs) || 0) + 'ms';
+      },
+
+      streamChunkCountText: function (svcName, methodName) {
+        var s = this.getStream(svcName, methodName);
+        return ((s && s.chunks && s.chunks.length) || 0) + ' 条消息';
       },
 
       setLoading: function (key, value) {
