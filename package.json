@@ -2,7 +2,7 @@
   "name": "proto-utils",
   "displayName": "Proto Utils",
   "description": "Proto3 syntax highlighting, go-to-definition, and TypeScript code generation",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "publisher": "proto-utils",
   "engines": {
     "vscode": "^1.85.0"

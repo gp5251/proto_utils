@@ -89,6 +89,41 @@ test('follows imports into GBK-encoded files', () => {
   assert.equal(schema.declarations.get('Dep'), path.join(dir, 'dep.proto'));
 });
 
+test('resolves bare imports relative to the importing file directory', () => {
+  // 深层布局:proto 不在 includeDirs 根,同目录裸 import(autoshop_vscode 现场)
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proto-frontend-nested-'));
+  const sub = path.join(dir, 'src', 'vs', 'common');
+  fs.mkdirSync(sub, { recursive: true });
+  fs.writeFileSync(path.join(sub, 'b.proto'), 'syntax = "proto3"; message B { string id = 1; }\n');
+  fs.writeFileSync(
+    path.join(sub, 'a.proto'),
+    'syntax = "proto3";\nimport "b.proto";\nmessage A { B b = 1; }\n',
+  );
+
+  const schema = makeFrontend(dir).load();
+  assert.equal(schema.root.lookupType('A').fields.b.resolvedType?.fullName, '.B');
+  assert.equal(schema.declarations.get('B'), path.join(sub, 'b.proto'));
+});
+
+test('includeDirs 优先于导入文件目录(protoc -I 语义不变)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proto-frontend-priority-'));
+  const sub = path.join(dir, 'sub');
+  const hidden = path.join(sub, '.hidden');
+  fs.mkdirSync(hidden, { recursive: true });
+  // 根目录 b.proto 在扫描集内;.hidden/b.proto 不在(scan 跳过点目录)。
+  // import "b.proto" 必须先命中 includeDirs 根——若退回 origin 优先,
+  // 要么 declarations 指向 .hidden,要么与扫描到的根文件撞 duplicate。
+  fs.writeFileSync(path.join(dir, 'b.proto'), 'syntax = "proto3"; package p; message B { string root = 1; }\n');
+  fs.writeFileSync(path.join(hidden, 'b.proto'), 'syntax = "proto3"; package p; message B { string hidden = 1; }\n');
+  fs.writeFileSync(
+    path.join(sub, 'a.proto'),
+    'syntax = "proto3";\npackage p;\nimport "b.proto";\nmessage A { B b = 1; }\n',
+  );
+
+  const schema = makeFrontend(dir).load();
+  assert.equal(schema.declarations.get('p.B'), path.join(dir, 'b.proto'));
+});
+
 test('memoizes the error; a fixed file only loads after invalidate()', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proto-frontend-'));
   const file = path.join(dir, 'flip.proto');

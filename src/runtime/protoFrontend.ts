@@ -126,9 +126,9 @@ export class ProtoFrontend {
    * 语义对齐 protobufjs src/root.js 的 process/fetch:google 内建类型优先于路径解析、
    * 按解析后路径去重、weak import 读取失败静默跳过(resolveImport 找不到则照常抛错)。
    */
-  private loadInto(root: protobuf.Root, target: string, weak: boolean, loaded: Set<string>): void {
+  private loadInto(root: protobuf.Root, target: string, weak: boolean, loaded: Set<string>, origin?: string): void {
     const bundled = bundledGoogleJson(target);
-    const key = bundled ? target.slice(target.indexOf(GOOGLE_PROTO_PREFIX)) : this.resolveImport(target);
+    const key = bundled ? target.slice(target.indexOf(GOOGLE_PROTO_PREFIX)) : this.resolveImport(target, origin);
     if (loaded.has(key)) return;
     loaded.add(key);
 
@@ -147,18 +147,26 @@ export class ProtoFrontend {
     }
 
     const parsed = parsePreservingFilename(content, root, key);
-    for (const imp of parsed.imports ?? []) this.loadInto(root, imp, false, loaded);
-    for (const weakImp of parsed.weakImports ?? []) this.loadInto(root, weakImp, true, loaded);
+    for (const imp of parsed.imports ?? []) this.loadInto(root, imp, false, loaded, key);
+    for (const weakImp of parsed.weakImports ?? []) this.loadInto(root, weakImp, true, loaded, key);
   }
 
-  /** protoc 语义:import 只相对 includeDirs 解析(绝对路径原样放行)。 */
-  private resolveImport(target: string): string {
+  /**
+   * import 解析:includeDirs(protoc -I 语义)优先,找不到则退回导入文件所在目录
+   * (protobufjs 默认 resolvePath 语义)——深层布局里同目录裸 import 很常见,
+   * 如 src/vs/platform/autoshop/common 里写 import "var_table.proto"。
+   */
+  private resolveImport(target: string, origin?: string): string {
     if (path.isAbsolute(target) && fs.existsSync(target)) return path.normalize(target);
     for (const dir of this.includeDirs) {
       const candidate = path.join(path.resolve(dir), target);
       if (fs.existsSync(candidate)) return candidate;
     }
-    throw new Error(`import not found: ${target}`);
+    if (origin) {
+      const candidate = path.join(path.dirname(origin), target);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    throw new Error(`import not found: ${target}${origin ? `(由 ${path.basename(origin)} 导入)` : ''}`);
   }
 }
 
