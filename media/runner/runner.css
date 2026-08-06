@@ -442,3 +442,33 @@ input[type="checkbox"] {
   color: var(--text-faint);
   flex-shrink: 0;
 }
+
+/* ---- 表单|JSON 双模式编辑器(同步自 rpc_runner 702879a) ---- */
+.editor-tabs { display: flex; gap: 4px; margin-bottom: 10px; }
+.editor-tab {
+  padding: 4px 12px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 0;
+}
+.editor-tab:hover { background: var(--surface-hover); }
+.editor-tab-active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.json-editor {
+  width: 100%;
+  min-height: 180px;
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  box-sizing: border-box;
+  resize: vertical;
+}
+.json-error { color: var(--danger); font-size: 12px; margin-top: 6px; }
+.json-warning { color: #d4a72c; font-size: 12px; margin-top: 6px; }

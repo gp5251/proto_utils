@@ -10,6 +10,8 @@ export interface WorkbenchHtmlOptions {
   stylesUri: string;
   /** media/runner/runner.js 的 asWebviewUri */
   runnerScriptUri: string;
+  /** media/runner/formMapping.js 的 asWebviewUri(ADR-0009:build.mjs 从 src/runner/utils/formMapping.ts 产出) */
+  formMappingScriptUri: string;
   /** media/runner/alpine.min.js 的 asWebviewUri */
   alpineScriptUri: string;
   /** 顶栏显示的 gRPC server 地址 */
@@ -51,6 +53,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
   <link rel="stylesheet" href="${options.stylesUri}">
   <title>RPC 工作台</title>
   <script nonce="${options.nonce}">window.__PROTO_UTILS_BOOT__ = ${escapeInlineJson(boot)};</script>
+  <script nonce="${options.nonce}" src="${options.formMappingScriptUri}"></script>
   <script nonce="${options.nonce}" src="${options.runnerScriptUri}"></script>
   <script nonce="${options.nonce}" defer src="${options.alpineScriptUri}"></script>
 </head>
@@ -164,7 +167,22 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                       </template>
                     </div>
                   </div>
-                  <form class="form-section" @submit.prevent="submitCall(svc.name, m.name, m)">
+                  <form class="form-section" @submit.prevent="sendFromEditor(svc.name, m.name, m)">
+                    <div class="editor-tabs" x-show="m.requestFields.length > 0">
+                      <button
+                        type="button"
+                        class="editor-tab"
+                        :class="{ 'editor-tab-active': getEditorMode(methodKey(svc.name, m.name)) === 'form' }"
+                        @click="setEditorMode(methodKey(svc.name, m.name), 'form', m)"
+                      >表单</button>
+                      <button
+                        type="button"
+                        class="editor-tab"
+                        :class="{ 'editor-tab-active': getEditorMode(methodKey(svc.name, m.name)) === 'json' }"
+                        @click="setEditorMode(methodKey(svc.name, m.name), 'json', m)"
+                      >JSON</button>
+                    </div>
+                    <div x-show="showFormPane(methodKey(svc.name, m.name), m)">
                     <template x-for="(row, reqIdx) in flattenFormFields(m.requestFields)" :key="m.name + '-req-' + reqIdx">
                       <div>
                         <div
@@ -293,13 +311,34 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                         </div>
                       </div>
                     </template>
+                    </div>
+                    <div x-show="m.requestFields.length === 0" class="method-fields-empty">（无参数）</div>
+                    <div x-show="showJsonPane(methodKey(svc.name, m.name), m)">
+                      <textarea
+                        class="json-editor"
+                        spellcheck="false"
+                        placeholder='{ "fileId": 1 }'
+                        :value="getJsonText(methodKey(svc.name, m.name))"
+                        @input="onJsonInput(methodKey(svc.name, m.name), $event.target.value)"
+                      ></textarea>
+                      <div
+                        x-show="getJsonError(methodKey(svc.name, m.name))"
+                        class="json-error"
+                        x-text="getJsonError(methodKey(svc.name, m.name))"
+                      ></div>
+                    </div>
+                    <div
+                      x-show="hasJsonWarnings(methodKey(svc.name, m.name))"
+                      class="json-warning"
+                      x-text="jsonWarningText(methodKey(svc.name, m.name))"
+                    ></div>
 
                     <div>
                       <button
                         type="button"
                         class="btn"
                         :disabled="isLoading(svc.name, m.name) || m.requestStream"
-                        @click="submitCall(svc.name, m.name, m)"
+                        @click="sendFromEditor(svc.name, m.name, m)"
                       >
                         <span x-show="!isLoading(svc.name, m.name)">发送</span>
                         <span x-show="isLoading(svc.name, m.name)">发送中...</span>

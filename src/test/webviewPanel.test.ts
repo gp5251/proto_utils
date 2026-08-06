@@ -245,3 +245,21 @@ test('面板单例:两次 reveal 只建一次,销毁后重建', () => {
   manager.reveal({ service: 'c.Greeter', method: 'SayHello' });
   assert.ok(manager.currentSession);
 });
+
+test('面板关闭后 reload 仍清缓存,重开不渲染过期服务列表', async () => {
+  const disposers: Array<() => void> = [];
+  const { deps, state } = makeDeps();
+  const manager = new WorkbenchPanelManager(deps, () => {
+    const { host, dispose } = makeHost();
+    disposers.push(dispose);
+    return { host, reveal: () => {} };
+  });
+
+  manager.reveal();
+  disposers[0](); // 关闭面板 → active = null
+  assert.equal(manager.currentSession, null);
+
+  // watcher 在面板关闭期间触发:缓存必须失效,否则重开吃到旧 services
+  await manager.reload();
+  assert.equal(state.invalidated, 1);
+});

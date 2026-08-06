@@ -46,7 +46,7 @@ function buildRequestObject(fields: FieldInfo[], values: Record<string, unknown>
   if (fields.length === 0 && typeof values._raw === 'string') {
     try {
       const parsed: unknown = JSON.parse(values._raw);
-      if (typeof parsed === 'object' && parsed !== null) {
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
         return parsed as Record<string, unknown>;
       }
     } catch {

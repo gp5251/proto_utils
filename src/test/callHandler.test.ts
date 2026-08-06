@@ -83,6 +83,21 @@ test('callUnary: 非法 _raw JSON 回退为空对象', async () => {
   assert.deepEqual(seenRequest, {});
 });
 
+test('callUnary: _raw 顶层数组拒绝,回退为空对象', async () => {
+  let seenRequest: unknown;
+  const transport: GrpcTransport = {
+    call: async (_dir, options) => {
+      seenRequest = options.request;
+      return { status: 'ok', data: {}, durationMs: 1 };
+    },
+    callServerStream: () => {
+      throw new Error('not used');
+    },
+  };
+  await makeRunner(transport).callUnary('NoSuchService', 'Nope', { _raw: '[1,2]' });
+  assert.deepEqual(seenRequest, {});
+});
+
 test('callUnary: 全限定服务名(pkg.Service)同样命中(CodeLens 入口)', async () => {
   let called = false;
   const transport: GrpcTransport = {

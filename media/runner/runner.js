@@ -114,6 +114,10 @@
       loading: {},
       copied: {},
       copiedMethodKey: null,
+      editorMode: {},
+      jsonText: {},
+      jsonError: {},
+      jsonWarnings: {},
 
       init: function () {
         component = this;
@@ -196,6 +200,18 @@
 
       setLoading: function (key, value) {
         this.loading = Object.assign({}, this.loading, { [key]: value });
+      },
+
+      setJsonText: function (key, value) {
+        this.jsonText = Object.assign({}, this.jsonText, { [key]: value });
+      },
+
+      setJsonError: function (key, value) {
+        this.jsonError = Object.assign({}, this.jsonError, { [key]: value });
+      },
+
+      setJsonWarnings: function (key, value) {
+        this.jsonWarnings = Object.assign({}, this.jsonWarnings, { [key]: value });
       },
 
       setResult: function (key, value) {
@@ -322,6 +338,86 @@
         }
         obj[parts[parts.length - 1]] = value;
         this.formValues = Object.assign({}, this.formValues, { [key]: this.formValues[key] });
+      },
+
+      // ---- 表单|JSON 双模式编辑器(同步自 rpc_runner 702879a;映射逻辑在 window.FormMapping) ----
+
+      getEditorMode: function (key) {
+        return this.editorMode[key] || 'form';
+      },
+
+      showFormPane: function (key, method) {
+        return method.requestFields.length > 0 && this.getEditorMode(key) === 'form';
+      },
+
+      showJsonPane: function (key, method) {
+        // 无参方法不显示 JSON 编辑框(也无 Tab),只留发送按钮
+        return method.requestFields.length > 0 && this.getEditorMode(key) === 'json';
+      },
+
+      getJsonText: function (key) {
+        return this.jsonText[key] || '';
+      },
+
+      getJsonError: function (key) {
+        return this.jsonError[key] || '';
+      },
+
+      hasJsonWarnings: function (key) {
+        var w = this.jsonWarnings[key];
+        return !!(w && w.length);
+      },
+
+      jsonWarningText: function (key) {
+        return '已忽略：' + (this.jsonWarnings[key] || []).join(', ');
+      },
+
+      setEditorMode: function (key, mode, method) {
+        if (this.getEditorMode(key) === mode) {
+          return;
+        }
+        if (mode === 'json') {
+          // 切到 JSON:从当前表单生成 JSON 文本(无参方法不显示 Tab,不会进这里)
+          var text = JSON.stringify(window.FormMapping.formValuesToJson(method.requestFields, this.formValues[key] || {}), null, 2);
+          this.setJsonText(key, text);
+          this.setJsonError(key, null);
+          this.setJsonWarnings(key, []);
+        } else {
+          // 切回表单:把 JSON 填进表单;无效 JSON 不动表单、留在 JSON 页显示错误
+          if (!this.applyJsonToForm(key, method)) {
+            return;
+          }
+        }
+        this.editorMode = Object.assign({}, this.editorMode, { [key]: mode });
+      },
+
+      onJsonInput: function (key, value) {
+        this.setJsonText(key, value);
+        var check = window.FormMapping.validateJsonText(value);
+        this.setJsonError(key, check.ok ? null : check.error);
+        this.setJsonWarnings(key, []);
+      },
+
+      applyJsonToForm: function (key, method) {
+        var text = this.jsonText[key] || '';
+        var r = window.FormMapping.applyJsonText(method.requestFields, text, this.formValues[key] || {});
+        if (!r.ok) {
+          this.setJsonError(key, r.error);
+          return false;
+        }
+        this.formValues = Object.assign({}, this.formValues, { [key]: r.values });
+        this.setJsonError(key, null);
+        this.setJsonWarnings(key, r.warnings);
+        return true;
+      },
+
+      sendFromEditor: function (svcName, methodName, method) {
+        var key = this.methodKey(svcName, methodName);
+        // 仅 JSON 页签下需要先合并再发;无参方法直发 {}
+        if (this.showJsonPane(key, method) && !this.applyJsonToForm(key, method)) {
+          return;
+        }
+        this.submitCall(svcName, methodName, method);
       },
 
       filteredServices: function () {

@@ -11,3 +11,5 @@ CONTEXT.md
 .gitignore
 out/**/*.map
 media/gen_icon.ps1
+media/**/*.map
+*.rar

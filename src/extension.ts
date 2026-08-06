@@ -11,16 +11,23 @@ const PROTO_SELECTOR: vscode.DocumentSelector = { language: 'proto3', scheme: 'f
 
 export async function activate(context: vscode.ExtensionContext) {
   const index = new SymbolIndex();
-  await index.build();
   context.subscriptions.push({ dispose: () => index.dispose() });
 
   const includeDirs = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [];
   const frontend = new ProtoFrontend(includeDirs);
 
+  const callLens = new ProtoCallLensProvider(index);
   context.subscriptions.push(
     vscode.languages.registerDefinitionProvider(PROTO_SELECTOR, new ProtoDefinitionProvider(index)),
     vscode.languages.registerDocumentSemanticTokensProvider(PROTO_SELECTOR, new ProtoSemanticTokensProvider(index), SEMANTIC_LEGEND),
-    vscode.languages.registerCodeLensProvider(PROTO_SELECTOR, new ProtoCallLensProvider(index)),
+    vscode.languages.registerCodeLensProvider(PROTO_SELECTOR, callLens),
+  );
+
+  // 全量索引后台跑,不阻塞激活:打开文档的 lens/跳转/高亮由各 provider 的
+  // updateFromDocument 就地索引(立即可用);全量只服务跨文件解析,完成后刷新 lens。
+  void vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Window, title: 'Proto Utils: 正在索引 proto 文件…' },
+    () => index.build().then(() => callLens.refresh()),
   );
 
   registerCodeGenCommand(context, frontend);

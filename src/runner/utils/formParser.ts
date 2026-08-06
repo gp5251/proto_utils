@@ -1,6 +1,28 @@
 import { FieldInfo } from '../core/types';
 
 export function parseFormValue(field: FieldInfo, val: unknown): unknown {
+  // repeated 非 message 字段:接受真数组或 JSON 数组字符串("[1,2,3]"),逐项按标量规则转换。
+  // 必须放在 TYPE_BOOL 分支之前——否则数组会被 .some() 压成单个布尔值。
+  if (field.label === 'repeated' && field.protoType !== 'TYPE_MESSAGE') {
+    let arr: unknown[] | undefined;
+    if (Array.isArray(val)) {
+      arr = val;
+    } else if (typeof val === 'string' && val.trim().startsWith('[')) {
+      try {
+        const parsed: unknown = JSON.parse(val);
+        if (Array.isArray(parsed)) arr = parsed;
+      } catch {
+        // 非 JSON 数组,走下面的标量逻辑
+      }
+    }
+    if (arr) {
+      const scalar: FieldInfo = { ...field, label: 'optional' };
+      return arr
+        .map(item => parseFormValue(scalar, item))
+        .filter(item => item !== undefined);
+    }
+  }
+
   if (field.protoType === 'TYPE_BOOL') {
     if (Array.isArray(val)) {
       return val.some(item => item === 'true' || item === true || item === 'on');
@@ -20,6 +42,10 @@ export function parseFormValue(field: FieldInfo, val: unknown): unknown {
   }
 
   if (field.protoType === 'TYPE_MESSAGE') {
+    // 真对象/数组直接透传(JSON 模式不经字符串化);字符串按 JSON 解析
+    if (typeof val === 'object' && val !== null) {
+      return val;
+    }
     try {
       return JSON.parse(strVal);
     } catch {

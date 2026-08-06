@@ -369,6 +369,7 @@ export function createVscodePanelFactory(
       nonce: generateNonce(),
       stylesUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'runner.css')).toString(),
       runnerScriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'runner.js')).toString(),
+      formMappingScriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'formMapping.js')).toString(),
       alpineScriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'alpine.min.js')).toString(),
       server: deps.getConfig().server,
       protoDir: deps.getConfig().protoDir,

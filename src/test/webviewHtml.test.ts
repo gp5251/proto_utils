@@ -7,6 +7,7 @@ const baseOptions = {
   cspSource: 'vscode-webview://test',
   stylesUri: 'vscode-webview://test/runner.css',
   runnerScriptUri: 'vscode-webview://test/runner.js',
+  formMappingScriptUri: 'vscode-webview://test/formMapping.js',
   alpineScriptUri: 'vscode-webview://test/alpine.min.js',
   server: 'localhost:50051',
   protoDir: 'D:/work/protos',
@@ -39,11 +40,28 @@ test('CSP: default-src none、style-src 放行 cspSource 与 unsafe-inline、无
   assert.ok(!html.includes('https://'), 'CSP/资源不得引用远端 URL');
 });
 
-test('asWebviewUri 资源(样式 + runner.js + alpine)均出现在 HTML', () => {
+test('asWebviewUri 资源(样式 + formMapping.js + runner.js + alpine)均出现在 HTML', () => {
   const html = render();
   assert.ok(html.includes('href="vscode-webview://test/runner.css"'));
+  assert.ok(html.includes('src="vscode-webview://test/formMapping.js"'));
   assert.ok(html.includes('src="vscode-webview://test/runner.js"'));
   assert.ok(html.includes('src="vscode-webview://test/alpine.min.js"'));
+});
+
+test('双模式编辑器锚点:Tab 条/json-editor/sendFromEditor/formMapping 先于 runner.js 加载', () => {
+  const html = render();
+  assert.ok(html.includes('class="editor-tabs"'));
+  assert.ok(html.includes('>表单</button>'));
+  assert.ok(html.includes('>JSON</button>'));
+  assert.ok(html.includes('class="json-editor"'));
+  assert.ok(html.includes('class="json-error"'));
+  assert.ok(html.includes('class="json-warning"'));
+  assert.ok(html.includes('sendFromEditor(svc.name, m.name, m)'));
+  // formMapping 必须先于 runner.js:runner.js 的状态机同步调用 window.FormMapping
+  assert.ok(
+    html.indexOf('formMapping.js') < html.indexOf('runner.js'),
+    'formMapping.js 必须在 runner.js 之前加载',
+  );
 });
 
 test('内嵌 services 序列化防 </script> 注入', () => {

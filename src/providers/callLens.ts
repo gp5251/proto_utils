@@ -28,7 +28,15 @@ export function callableMethods(entry: { packageName: string | null; services: S
 }
 
 export class ProtoCallLensProvider implements vscode.CodeLensProvider {
+  private readonly changeEmitter = new vscode.EventEmitter<void>();
+  readonly onDidChangeCodeLenses: vscode.Event<void> = this.changeEmitter.event;
+
   constructor(private readonly index: SymbolIndex) {}
+
+  /** 全量索引完成后由 activate 调用,让 VS Code 重新拉取 lens。 */
+  refresh(): void {
+    this.changeEmitter.fire();
+  }
 
   provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
     this.index.updateFromDocument(document);
