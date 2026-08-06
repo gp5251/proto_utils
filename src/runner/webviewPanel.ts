@@ -338,8 +338,9 @@ export class WorkbenchPanelManager {
     }
   }
 
-  /** proto watcher 的热更新入口(替代旧 SSE proto-reload)。 */
+  /** proto watcher 的热更新入口(替代旧 SSE proto-reload)。面板关闭时也要清缓存——否则关闭期间改了 proto,重开会渲染过期服务列表。 */
   async reload(): Promise<void> {
+    this.deps.registry.invalidate();
     if (this.active) {
       await this.active.session.reload();
     }

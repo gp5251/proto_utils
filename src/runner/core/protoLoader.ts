@@ -4,7 +4,7 @@ import { ServiceInfo, MethodInfo, FieldInfo, EnumOption } from './types';
 import * as protoLoader from '@grpc/proto-loader';
 import { clearPackageDefinitionCache, getPackageDefinition } from './protoCache';
 import { buildProtoCommentIndex, lookupEnumValueComment, lookupFieldComment, ProtoCommentIndex } from '../utils/protoComments';
-import { readProtoFile } from '../utils/protoEncoding';
+import { readProtoFile } from '../../runtime/protoEncoding';
 import { scanProto } from '../../index/scanner';
 
 export function scanProtoFiles(protoDir: string): string[] {

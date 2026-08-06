@@ -2,6 +2,23 @@ import fs from 'node:fs';
 import path from 'node:path';
 import protobuf from 'protobufjs';
 
+import { readProtoFile } from './protoEncoding';
+
+const GOOGLE_PROTO_PREFIX = 'google/protobuf/';
+
+/** Root.getBundledFileName + common 查表的公开 API 等价物(内建 google/protobuf/* 类型)。 */
+function bundledGoogleJson(target: string): protobuf.INamespace | null {
+  const idx = target.indexOf(GOOGLE_PROTO_PREFIX);
+  return idx === -1 ? null : protobuf.common.get(target.slice(idx));
+}
+
+/** parse.filename 运行时挂载但 d.ts 未声明 —— 结构化标注出该属性,不做内联断言;toProtoLoadError 靠它提取出错文件名。 */
+function parsePreservingFilename(content: string, root: protobuf.Root, file: string): protobuf.IParserResult {
+  const parse: typeof protobuf.parse & { filename?: string } = protobuf.parse;
+  parse.filename = file;
+  return parse(content, root, { keepCase: true });
+}
+
 /**
  * 语义前端(ADR-0002):扩展内唯一有权解析 proto 语义的组件。
  * 基于 protobufjs,keepCase 恒为 true —— 本模块服务 emitter/诊断平面,
@@ -83,9 +100,9 @@ export class ProtoFrontend {
 
   private buildSchema(): ProtoSchema {
     const root = new protobuf.Root();
-    root.resolvePath = (_origin, target) => this.resolveImport(target);
     const files = this.scan();
-    for (const file of files) root.loadSync(file, { keepCase: true });
+    const loaded = new Set<string>();
+    for (const file of files) this.loadInto(root, file, false, loaded);
     root.resolveAll();
 
     const declarations = new Map<string, string>();
@@ -101,6 +118,37 @@ export class ProtoFrontend {
       }
     });
     return { root, declarations, files };
+  }
+
+  /**
+   * Root.loadSync 的编码感知替代:其同步路径硬编码 readFileSync(...).toString('utf8'),
+   * 覆写 root.fetch 只对异步路径生效,只能自行跟随 import。
+   * 语义对齐 protobufjs src/root.js 的 process/fetch:google 内建类型优先于路径解析、
+   * 按解析后路径去重、weak import 读取失败静默跳过(resolveImport 找不到则照常抛错)。
+   */
+  private loadInto(root: protobuf.Root, target: string, weak: boolean, loaded: Set<string>): void {
+    const bundled = bundledGoogleJson(target);
+    const key = bundled ? target.slice(target.indexOf(GOOGLE_PROTO_PREFIX)) : this.resolveImport(target);
+    if (loaded.has(key)) return;
+    loaded.add(key);
+
+    if (bundled) {
+      if (bundled.options) root.setOptions(bundled.options);
+      if (bundled.nested) root.addJSON(bundled.nested);
+      return;
+    }
+
+    let content: string;
+    try {
+      content = readProtoFile(key);
+    } catch (err) {
+      if (weak) return;
+      throw err;
+    }
+
+    const parsed = parsePreservingFilename(content, root, key);
+    for (const imp of parsed.imports ?? []) this.loadInto(root, imp, false, loaded);
+    for (const weakImp of parsed.weakImports ?? []) this.loadInto(root, weakImp, true, loaded);
   }
 
   /** protoc 语义:import 只相对 includeDirs 解析(绝对路径原样放行)。 */

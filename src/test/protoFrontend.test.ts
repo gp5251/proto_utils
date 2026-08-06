@@ -53,6 +53,42 @@ test('load failure throws ProtoLoadError with file and line', () => {
   });
 });
 
+test('loads GBK-encoded proto files', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proto-frontend-gbk-'));
+  // “乗”的 GBK 字节是 81 5C;按 UTF-8 误读得到 U+FFFD + 反斜杠,
+  // 反斜杠转义掉收尾引号 → loadSync 时代 protobufjs 报 illegal string 直接失败
+  const gbk = Buffer.concat([
+    Buffer.from('syntax = "proto3";\noption java_package = "com.', 'utf-8'),
+    Buffer.from([0x81, 0x5c]),
+    Buffer.from('";\nmessage Foo { string name = 1; }\n', 'utf-8'),
+  ]);
+  const file = path.join(dir, 'gbk.proto');
+  fs.writeFileSync(file, gbk);
+
+  const schema = makeFrontend(dir).load();
+  assert.ok(schema.root.lookupType('Foo'));
+  assert.equal(schema.declarations.get('Foo'), file);
+});
+
+test('follows imports into GBK-encoded files', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proto-frontend-gbk-import-'));
+  fs.writeFileSync(
+    path.join(dir, 'main.proto'),
+    'syntax = "proto3";\nimport "dep.proto";\nmessage Main { Dep dep = 1; }\n',
+  );
+  const gbk = Buffer.concat([
+    Buffer.from('syntax = "proto3";\n// ', 'utf-8'),
+    Buffer.from([0x81, 0x5c]),
+    Buffer.from('\nmessage Dep { string id = 1; }\n', 'utf-8'),
+  ]);
+  fs.writeFileSync(path.join(dir, 'dep.proto'), gbk);
+
+  const schema = makeFrontend(dir).load();
+  const main = schema.root.lookupType('Main');
+  assert.equal(main.fields.dep.resolvedType?.fullName, '.Dep');
+  assert.equal(schema.declarations.get('Dep'), path.join(dir, 'dep.proto'));
+});
+
 test('memoizes the error; a fixed file only loads after invalidate()', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proto-frontend-'));
   const file = path.join(dir, 'flip.proto');

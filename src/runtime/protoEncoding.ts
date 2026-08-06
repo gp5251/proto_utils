@@ -1,4 +1,4 @@
-import fs from 'node:fs';
+import fs from 'fs';
 
 export type Encoding = 'utf-8' | 'gbk';
 
@@ -8,7 +8,7 @@ export interface ProtoEncodingCheck {
   isUtf8: boolean;
 }
 
-export function isValidUtf8(buffer: Buffer): boolean {
+export function isValidUtf8(buffer: Uint8Array): boolean {
   try {
     new TextDecoder('utf-8', { fatal: true }).decode(buffer);
     return true;
@@ -17,19 +17,22 @@ export function isValidUtf8(buffer: Buffer): boolean {
   }
 }
 
-export function detectEncoding(buffer: Buffer): Encoding {
+export function detectEncoding(buffer: Uint8Array): Encoding {
   if (isValidUtf8(buffer)) return 'utf-8';
   return 'gbk';
 }
 
+/** 编码感知的 proto 文本解码:严格 UTF-8 校验失败即按 GBK 处理。 */
+export function decodeProto(bytes: Uint8Array): string {
+  return new TextDecoder(detectEncoding(bytes)).decode(bytes);
+}
+
 export function readProtoFile(filePath: string): string {
-  const buffer = fs.readFileSync(filePath);
-  return new TextDecoder(detectEncoding(buffer)).decode(buffer);
+  return decodeProto(fs.readFileSync(filePath));
 }
 
 export function checkProtoFileEncoding(filePath: string): ProtoEncodingCheck {
-  const buffer = fs.readFileSync(filePath);
-  const encoding = detectEncoding(buffer);
+  const encoding = detectEncoding(fs.readFileSync(filePath));
   return {
     filePath,
     encoding,

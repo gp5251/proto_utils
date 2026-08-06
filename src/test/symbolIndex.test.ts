@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
 import * as vscode from 'vscode';
 import { SymbolIndex, FileEntry } from '../index/symbolIndex';
 
@@ -197,4 +199,22 @@ test('syntactically broken proto does not crash the index', async () => {
   assert.doesNotThrow(() =>
     index.updateFromDocument(fakeDocument(path.join(ROOT, 'ghost.proto'), '%%% @@@ ###')),
   );
+});
+
+test('indexes GBK-encoded proto files', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'symbol-index-gbk-'));
+  // “乗”的 GBK 字节是 81 5C;按 UTF-8 误读得到 U+FFFD + 反斜杠,
+  // 反斜杠转义掉收尾引号后,同行的 message 声明会被吞进字符串 token
+  const gbk = Buffer.concat([
+    Buffer.from('syntax = "proto3";\npackage g;\noption java_package = "com.', 'utf-8'),
+    Buffer.from([0x81, 0x5c]),
+    Buffer.from('"; message Foo { string name = 1; }\n', 'utf-8'),
+  ]);
+  const file = path.join(dir, 'gbk.proto');
+  fs.writeFileSync(file, gbk);
+
+  const index = await buildIndex(dir);
+  const entry = getEntry(index, file);
+  assert.equal(entry.packageName, 'g');
+  assert.ok(entry.symbols.some((s) => s.qualifiedName === 'Foo'));
 });

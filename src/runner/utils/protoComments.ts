@@ -1,4 +1,4 @@
-import { readProtoFile } from './protoEncoding';
+import { readProtoFile } from '../../runtime/protoEncoding';
 
 export interface ProtoCommentIndex {
   fieldComments: Map<string, string>;

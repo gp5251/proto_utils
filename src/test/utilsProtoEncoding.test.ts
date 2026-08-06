@@ -6,9 +6,10 @@ import path from 'node:path';
 import {
   isValidUtf8,
   detectEncoding,
+  decodeProto,
   readProtoFile,
   checkProtoFileEncoding,
-} from '../runner/utils/protoEncoding';
+} from '../runtime/protoEncoding';
 
 const SAMPLE_GBK_BYTES = Buffer.from([
   0x73, 0x79, 0x6e, 0x74, 0x61, 0x78, 0x20, 0x3d, 0x20, 0x22, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
@@ -47,6 +48,11 @@ test('detectEncoding returns gbk for GBK-encoded bytes', () => {
 
 test('detectEncoding returns utf-8 for ASCII', () => {
   assert.equal(detectEncoding(Buffer.from('plain ascii', 'utf-8')), 'utf-8');
+});
+
+test('decodeProto decodes bytes with detected encoding', () => {
+  assert.equal(decodeProto(SAMPLE_GBK_BYTES), 'syntax = "proto3";\r\n\r\n// 中文');
+  assert.equal(decodeProto(Buffer.from('syntax = "proto3";', 'utf-8')), 'syntax = "proto3";');
 });
 
 test('readProtoFile returns the same text for a UTF-8 file', (t) => {

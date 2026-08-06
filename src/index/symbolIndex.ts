@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { scanProto } from './scanner';
+import { decodeProto } from '../runtime/protoEncoding';
 import { SymbolEntry, ServicePoint, TypeRef } from './symbols';
 
 /**
@@ -39,7 +40,7 @@ export class SymbolIndex {
   private async indexFile(uri: vscode.Uri): Promise<void> {
     try {
       const content = await vscode.workspace.fs.readFile(uri);
-      const scanned = scanProto(Buffer.from(content).toString('utf-8'));
+      const scanned = scanProto(decodeProto(content));
       this.entries.set(uri.fsPath, {
         uri,
         packageName: scanned.packageName,
