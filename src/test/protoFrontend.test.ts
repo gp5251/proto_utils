@@ -53,6 +53,19 @@ test('load failure throws ProtoLoadError with file and line', () => {
   });
 });
 
+test('scan 排除构建产物目录,不撞 duplicate name', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proto-frontend-exclude-'));
+  const out = path.join(dir, 'out');
+  fs.mkdirSync(out, { recursive: true });
+  // out/ 下的拷贝与 src 声明同名 service:若不排除,load 撞 duplicate name
+  fs.writeFileSync(path.join(dir, 'a.proto'), 'syntax = "proto3"; package p; service Svc { rpc Do (Req) returns (Res); } message Req {} message Res {}\n');
+  fs.writeFileSync(path.join(out, 'a.proto'), 'syntax = "proto3"; package p; service Svc { rpc Do (Req) returns (Res); } message Req {} message Res {}\n');
+
+  const schema = makeFrontend(dir).load();
+  assert.deepEqual(schema.files, [path.join(dir, 'a.proto')]);
+  assert.ok(schema.root.lookup('p.Svc'));
+});
+
 test('loads GBK-encoded proto files', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proto-frontend-gbk-'));
   // “乗”的 GBK 字节是 81 5C;按 UTF-8 误读得到 U+FFFD + 反斜杠,

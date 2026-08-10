@@ -52,27 +52,38 @@ export async function activate(context: vscode.ExtensionContext) {
   watcher.onDidDelete(onProtoChanged);
   context.subscriptions.push(watcher);
 
-  // 保存时诊断(ADR-0002 的既定代价:编辑中态不报,保存才报,首错即止)
+  // 保存时诊断(ADR-0002 的既定代价:编辑中态不报,保存才报,首错即止)。
+  // 防抖 300ms:快速连续保存只解析一次(load 是同步全量解析,会短暂阻塞宿主)。
   const diagnostics = vscode.languages.createDiagnosticCollection('proto-utils');
   context.subscriptions.push(diagnostics);
+  let saveTimer: NodeJS.Timeout | undefined;
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
       if (doc.languageId !== 'proto3') return;
-      frontend.invalidate();
-      try {
-        frontend.load();
-        diagnostics.clear();
-      } catch (err) {
-        reportLoadError(diagnostics, err);
-      }
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        frontend.invalidate();
+        try {
+          frontend.load();
+          diagnostics.clear();
+          lastLoadErrorToast = null;
+        } catch (err) {
+          reportLoadError(diagnostics, err);
+        }
+      }, 300);
     }),
   );
 }
+
+/** 上一次弹过 toast 的加载错误;相同错误不重复弹(每次保存都失败会刷屏)。 */
+let lastLoadErrorToast: string | null = null;
 
 function reportLoadError(diagnostics: vscode.DiagnosticCollection, err: unknown): void {
   diagnostics.clear();
   if (!(err instanceof ProtoLoadError) || !err.file) {
     const message = err instanceof Error ? err.message : String(err);
+    if (message === lastLoadErrorToast) return;
+    lastLoadErrorToast = message;
     vscode.window.showErrorMessage(`Proto Utils: ${message}`);
     return;
   }

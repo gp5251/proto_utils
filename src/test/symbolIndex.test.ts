@@ -201,6 +201,19 @@ test('syntactically broken proto does not crash the index', async () => {
   );
 });
 
+test('build 排除构建产物目录(out 等)的 proto 拷贝', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'symbol-index-exclude-'));
+  fs.mkdirSync(path.join(dir, 'out'), { recursive: true });
+  const srcFile = path.join(dir, 'a.proto');
+  const outFile = path.join(dir, 'out', 'a.proto');
+  fs.writeFileSync(srcFile, 'syntax = "proto3"; message A { string id = 1; }\n');
+  fs.writeFileSync(outFile, 'syntax = "proto3"; message B { string id = 1; }\n');
+
+  const index = await buildIndex(dir);
+  assert.ok(index.getFile(vscode.Uri.file(srcFile)), 'src 下的 proto 应被索引');
+  assert.equal(index.getFile(vscode.Uri.file(outFile)), undefined, 'out 下的拷贝不应被索引');
+});
+
 test('indexes GBK-encoded proto files', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'symbol-index-gbk-'));
   // “乗”的 GBK 字节是 81 5C;按 UTF-8 误读得到 U+FFFD + 反斜杠,

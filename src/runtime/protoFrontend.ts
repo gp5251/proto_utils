@@ -4,6 +4,25 @@ import protobuf from 'protobufjs';
 
 import { readProtoFile } from './protoEncoding';
 
+/**
+ * 扫描时跳过的目录名(构建产物 + 历史约定)。
+ * 三处同步维护同一清单:ProtoFrontend.scan / SymbolIndex 的 findFiles 排除 glob /
+ * protoLoader.walkDir。不排除会扫进 out/ 等构建产物里的 proto 拷贝,
+ * 与 src 源文件撞 duplicate name,保存诊断即失败(autoshop_vscode 现场)。
+ */
+export const SCAN_EXCLUDED_DIRS = [
+  'node_modules',
+  'generated',
+  '__fixtures__',
+  'out',
+  'out-vscode',
+  'dist',
+  'build',
+  'bin',
+  'obj',
+  'target',
+] as const;
+
 const GOOGLE_PROTO_PREFIX = 'google/protobuf/';
 
 /** Root.getBundledFileName + common 查表的公开 API 等价物(内建 google/protobuf/* 类型)。 */
@@ -72,7 +91,12 @@ export class ProtoFrontend {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         const full = path.join(entry.parentPath, entry.name);
         if (entry.isDirectory()) {
-          if (!entry.name.startsWith('.') && entry.name !== 'node_modules') walk(full);
+          if (
+            !entry.name.startsWith('.') &&
+            !(SCAN_EXCLUDED_DIRS as readonly string[]).includes(entry.name)
+          ) {
+            walk(full);
+          }
         } else if (entry.name.endsWith('.proto')) {
           results.push(full);
         }

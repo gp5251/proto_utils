@@ -22,11 +22,11 @@ function activeRoot(): string {
   return corpusRoot || process.env.PROTO_UTILS_STUB_ROOT || '';
 }
 
-function walk(dir: string, out: string[]): void {
+function walk(dir: string, out: string[], excluded?: Set<string>): void {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (!entry.name.startsWith('.')) walk(full, out);
+      if (!entry.name.startsWith('.') && !(excluded && excluded.has(entry.name))) walk(full, out, excluded);
     } else if (entry.name.endsWith('.proto')) {
       out.push(full);
     }
@@ -34,9 +34,15 @@ function walk(dir: string, out: string[]): void {
 }
 
 export const workspace = {
-  findFiles: async () => {
+  findFiles: async (_pattern: string, excludePattern?: string) => {
+    // 对齐真实 vscode.workspace.findFiles:从 '**/{a,b,c}/**' 提取排除目录名
+    const excluded = new Set<string>();
+    const m = /^\*\*\/\{(.+)\}\/\*\*$/.exec(excludePattern ?? '');
+    if (m) {
+      for (const name of m[1].split(',')) excluded.add(name);
+    }
     const files: string[] = [];
-    walk(activeRoot(), files);
+    walk(activeRoot(), files, excluded);
     return files.map((f) => Uri.file(f));
   },
   createFileSystemWatcher: () => ({

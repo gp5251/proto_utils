@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { scanProto } from './scanner';
 import { decodeProto } from '../runtime/protoEncoding';
+import { SCAN_EXCLUDED_DIRS } from '../runtime/protoFrontend';
 import { SymbolEntry, ServicePoint, TypeRef } from './symbols';
 
 /**
@@ -22,7 +23,8 @@ export class SymbolIndex {
   private watcher: vscode.FileSystemWatcher | undefined;
 
   async build(): Promise<void> {
-    const files = await vscode.workspace.findFiles('**/*.proto', '**/node_modules/**');
+    const excludeGlob = `**/{${SCAN_EXCLUDED_DIRS.join(',')}}/**`;
+    const files = await vscode.workspace.findFiles('**/*.proto', excludeGlob);
     await Promise.all(files.map(uri => this.indexFile(uri)));
 
     this.watcher = vscode.workspace.createFileSystemWatcher('**/*.proto');
