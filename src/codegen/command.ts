@@ -47,11 +47,10 @@ export function registerCodeGenCommand(
       return;
     }
 
-    // 纯 service 文件没有 message/enum 产物(emitter 契约不含 service):
-    // 不落空文件,直接说明,避免"Generated 成功但内容为空"的误导。
+    // 没有任何可生成产物(纯 import 聚合文件):不落空文件,直接说明,避免"Generated 成功但内容为空"的误导。
     if (!hasEmittableTypes(schema, filePath)) {
       vscode.window.showInformationMessage(
-        `Proto Utils: ${path.basename(filePath)} declares only services; no message/enum types to generate.`,
+        `Proto Utils: ${path.basename(filePath)} declares no message/enum/service types; nothing to generate.`,
       );
       return;
     }

@@ -34,13 +34,19 @@ function generate(proto: string, config?: Partial<CodeGenConfig>): string {
   return emit(schemaFromSource(proto), TEST_FILE, { ...DEFAULT_CONFIG, ...config });
 }
 
-test('hasEmittableTypes:纯 service 文件无产物,含 message/enum 的文件有产物', () => {
+test('hasEmittableTypes:纯 import 聚合文件无产物,含 message/enum/service 的文件有产物', () => {
+  const importsOnly = schemaFromSource(`
+    syntax = "proto3";
+    package a.v1;
+  `);
+  assert.equal(hasEmittableTypes(importsOnly, TEST_FILE), false);
+
   const svcOnly = schemaFromSource(`
     syntax = "proto3";
     package a.v1;
     service Empty {}
   `);
-  assert.equal(hasEmittableTypes(svcOnly, TEST_FILE), false);
+  assert.equal(hasEmittableTypes(svcOnly, TEST_FILE), true);
 
   const withDefs = schemaFromSource(`
     syntax = "proto3";
@@ -49,6 +55,39 @@ test('hasEmittableTypes:纯 service 文件无产物,含 message/enum 的文件�
     service Svc { rpc Ping(Req) returns (Req); }
   `);
   assert.equal(hasEmittableTypes(withDefs, TEST_FILE), true);
+});
+
+test('service → 客户端调用接口:unary/server-stream/client-stream/bidi 四种形态', () => {
+  const out = generate(`
+    syntax = "proto3";
+    package a.v1;
+    message Req { string id = 1; }
+    message Resp { string id = 1; }
+    service Svc {
+      rpc Unary(Req) returns (Resp);
+      rpc Watch(Req) returns (stream Resp);
+      rpc Upload(stream Req) returns (Resp);
+      rpc Chat(stream Req) returns (stream Resp);
+    }
+  `);
+  assert.ok(out.includes('export interface SvcClient {'));
+  assert.ok(out.includes('  Unary(request: Req): Promise<Resp>;'));
+  assert.ok(out.includes('  Watch(request: Req): AsyncIterable<Resp>;'));
+  assert.ok(out.includes('  Upload(request: AsyncIterable<Req>): Promise<Resp>;'));
+  assert.ok(out.includes('  Chat(request: AsyncIterable<Req>): AsyncIterable<Resp>;'));
+});
+
+test('service 跨文件 req/res 经 resolve 生成 import', () => {
+  const schema = schemaFromSource(`
+    syntax = "proto3";
+    message Local { string id = 1; }
+    message Ext { string id = 1; }
+    service Svc { rpc Go(Local) returns (Ext); }
+  `, TEST_FILE, new Map([['Ext', path.resolve('common/ext.proto')]]));
+  const resolver = (typeName: string) => typeName === 'Ext' ? 'common/ext.proto' : null;
+  const out = emit(schema, TEST_FILE, DEFAULT_CONFIG, resolver);
+  assert.ok(out.includes("import type { Ext } from './common/ext';"));
+  assert.ok(out.includes('  Go(request: Local): Promise<Ext>;'));
 });
 
 test('basic message → interface with camelCase fields', () => {

@@ -39,7 +39,7 @@ const SCALAR_TYPES = new Set(Object.keys(SCALAR_MAP));
 export type TypeResolver = (typeName: string) => string | null;
 
 /**
- * 生成 filePath 声明的全部 message/enum 的 TS 类型(ADR-0005:输出契约逐字节冻结)。
+ * 生成 filePath 声明的 message/enum TS 类型与 service 客户端调用接口(0.3.8 起 service 纳入输出契约)。
  * 只输出归属 filePath 的类型(归属以 declarations 为准);跨文件类型经 resolve 生成 import。
  */
 export function emit(schema: ProtoSchema, filePath: string, config: CodeGenConfig, resolve?: TypeResolver): string {
@@ -50,9 +50,9 @@ export function emit(schema: ProtoSchema, filePath: string, config: CodeGenConfi
   lines.push('');
 
   for (const def of topLevelDefs(schema, filePath)) {
-    if (def instanceof protobuf.Type) emitMessage(def, config, resolve, imports, lines, '');
+    if (def instanceof protobuf.Service) emitService(def, resolve, imports, lines);
+    else if (def instanceof protobuf.Type) emitMessage(def, config, resolve, imports, lines, '');
     else emitEnum(def, config, lines, '');
-    // services are skipped (out of scope for type generation)
   }
 
   // Build import statements
@@ -139,13 +139,13 @@ function packageByFile(schema: ProtoSchema): Map<string, string> {
 
 // ─── Reflection helpers ──────────────────────────────────────
 
-/** filePath 声明的顶层 message/enum(嵌套类型随父 message 输出),按声明顺序。 */
-function topLevelDefs(schema: ProtoSchema, filePath: string): Array<protobuf.Type | protobuf.Enum> {
-  const defs: Array<protobuf.Type | protobuf.Enum> = [];
+/** filePath 声明的顶层 message/enum/service(message 嵌套类型随父输出),按声明顺序。 */
+function topLevelDefs(schema: ProtoSchema, filePath: string): Array<protobuf.Type | protobuf.Enum | protobuf.Service> {
+  const defs: Array<protobuf.Type | protobuf.Enum | protobuf.Service> = [];
   walkReflection(schema.root, (obj, parent) => {
     if (
       !(parent instanceof protobuf.Type) &&
-      (obj instanceof protobuf.Type || obj instanceof protobuf.Enum)
+      (obj instanceof protobuf.Type || obj instanceof protobuf.Enum || obj instanceof protobuf.Service)
     ) {
       const file = declaringFile(schema, obj);
       if (file && sameFile(file, filePath)) defs.push(obj);
@@ -154,7 +154,7 @@ function topLevelDefs(schema: ProtoSchema, filePath: string): Array<protobuf.Typ
   return defs;
 }
 
-/** filePath 是否声明了可生成的顶层 message/enum;false(纯 service 文件)时产物只有头部,命令层不落盘。 */
+/** filePath 是否声明了可生成的顶层 message/enum/service;false(纯 import 聚合文件)时产物只有头部,命令层不落盘。 */
 export function hasEmittableTypes(schema: ProtoSchema, filePath: string): boolean {
   return topLevelDefs(schema, filePath).length > 0;
 }
@@ -201,14 +201,17 @@ function baseName(typeName: string): string {
 }
 
 function trackImport(field: protobuf.Field, resolve: TypeResolver | undefined, imports: Map<string, Set<string>>): void {
-  if (!resolve || isScalar(field.type)) return;
   // 跨文件归属以解析后的全限定名为准;解析不到(如未 resolveAll)退化为书写名
-  const resolved = field.resolvedType;
-  const typeName = resolved ? resolved.fullName.replace(/^\./, '') : field.type;
-  const protoPath = resolve(typeName);
+  trackTypeImport(field.type, field.resolvedType?.fullName.replace(/^\./, ''), resolve, imports);
+}
+
+/** 跨文件类型记入 import 表:归属解析用全限定名,import 符号用源码书写名的基名(冻结契约)。 */
+function trackTypeImport(asWritten: string, resolvedFqn: string | undefined, resolve: TypeResolver | undefined, imports: Map<string, Set<string>>): void {
+  if (!resolve || isScalar(asWritten)) return;
+  const protoPath = resolve(resolvedFqn ?? asWritten);
   if (protoPath) {
     if (!imports.has(protoPath)) imports.set(protoPath, new Set());
-    imports.get(protoPath)!.add(baseName(field.type));
+    imports.get(protoPath)!.add(baseName(asWritten));
   }
 }
 
@@ -360,5 +363,26 @@ function emitEnum(
     }
     lines.push(`${indent}}`);
   }
+  lines.push('');
+}
+
+/** service → 客户端调用接口 `<Name>Client`:unary 返回 Promise,流式方向用 AsyncIterable 表达(stdlib 无依赖)。 */
+function emitService(
+  svc: protobuf.Service,
+  resolve: TypeResolver | undefined,
+  imports: Map<string, Set<string>>,
+  lines: string[],
+): void {
+  lines.push(`export interface ${svc.name}Client {`);
+  for (const method of svc.methodsArray) {
+    trackTypeImport(method.requestType, method.resolvedRequestType?.fullName.replace(/^\./, ''), resolve, imports);
+    trackTypeImport(method.responseType, method.resolvedResponseType?.fullName.replace(/^\./, ''), resolve, imports);
+    const req = baseName(method.requestType);
+    const res = baseName(method.responseType);
+    const param = method.requestStream ? `AsyncIterable<${req}>` : req;
+    const ret = method.responseStream ? `AsyncIterable<${res}>` : `Promise<${res}>`;
+    lines.push(`  ${method.name}(request: ${param}): ${ret};`);
+  }
+  lines.push('}');
   lines.push('');
 }

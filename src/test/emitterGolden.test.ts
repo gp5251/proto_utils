@@ -11,6 +11,8 @@ import { emit, createTypeResolver, DEFAULT_CONFIG } from '../codegen/emitter';
 //   monitor_tbl / var_enum / var_struct / var_fb / var_fc / var_elem_table / var_funcblock_inst / var_table
 // 2026-08:语料(rpc_runner/protos)演进后按新 emitter 重定基 7 个(新增字段/枚举/成员,非渲染差异):
 //   error_msg / ld_prog / monitor_table(新增文件) / var_fb / var_fc / var_global / var_write_value
+// 2026-08(0.3.8):emitter 契约扩展——service 生成客户端调用接口 `<Name>Client`,4 个含 service 的语料重定基:
+//   communicate_interface / interface / net_interface / proj_interface
 
 const corpusDir = path.resolve('../rpc_runner/protos');
 const goldenDir = path.resolve('testdata/golden');
