@@ -13,6 +13,7 @@ import { emit, createTypeResolver, DEFAULT_CONFIG } from '../codegen/emitter';
 //   error_msg / ld_prog / monitor_table(新增文件) / var_fb / var_fc / var_global / var_write_value
 // 2026-08(0.3.8):emitter 契约扩展——service 生成客户端调用接口 `<Name>Client`,4 个含 service 的语料重定基:
 //   communicate_interface / interface / net_interface / proj_interface
+// 2026-08(0.3.10):import 相对路径去掉冗余 './' 前缀('./../x' → '../x'),全部含 import 的 golden 重定基
 
 const corpusDir = path.resolve('../rpc_runner/protos');
 const goldenDir = path.resolve('testdata/golden');

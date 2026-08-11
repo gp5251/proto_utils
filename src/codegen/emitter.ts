@@ -74,11 +74,13 @@ export function emit(schema: ProtoSchema, filePath: string, config: CodeGenConfi
   const importLines: string[] = [];
   if (imports.size > 0) {
     for (const [protoPath, byBase] of imports) {
-      const tsPath = protoPath.replace(/\.proto$/, '');
+      // resolve 返回已带 './'/'../' 前缀的相对路径时直接用,裸路径补 './'(0.3.10 起不再产出 './../x' 双前缀)
+      const spec = protoPath.replace(/\.proto$/, '');
+      const fromPath = spec.startsWith('.') ? spec : `./${spec}`;
       const names = [...byBase.entries()]
         .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
         .map(([base, display]) => (display === base ? base : `${base} as ${display}`));
-      importLines.push(`import type { ${names.join(', ')} } from './${tsPath}';`);
+      importLines.push(`import type { ${names.join(', ')} } from '${fromPath}';`);
     }
     importLines.push('');
   }
