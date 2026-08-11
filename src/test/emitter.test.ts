@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import protobuf from 'protobufjs';
 import { ProtoSchema } from '../runtime/protoFrontend';
-import { emit, DEFAULT_CONFIG, CodeGenConfig } from '../codegen/emitter';
+import { emit, DEFAULT_CONFIG, CodeGenConfig, hasEmittableTypes } from '../codegen/emitter';
 
 const TEST_FILE = path.resolve('test.proto');
 
@@ -33,6 +33,23 @@ function schemaFromSource(source: string, filePath: string = TEST_FILE, foreign?
 function generate(proto: string, config?: Partial<CodeGenConfig>): string {
   return emit(schemaFromSource(proto), TEST_FILE, { ...DEFAULT_CONFIG, ...config });
 }
+
+test('hasEmittableTypes:纯 service 文件无产物,含 message/enum 的文件有产物', () => {
+  const svcOnly = schemaFromSource(`
+    syntax = "proto3";
+    package a.v1;
+    service Empty {}
+  `);
+  assert.equal(hasEmittableTypes(svcOnly, TEST_FILE), false);
+
+  const withDefs = schemaFromSource(`
+    syntax = "proto3";
+    package a.v1;
+    message Req { string id = 1; }
+    service Svc { rpc Ping(Req) returns (Req); }
+  `);
+  assert.equal(hasEmittableTypes(withDefs, TEST_FILE), true);
+});
 
 test('basic message → interface with camelCase fields', () => {
   const out = generate(`

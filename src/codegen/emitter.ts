@@ -154,6 +154,11 @@ function topLevelDefs(schema: ProtoSchema, filePath: string): Array<protobuf.Typ
   return defs;
 }
 
+/** filePath 是否声明了可生成的顶层 message/enum;false(纯 service 文件)时产物只有头部,命令层不落盘。 */
+export function hasEmittableTypes(schema: ProtoSchema, filePath: string): boolean {
+  return topLevelDefs(schema, filePath).length > 0;
+}
+
 function declaringFile(schema: ProtoSchema, obj: protobuf.ReflectionObject): string | undefined {
   return schema.declarations.get(obj.fullName.replace(/^\./, ''));
 }
