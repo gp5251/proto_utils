@@ -2,7 +2,7 @@
   "name": "proto-utils",
   "displayName": "Proto Utils",
   "description": "Proto3 syntax highlighting, go-to-definition, and TypeScript code generation",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "publisher": "proto-utils",
   "engines": {
     "vscode": "^1.85.0"
@@ -126,6 +126,15 @@
           ],
           "default": "file",
           "description": "Output path mapping: 'file' = mirror folder structure relative to the protos' common root; 'package' = directories by proto package declaration"
+        },
+        "protoUtils.codeGen.importExtension": {
+          "type": "string",
+          "enum": [
+            "ts",
+            "none"
+          ],
+          "default": "ts",
+          "description": "Append '.ts' to generated import paths (needs allowImportingTsExtensions or a bundler to resolve)"
         },
         "protoUtils.codeGen.oneofStyle": {
           "type": "string",

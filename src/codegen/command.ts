@@ -126,6 +126,7 @@ function readConfig(): CodeGenConfig {
     optionalScalarFields: cfg.get<boolean>('optionalScalarFields', false),
     fieldNaming: cfg.get<'camelCase' | 'preserve'>('fieldNaming', 'camelCase'),
     oneofStyle: cfg.get<'optional' | 'union'>('oneofStyle', 'optional'),
+    importExtension: cfg.get<'ts' | 'none'>('importExtension', 'ts'),
   };
 }
 

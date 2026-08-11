@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
+import path from 'node:path';
 import { ProtoDefinitionProvider } from './providers/definition';
 import { ProtoSemanticTokensProvider, SEMANTIC_LEGEND } from './providers/semanticTokens';
 import { ProtoCallLensProvider } from './providers/callLens';
 import { SymbolIndex } from './index/symbolIndex';
 import { ProtoFrontend, ProtoLoadError } from './runtime/protoFrontend';
+import { resolveRunnerConfig as resolveRunnerConfigPure } from './runner/config';
 import { registerCodeGenCommand } from './codegen/command';
 import type { WorkbenchPanelManager } from './runner/webviewPanel';
 
@@ -13,7 +15,18 @@ export async function activate(context: vscode.ExtensionContext) {
   const index = new SymbolIndex();
   context.subscriptions.push({ dispose: () => index.dispose() });
 
-  const includeDirs = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [];
+  const workspaceDirs = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [];
+  // 显式配置的 runner.protoDir 作为额外 includeDir:codegen 覆盖 workspace 之外的 proto;
+  // 留空时 protoDir 回退 workspace 根,与工作区目录去重后不变(0.3.12)
+  const { protoDir } = resolveRunnerConfigPure(
+    (key) => vscode.workspace.getConfiguration('protoUtils').get(key),
+    workspaceDirs[0],
+  );
+  const includeDirs = [...workspaceDirs];
+  if (protoDir) {
+    const target = path.resolve(protoDir).toLowerCase();
+    if (!workspaceDirs.some((d) => path.resolve(d).toLowerCase() === target)) includeDirs.push(protoDir);
+  }
   const frontend = new ProtoFrontend(includeDirs);
 
   const callLens = new ProtoCallLensProvider(index);

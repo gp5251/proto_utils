@@ -86,7 +86,7 @@ test('service 跨文件 req/res 经 resolve 生成 import', () => {
   `, TEST_FILE, new Map([['Ext', path.resolve('common/ext.proto')]]));
   const resolver = (typeName: string) => typeName === 'Ext' ? 'common/ext.proto' : null;
   const out = emit(schema, TEST_FILE, DEFAULT_CONFIG, resolver);
-  assert.ok(out.includes("import type { Ext } from './common/ext';"));
+  assert.ok(out.includes("import type { Ext } from './common/ext.ts';"));
   assert.ok(out.includes('  Go(request: Local): Promise<Ext>;'));
 });
 
@@ -106,8 +106,8 @@ test('跨模块同名 import 冲突 → 双方按路径段取确定性别名', (
   const resolver = (typeName: string) =>
     typeName === 'Net.Status' ? 'net/global/v1.proto' : typeName === 'Project.Status' ? 'project/global/v1.proto' : null;
   const out = emit(schema, TEST_FILE, DEFAULT_CONFIG, resolver);
-  assert.ok(out.includes("import type { Status as NetGlobalV1Status } from './net/global/v1';"));
-  assert.ok(out.includes("import type { Status as ProjectGlobalV1Status } from './project/global/v1';"));
+  assert.ok(out.includes("import type { Status as NetGlobalV1Status } from './net/global/v1.ts';"));
+  assert.ok(out.includes("import type { Status as ProjectGlobalV1Status } from './project/global/v1.ts';"));
   assert.ok(out.includes('  a?: NetGlobalV1Status;'));
   assert.ok(out.includes('  b?: ProjectGlobalV1Status;'));
 });
@@ -124,7 +124,7 @@ test('import 与本地类型同名 → import 取别名,本地保持原名', () 
   `, TEST_FILE, new Map([['Wrap.Status', path.resolve('other/v1.proto')]]));
   const resolver = (typeName: string) => typeName === 'Wrap.Status' ? 'other/v1.proto' : null;
   const out = emit(schema, TEST_FILE, DEFAULT_CONFIG, resolver);
-  assert.ok(out.includes("import type { Status as OtherV1Status } from './other/v1';"));
+  assert.ok(out.includes("import type { Status as OtherV1Status } from './other/v1.ts';"));
   assert.ok(out.includes('  local?: Status;'));
   assert.ok(out.includes('  remote?: OtherV1Status;'));
 });
@@ -149,7 +149,7 @@ test("pathMapping 'file' → 相对 proto 公共根映射:平级平铺,子目录
   assert.equal(outPathOf(fileA), path.join(root, 'generated', 'a.ts'));
   assert.equal(outPathOf(nested), path.join(root, 'generated', 'sub', 'c.ts'));
   const out = emit(schema, fileA, DEFAULT_CONFIG, createTypeResolver(schema, fileA, pathOptions));
-  assert.ok(out.includes("import type { Ext } from './b';"));
+  assert.ok(out.includes("import type { Ext } from './b.ts';"));
 });
 
 test("pathMapping 'package' → 按 package 语句映射目录", () => {
@@ -162,6 +162,18 @@ test("pathMapping 'package' → 按 package 语句映射目录", () => {
   `, file);
   const out = createOutputPathResolver(schema, { workspaceRoot: root, outputDir: 'generated', pathMapping: 'package' })(file);
   assert.equal(out, path.join(root, 'generated', 'my', 'deep', 'v2.ts'));
+});
+
+test("importExtension 'none' → import 路径不带 .ts", () => {
+  const schema = schemaFromSource(`
+    syntax = "proto3";
+    message Local { string id = 1; }
+    message Ext { string id = 1; }
+    message Holder { Local l = 1; Ext e = 2; }
+  `, TEST_FILE, new Map([['Ext', path.resolve('common/ext.proto')]]));
+  const resolver = (typeName: string) => typeName === 'Ext' ? 'common/ext.proto' : null;
+  const out = emit(schema, TEST_FILE, { ...DEFAULT_CONFIG, importExtension: 'none' }, resolver);
+  assert.ok(out.includes("import type { Ext } from './common/ext';"));
 });
 
 test('basic message → interface with camelCase fields', () => {
@@ -357,7 +369,7 @@ test('cross-file import generation', () => {
   `, TEST_FILE, new Map([['Address', path.resolve('common/address.proto')]]));
   const resolver = (typeName: string) => typeName === 'Address' ? 'common/address.proto' : null;
   const out = emit(schema, TEST_FILE, DEFAULT_CONFIG, resolver);
-  assert.ok(out.includes("import type { Address } from './common/address';"));
+  assert.ok(out.includes("import type { Address } from './common/address.ts';"));
   assert.ok(out.includes('  shipping?: Address;'));
 });
 

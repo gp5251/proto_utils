@@ -9,6 +9,8 @@ export interface CodeGenConfig {
   optionalScalarFields: boolean;
   fieldNaming: 'camelCase' | 'preserve';
   oneofStyle: 'optional' | 'union';
+  /** 跨文件 import 路径后缀:'ts' 带 .ts(默认,0.3.12 起),'none' 不带。 */
+  importExtension: 'ts' | 'none';
 }
 
 export const DEFAULT_CONFIG: CodeGenConfig = {
@@ -17,6 +19,7 @@ export const DEFAULT_CONFIG: CodeGenConfig = {
   optionalScalarFields: false,
   fieldNaming: 'camelCase',
   oneofStyle: 'optional',
+  importExtension: 'ts',
 };
 
 const SCALAR_MAP: Record<string, string> = {
@@ -73,6 +76,7 @@ export function emit(schema: ProtoSchema, filePath: string, config: CodeGenConfi
   // Build import statements
   const importLines: string[] = [];
   if (imports.size > 0) {
+    const ext = config.importExtension === 'ts' ? '.ts' : '';
     for (const [protoPath, byBase] of imports) {
       // resolve 返回已带 './'/'../' 前缀的相对路径时直接用,裸路径补 './'(0.3.10 起不再产出 './../x' 双前缀)
       const spec = protoPath.replace(/\.proto$/, '');
@@ -80,7 +84,7 @@ export function emit(schema: ProtoSchema, filePath: string, config: CodeGenConfi
       const names = [...byBase.entries()]
         .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
         .map(([base, display]) => (display === base ? base : `${base} as ${display}`));
-      importLines.push(`import type { ${names.join(', ')} } from '${fromPath}';`);
+      importLines.push(`import type { ${names.join(', ')} } from '${fromPath}${ext}';`);
     }
     importLines.push('');
   }
