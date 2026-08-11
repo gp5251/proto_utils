@@ -2,7 +2,7 @@
   "name": "proto-utils",
   "displayName": "Proto Utils",
   "description": "Proto3 syntax highlighting, go-to-definition, and TypeScript code generation",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "publisher": "proto-utils",
   "engines": {
     "vscode": "^1.85.0"
@@ -41,6 +41,10 @@
       {
         "command": "protoUtils.generateTypes",
         "title": "Proto Utils: Generate TypeScript Types"
+      },
+      {
+        "command": "protoUtils.generateAllTypes",
+        "title": "Proto Utils: Generate TypeScript Types (All Protos)"
       },
       {
         "command": "protoUtils.openRpcRunner",

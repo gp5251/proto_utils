@@ -90,6 +90,45 @@ test('service 跨文件 req/res 经 resolve 生成 import', () => {
   assert.ok(out.includes('  Go(request: Local): Promise<Ext>;'));
 });
 
+test('跨模块同名 import 冲突 → 双方按路径段取确定性别名', () => {
+  const schema = schemaFromSource(`
+    syntax = "proto3";
+    message Net { message Status { int32 code = 1; } }
+    message Project { message Status { int32 code = 1; } }
+    message Holder {
+      Net.Status a = 1;
+      Project.Status b = 2;
+    }
+  `, TEST_FILE, new Map([
+    ['Net.Status', path.resolve('net/global/v1.proto')],
+    ['Project.Status', path.resolve('project/global/v1.proto')],
+  ]));
+  const resolver = (typeName: string) =>
+    typeName === 'Net.Status' ? 'net/global/v1.proto' : typeName === 'Project.Status' ? 'project/global/v1.proto' : null;
+  const out = emit(schema, TEST_FILE, DEFAULT_CONFIG, resolver);
+  assert.ok(out.includes("import type { Status as NetGlobalV1Status } from './net/global/v1';"));
+  assert.ok(out.includes("import type { Status as ProjectGlobalV1Status } from './project/global/v1';"));
+  assert.ok(out.includes('  a?: NetGlobalV1Status;'));
+  assert.ok(out.includes('  b?: ProjectGlobalV1Status;'));
+});
+
+test('import 与本地类型同名 → import 取别名,本地保持原名', () => {
+  const schema = schemaFromSource(`
+    syntax = "proto3";
+    message Status { int32 code = 1; }
+    message Wrap { message Status { int32 code = 1; } }
+    message Holder {
+      Status local = 1;
+      Wrap.Status remote = 2;
+    }
+  `, TEST_FILE, new Map([['Wrap.Status', path.resolve('other/v1.proto')]]));
+  const resolver = (typeName: string) => typeName === 'Wrap.Status' ? 'other/v1.proto' : null;
+  const out = emit(schema, TEST_FILE, DEFAULT_CONFIG, resolver);
+  assert.ok(out.includes("import type { Status as OtherV1Status } from './other/v1';"));
+  assert.ok(out.includes('  local?: Status;'));
+  assert.ok(out.includes('  remote?: OtherV1Status;'));
+});
+
 test('basic message → interface with camelCase fields', () => {
   const out = generate(`
     syntax = "proto3";

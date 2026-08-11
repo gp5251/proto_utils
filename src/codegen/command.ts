@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import path from 'node:path';
-import { ProtoFrontend, ProtoLoadError } from '../runtime/protoFrontend';
+import { ProtoFrontend, ProtoLoadError, ProtoSchema } from '../runtime/protoFrontend';
 import {
   emit,
   createOutputPathResolver,
@@ -15,6 +15,36 @@ export function registerCodeGenCommand(
   context: vscode.ExtensionContext,
   frontend: ProtoFrontend,
 ): void {
+  /** 加载 schema;解析失败时报告并返回 null(两个命令共用)。 */
+  const loadSchema = (): ProtoSchema | null => {
+    try {
+      return frontend.load();
+    } catch (err) {
+      if (err instanceof ProtoLoadError) {
+        const where = err.file ? ` (${err.file}${err.line ? `:${err.line}` : ''})` : '';
+        vscode.window.showErrorMessage(`Proto Utils: Failed to parse proto files${where}: ${err.message}`);
+        return null;
+      }
+      throw err;
+    }
+  };
+
+  /** 单文件生成 + 落盘,返回相对 workspace 的输出路径;无产物返回 null。 */
+  const writeTypesFor = async (
+    schema: ProtoSchema,
+    filePath: string,
+    workspaceRoot: string,
+  ): Promise<string | null> => {
+    if (!hasEmittableTypes(schema, filePath)) return null;
+    const config = readConfig();
+    const pathOptions = readPathOptions(workspaceRoot);
+    const output = emit(schema, filePath, config, createTypeResolver(schema, filePath, pathOptions));
+    const outPath = createOutputPathResolver(schema, pathOptions)(filePath);
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(outPath)));
+    await vscode.workspace.fs.writeFile(vscode.Uri.file(outPath), Buffer.from(output, 'utf-8'));
+    return path.relative(workspaceRoot, outPath);
+  };
+
   const cmd = vscode.commands.registerCommand('protoUtils.generateTypes', async (uri?: vscode.Uri) => {
     // Resolve target file: explorer context passes uri, editor context uses active editor
     const targetUri = uri ?? vscode.window.activeTextEditor?.document.uri;
@@ -29,17 +59,8 @@ export function registerCodeGenCommand(
       return;
     }
 
-    let schema;
-    try {
-      schema = frontend.load();
-    } catch (err) {
-      if (err instanceof ProtoLoadError) {
-        const where = err.file ? ` (${err.file}${err.line ? `:${err.line}` : ''})` : '';
-        vscode.window.showErrorMessage(`Proto Utils: Failed to parse proto files${where}: ${err.message}`);
-        return;
-      }
-      throw err;
-    }
+    const schema = loadSchema();
+    if (!schema) return;
 
     const filePath = targetUri.fsPath;
     if (!schemaHasFile(schema, filePath)) {
@@ -55,25 +76,29 @@ export function registerCodeGenCommand(
       return;
     }
 
-    const config = readConfig();
-    const pathOptions = readPathOptions(workspaceRoot);
-
-    // Build type resolver for cross-file imports
-    const resolver = createTypeResolver(schema, filePath, pathOptions);
-
-    const output = emit(schema, filePath, config, resolver);
-    const outPath = createOutputPathResolver(schema, pathOptions)(filePath);
-
-    // Write file
-    const outUri = vscode.Uri.file(outPath);
-    await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(outPath)));
-    await vscode.workspace.fs.writeFile(outUri, Buffer.from(output, 'utf-8'));
-
-    const relative = path.relative(workspaceRoot, outPath);
+    const relative = await writeTypesFor(schema, filePath, workspaceRoot);
     vscode.window.showInformationMessage(`Proto Utils: Generated ${relative}`);
   });
 
-  context.subscriptions.push(cmd);
+  const allCmd = vscode.commands.registerCommand('protoUtils.generateAllTypes', async () => {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      vscode.window.showErrorMessage('Proto Utils: No workspace folder open.');
+      return;
+    }
+
+    const schema = loadSchema();
+    if (!schema) return;
+
+    let written = 0;
+    for (const filePath of schema.files) {
+      if (await writeTypesFor(schema, filePath, workspaceRoot)) written++;
+    }
+    const outDir = readPathOptions(workspaceRoot).outputDir;
+    vscode.window.showInformationMessage(`Proto Utils: Generated ${written} files under ${outDir}/`);
+  });
+
+  context.subscriptions.push(cmd, allCmd);
 }
 
 function readConfig(): CodeGenConfig {
