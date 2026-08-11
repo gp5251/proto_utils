@@ -33,16 +33,15 @@ export function registerCodeGenCommand(
   const writeTypesFor = async (
     schema: ProtoSchema,
     filePath: string,
-    workspaceRoot: string,
+    config: CodeGenConfig,
+    pathOptions: OutputPathOptions,
   ): Promise<string | null> => {
     if (!hasEmittableTypes(schema, filePath)) return null;
-    const config = readConfig();
-    const pathOptions = readPathOptions(workspaceRoot);
     const output = emit(schema, filePath, config, createTypeResolver(schema, filePath, pathOptions));
     const outPath = createOutputPathResolver(schema, pathOptions)(filePath);
     await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(outPath)));
     await vscode.workspace.fs.writeFile(vscode.Uri.file(outPath), Buffer.from(output, 'utf-8'));
-    return path.relative(workspaceRoot, outPath);
+    return path.relative(pathOptions.workspaceRoot, outPath);
   };
 
   const cmd = vscode.commands.registerCommand('protoUtils.generateTypes', async (uri?: vscode.Uri) => {
@@ -76,7 +75,7 @@ export function registerCodeGenCommand(
       return;
     }
 
-    const relative = await writeTypesFor(schema, filePath, workspaceRoot);
+    const relative = await writeTypesFor(schema, filePath, readConfig(), readPathOptions(workspaceRoot));
     vscode.window.showInformationMessage(`Proto Utils: Generated ${relative}`);
   });
 
@@ -90,12 +89,30 @@ export function registerCodeGenCommand(
     const schema = loadSchema();
     if (!schema) return;
 
+    const config = readConfig();
+    const pathOptions = readPathOptions(workspaceRoot);
+
+    // file 平铺模式下同名 proto(package 模式下同包文件)会映射到同一输出文件互相覆盖:先检测再动笔
+    const outPathOf = createOutputPathResolver(schema, pathOptions);
+    const ownerByOut = new Map<string, string>();
+    for (const filePath of schema.files) {
+      if (!hasEmittableTypes(schema, filePath)) continue;
+      const outPath = outPathOf(filePath);
+      const owner = ownerByOut.get(outPath);
+      if (owner) {
+        vscode.window.showErrorMessage(
+          `Proto Utils: Output path conflict — ${path.basename(owner)} and ${path.basename(filePath)} both map to ${path.relative(workspaceRoot, outPath)}.`,
+        );
+        return;
+      }
+      ownerByOut.set(outPath, filePath);
+    }
+
     let written = 0;
     for (const filePath of schema.files) {
-      if (await writeTypesFor(schema, filePath, workspaceRoot)) written++;
+      if (await writeTypesFor(schema, filePath, config, pathOptions)) written++;
     }
-    const outDir = readPathOptions(workspaceRoot).outputDir;
-    vscode.window.showInformationMessage(`Proto Utils: Generated ${written} files under ${outDir}/`);
+    vscode.window.showInformationMessage(`Proto Utils: Generated ${written} files under ${pathOptions.outputDir}/`);
   });
 
   context.subscriptions.push(cmd, allCmd);
@@ -117,6 +134,6 @@ function readPathOptions(workspaceRoot: string): OutputPathOptions {
   return {
     workspaceRoot,
     outputDir: cfg.get<string>('outputDir', 'generated'),
-    pathMapping: cfg.get<'package' | 'file'>('pathMapping', 'package'),
+    pathMapping: cfg.get<'package' | 'file'>('pathMapping', 'file'),
   };
 }

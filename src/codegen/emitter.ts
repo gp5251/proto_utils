@@ -157,6 +157,7 @@ function buildImportAliases(
 export interface OutputPathOptions {
   workspaceRoot: string;
   outputDir: string;
+  /** file:相对全部 proto 的公共目录映射目录结构(默认);package:按 package 语句映射目录。 */
   pathMapping: 'package' | 'file';
 }
 
@@ -186,18 +187,38 @@ export function schemaHasFile(schema: ProtoSchema, filePath: string): boolean {
   return schema.files.some((f) => sameFile(f, filePath));
 }
 
-/** proto 文件绝对路径 → 相对 workspaceRoot 的输出 .ts 相对路径(package 或 file 映射)。 */
+/** proto 文件绝对路径 → 相对 outputDir 的输出 .ts 相对路径(package / file 映射)。 */
 function createRelPathResolver(schema: ProtoSchema, options: OutputPathOptions): (protoFile: string) => string {
-  const packages = packageByFile(schema);
+  const packages = options.pathMapping === 'package' ? packageByFile(schema) : null;
+  const relRoot = options.pathMapping === 'file' ? commonProtoRoot(schema.files) : null;
   return (protoFile) => {
-    const pkg = packages.get(normalizeFile(protoFile));
-    if (options.pathMapping === 'package' && pkg) {
-      // package my.service → my/service.ts
-      return pkg.replace(/\./g, '/') + '.ts';
+    if (packages) {
+      const pkg = packages.get(normalizeFile(protoFile));
+      if (pkg) {
+        // package my.service → my/service.ts
+        return pkg.replace(/\./g, '/') + '.ts';
+      }
     }
-    // Use proto file path relative to workspace, swap extension
-    return path.relative(options.workspaceRoot, protoFile).replace(/\.proto$/, '.ts');
+    // file:相对全部 proto 的最长公共目录映射——平级 proto 平铺,子目录 proto 保留子结构(common/a/b.proto → a/b.ts)
+    return path.relative(relRoot ?? options.workspaceRoot, protoFile).replace(/\.proto$/, '.ts');
   };
+}
+
+/** 全部 proto 文件的最长公共目录(file 映射的相对根;win32 比较不分大小写)。 */
+function commonProtoRoot(files: string[]): string {
+  if (files.length === 0) return '';
+  const splitDir = (p: string): string[] => {
+    const parts = path.dirname(path.normalize(p)).split(path.sep);
+    return process.platform === 'win32' ? parts.map((s) => s.toLowerCase()) : parts;
+  };
+  const prefix = splitDir(files[0]);
+  for (const f of files.slice(1)) {
+    const parts = splitDir(f);
+    let i = 0;
+    while (i < prefix.length && i < parts.length && prefix[i] === parts[i]) i++;
+    prefix.length = i;
+  }
+  return prefix.join(path.sep);
 }
 
 /** 从反射树推导每个 proto 文件的 package(文件内全部顶层类型共享同一条 package 语句)。 */

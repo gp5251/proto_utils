@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import protobuf from 'protobufjs';
 import { ProtoSchema } from '../runtime/protoFrontend';
-import { emit, DEFAULT_CONFIG, CodeGenConfig, hasEmittableTypes } from '../codegen/emitter';
+import { emit, DEFAULT_CONFIG, CodeGenConfig, hasEmittableTypes, createOutputPathResolver, createTypeResolver } from '../codegen/emitter';
 
 const TEST_FILE = path.resolve('test.proto');
 
@@ -127,6 +127,41 @@ test('import 与本地类型同名 → import 取别名,本地保持原名', () 
   assert.ok(out.includes("import type { Status as OtherV1Status } from './other/v1';"));
   assert.ok(out.includes('  local?: Status;'));
   assert.ok(out.includes('  remote?: OtherV1Status;'));
+});
+
+test("pathMapping 'file' → 相对 proto 公共根映射:平级平铺,子目录保留,跨文件 import 为 './sibling'", () => {
+  const root = path.resolve('.');
+  const common = path.join(root, 'src', 'vs', 'platform', 'autoshop', 'common');
+  const fileA = path.join(common, 'a.proto');
+  const fileB = path.join(common, 'b.proto');
+  const nested = path.join(common, 'sub', 'c.proto');
+  const schema = schemaFromSource(`
+    syntax = "proto3";
+    message Local { string id = 1; }
+    message Ext { string id = 1; }
+    message Holder { Local l = 1; Ext e = 2; }
+  `, fileA, new Map([['Ext', fileB]]));
+  schema.files.push(fileB, nested);
+
+  const pathOptions = { workspaceRoot: root, outputDir: 'generated', pathMapping: 'file' as const };
+  const outPathOf = createOutputPathResolver(schema, pathOptions);
+  // 全部 proto 平级于 common/ → 平铺;common/sub/c.proto → 保留子目录
+  assert.equal(outPathOf(fileA), path.join(root, 'generated', 'a.ts'));
+  assert.equal(outPathOf(nested), path.join(root, 'generated', 'sub', 'c.ts'));
+  const out = emit(schema, fileA, DEFAULT_CONFIG, createTypeResolver(schema, fileA, pathOptions));
+  assert.ok(out.includes("import type { Ext } from './b';"));
+});
+
+test("pathMapping 'package' → 按 package 语句映射目录", () => {
+  const root = path.resolve('.');
+  const file = path.join(root, 'protos', 'foo.proto');
+  const schema = schemaFromSource(`
+    syntax = "proto3";
+    package my.deep.v2;
+    message M { string id = 1; }
+  `, file);
+  const out = createOutputPathResolver(schema, { workspaceRoot: root, outputDir: 'generated', pathMapping: 'package' })(file);
+  assert.equal(out, path.join(root, 'generated', 'my', 'deep', 'v2.ts'));
 });
 
 test('basic message → interface with camelCase fields', () => {
