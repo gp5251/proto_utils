@@ -40,15 +40,6 @@ export interface ProtoLoadResult {
   errors: string[];
 }
 
-let commentIndex: ProtoCommentIndex | null = null;
-
-function getCommentIndex(protoFiles: string[]): ProtoCommentIndex {
-  if (!commentIndex) {
-    commentIndex = buildProtoCommentIndex(protoFiles);
-  }
-  return commentIndex;
-}
-
 export function loadProtoDefinitions(protoFiles: string[], protoDir: string): ProtoLoadResult {
   if (protoFiles.length === 0) return { services: [], errors: [] };
 
@@ -66,7 +57,8 @@ export function loadProtoDefinitions(protoFiles: string[], protoDir: string): Pr
 
   if (allPkgDefs.length === 0) return { services: [], errors };
 
-  const comments = getCommentIndex(protoFiles);
+  // 注释索引随本次文件集现建:模块级缓存会在 protoDir 切换/测试间串污染
+  const comments = buildProtoCommentIndex(protoFiles);
   const serviceMap = new Map<string, ServiceInfo>();
 
   for (const pkgDef of allPkgDefs) {
@@ -102,7 +94,6 @@ export function findProtoFileForService(protoDir: string, serviceName: string): 
 
 export function resetProtoLoaderCache(): void {
   clearPackageDefinitionCache();
-  commentIndex = null;
 }
 
 function isMethodDef(value: unknown): boolean {
@@ -136,8 +127,8 @@ function extractServices(
       const reqType = reqTypeObj?.type?.name || reqTypeObj?.name || 'unknown';
       const resType = resTypeObj?.type?.name || resTypeObj?.name || 'unknown';
 
-      const reqFields = extractMessageFields(allPkgDefs, reqTypeObj, comments);
-      const resFields = extractMessageFields(allPkgDefs, resTypeObj, comments);
+      const reqFields = extractMessageFields(allPkgDefs, reqTypeObj, comments, 0, 8, pkg);
+      const resFields = extractMessageFields(allPkgDefs, resTypeObj, comments, 0, 8, pkg);
 
       methodInfos.push({
         name: methodName,
@@ -179,17 +170,20 @@ function extractMessageFields(
   typeObj: { name?: string; type?: { name?: string } } | null,
   comments: ProtoCommentIndex,
   depth = 0,
-  maxDepth = 8
+  maxDepth = 8,
+  scopeHint?: string
 ): FieldInfo[] {
   if (!typeObj) return [];
 
+  // typeName:service 面是短名(descriptor 只带短名,靠 scopeHint=service 包消歧);
+  // nested 面是源码原样书写的引用名(同包短名/相对名/带点绝对名都可能)。
   const typeName = typeObj.type?.name || typeObj.name;
   if (!typeName) return [];
 
-  const msgDef = findMessageDef(allPkgDefs, typeName);
-  if (!msgDef) return [];
+  const resolved = findTypeDef(allPkgDefs, typeName, 'Protocol Buffer 3 DescriptorProto', scopeHint);
+  if (!resolved) return [];
 
-  const type = msgDef.type as Record<string, unknown>;
+  const type = resolved.def.type as Record<string, unknown>;
   if (!type || !Array.isArray(type.field)) return [];
 
   const fields: FieldInfo[] = [];
@@ -204,7 +198,7 @@ function extractMessageFields(
       label: fl.replace('LABEL_', '').toLowerCase(),
       protoType: ft,
       optional: field.options != null,
-      comment: lookupFieldComment(comments, typeName, field.name as string),
+      comment: lookupFieldComment(comments, resolved.fqn, field.name as string),
     };
 
     if (refName && (ft === 'TYPE_MESSAGE' || ft === 'TYPE_ENUM')) {
@@ -215,14 +209,16 @@ function extractMessageFields(
     }
 
     if (ft === 'TYPE_ENUM') {
-      const enumValues = extractEnumValues(allPkgDefs, refName, comments);
+      const enumValues = extractEnumValues(allPkgDefs, refName, comments, resolved.fqn);
       if (enumValues.length > 0) {
         fieldInfo.enumValues = enumValues;
       }
     }
 
     if (ft === 'TYPE_MESSAGE' && refName && depth < maxDepth) {
-      fieldInfo.nestedFields = extractMessageFieldsByRef(allPkgDefs, refName, comments, depth + 1, maxDepth);
+      // 相对引用必须在容器 message 的作用域里解析:跨包同名 message
+      // (如 var.global/ldprog 各有 LDElemt_Info)短名首中即错配。
+      fieldInfo.nestedFields = extractMessageFields(allPkgDefs, { name: refName }, comments, depth + 1, maxDepth, resolved.fqn);
     }
 
     fields.push(fieldInfo);
@@ -231,28 +227,53 @@ function extractMessageFields(
   return fields;
 }
 
-function extractMessageFieldsByRef(
+/**
+ * 跨包类型解析:pkgDef 键是全限定名,而 descriptor 的 typeName 是源码原样名。
+ * 按 protobuf 作用域外扩语义解析:绝对名(.)只精确匹配;相对名从 scopeHint
+ * (容器 message 或 service 所在包)逐层外扩精确匹配;最后退回短名 endsWith
+ * (历史行为,兼容 req/res 类型与 service 不同包)。
+ */
+function findTypeDef(
   allPkgDefs: protoLoader.PackageDefinition[],
   typeName: string,
-  comments: ProtoCommentIndex,
-  depth: number,
-  maxDepth: number
-): FieldInfo[] {
-  const shortName = typeName.replace(/^\./, '').split('.').pop() || typeName;
-  return extractMessageFields(allPkgDefs, { name: shortName }, comments, depth, maxDepth);
-}
+  format: 'Protocol Buffer 3 DescriptorProto' | 'Protocol Buffer 3 EnumDescriptorProto',
+  scopeHint?: string
+): { def: Record<string, unknown>; fqn: string } | null {
+  const absolute = typeName.startsWith('.');
+  const bare = absolute ? typeName.slice(1) : typeName;
+  const shortName = bare.split('.').pop() || bare;
 
-function findMessageDef(
-  allPkgDefs: protoLoader.PackageDefinition[],
-  typeName: string
-): Record<string, unknown> | null {
-  for (const pkgDef of allPkgDefs) {
-    const typedPkgDef = pkgDef as Record<string, unknown>;
-    for (const [key, val] of Object.entries(typedPkgDef)) {
-      if (key === typeName || key.endsWith('.' + typeName)) {
+  const tryKeys: string[] = [];
+  if (absolute) {
+    tryKeys.push(bare);
+  } else {
+    let scope = scopeHint ?? '';
+    while (scope !== '') {
+      tryKeys.push(`${scope}.${bare}`);
+      const dot = scope.lastIndexOf('.');
+      scope = dot > 0 ? scope.slice(0, dot) : '';
+    }
+    tryKeys.push(bare);
+  }
+
+  for (const want of tryKeys) {
+    for (const pkgDef of allPkgDefs) {
+      for (const [key, val] of Object.entries(pkgDef as Record<string, unknown>)) {
+        if (key !== want) continue;
         const v = val as Record<string, unknown>;
-        if (v.format === 'Protocol Buffer 3 DescriptorProto' && v.type) {
-          return v as Record<string, unknown>;
+        if (v.format === format && v.type) {
+          return { def: v, fqn: want };
+        }
+      }
+    }
+  }
+
+  for (const pkgDef of allPkgDefs) {
+    for (const [key, val] of Object.entries(pkgDef as Record<string, unknown>)) {
+      if (key === shortName || key.endsWith('.' + shortName)) {
+        const v = val as Record<string, unknown>;
+        if (v.format === format && v.type) {
+          return { def: v, fqn: key };
         }
       }
     }
@@ -263,42 +284,33 @@ function findMessageDef(
 function extractEnumValues(
   allPkgDefs: protoLoader.PackageDefinition[],
   typeName: string | undefined,
-  comments: ProtoCommentIndex
+  comments: ProtoCommentIndex,
+  scopeHint?: string
 ): EnumOption[] {
   if (!typeName) {
     return [];
   }
 
-  const enumName = typeName.replace(/^\./, '').split('.').pop();
-  if (!enumName) {
+  const bare = typeName.replace(/^\./, '');
+  if (!bare) {
     return [];
   }
 
-  for (const pkgDef of allPkgDefs) {
-    const typedPkgDef = pkgDef as Record<string, unknown>;
-    for (const [key, val] of Object.entries(typedPkgDef)) {
-      if (key !== enumName && !key.endsWith('.' + enumName)) {
-        continue;
-      }
-      const v = val as Record<string, unknown>;
-      if (v.format !== 'Protocol Buffer 3 EnumDescriptorProto' || !v.type) {
-        continue;
-      }
-      const enumType = v.type as { value?: Array<{ name?: string; number?: number }> };
-      if (!Array.isArray(enumType.value)) {
-        continue;
-      }
-      return enumType.value
-        .filter(item => typeof item.name === 'string')
-        .map(item => ({
-          name: item.name as string,
-          number: typeof item.number === 'number' ? item.number : 0,
-          comment: lookupEnumValueComment(comments, enumName, item.name as string),
-        }));
-    }
+  const resolved = findTypeDef(allPkgDefs, typeName, 'Protocol Buffer 3 EnumDescriptorProto', scopeHint);
+  if (!resolved) {
+    return [];
   }
-
-  return [];
+  const enumType = resolved.def.type as { value?: Array<{ name?: string; number?: number }> };
+  if (!Array.isArray(enumType.value)) {
+    return [];
+  }
+  return enumType.value
+    .filter(item => typeof item.name === 'string')
+    .map(item => ({
+      name: item.name as string,
+      number: typeof item.number === 'number' ? item.number : 0,
+      comment: lookupEnumValueComment(comments, resolved.fqn, item.name as string),
+    }));
 }
 
 const TYPE_LABEL_BY_PROTO: Record<string, string> = {

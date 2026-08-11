@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+// 与 z_owner.proto 短名相同、包名不同:扫描顺序靠前(字母序),
+// 短名首中取胜的解析会被这份旧形状遮蔽。
+package dup.var.v1;
+
+message LDElemt_Info {
+  uint32 iType = 1; //遮蔽包元件类型
+  string sName = 4;
+}
+
+enum Mode {
+  OLD_UNSPECIFIED = 0;
+  OLD_A = 1;
+}
+
+message OpenReq {
+  string sOld = 1;
+}

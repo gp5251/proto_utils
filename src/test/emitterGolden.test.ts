@@ -9,6 +9,8 @@ import { emit, createTypeResolver, DEFAULT_CONFIG } from '../codegen/emitter';
 // 以下 8 个含 proto3 optional 字段的文件曾被旧 parser 误解析成垃圾,已由基于 ProtoFrontend 的
 // 新 emitter 重新生成(差异仅限 optional 字段渲染),不再是旧管线产物:
 //   monitor_tbl / var_enum / var_struct / var_fb / var_fc / var_elem_table / var_funcblock_inst / var_table
+// 2026-08:语料(rpc_runner/protos)演进后按新 emitter 重定基 7 个(新增字段/枚举/成员,非渲染差异):
+//   error_msg / ld_prog / monitor_table(新增文件) / var_fb / var_fc / var_global / var_write_value
 
 const corpusDir = path.resolve('../rpc_runner/protos');
 const goldenDir = path.resolve('testdata/golden');

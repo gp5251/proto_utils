@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+// service 所在包:与 dup.var.v1 存在同名 message/enum,
+// 工作台必须解析到本包的定义(含 sSTprog/sNew/NEW_A)。
+package dup.ld.v1;
+
+message LDElemt_Info {
+  uint32 iType = 1; //属主包元件类型
+  string sName = 4;
+  optional string sSTprog = 16; //stb程序
+}
+
+enum Mode {
+  NEW_UNSPECIFIED = 0;
+  NEW_A = 1;
+}
+
+message OpenReq {
+  string sNew = 1;
+}
+
+message OpenResp {
+  repeated LDElemt_Info LDElemt_Info = 1;
+  Mode mode = 2;
+}
+
+service LDProg {
+  rpc ExecuteOpenLDProg(OpenReq) returns (OpenResp);
+}
