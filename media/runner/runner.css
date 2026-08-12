@@ -172,12 +172,17 @@ body {
   font-family: var(--font);
 }
 
-/* 服务名旁的复制按钮:常显弱态,hover 提亮;与 copy-badge 同位切换 */
+/* 服务名/方法名旁的复制按钮:常显弱态,hover 提亮;与 copy-badge 同位切换。
+   padding 撑大点击热区(约 23×22px),负 margin 抵消使布局不变。 */
 .copy-icon {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
   vertical-align: -2px;
-  margin-left: 6px;
+  padding: 3px 5px;
+  margin: -3px 0 -3px 1px;
   cursor: pointer;
+  border-radius: 3px;
   color: var(--text-faint);
   opacity: 0.65;
 }
@@ -185,6 +190,7 @@ body {
 .copy-icon:hover {
   color: var(--text);
   opacity: 1;
+  background: var(--surface-hover);
 }
 
 .method-panel {
