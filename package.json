@@ -2,7 +2,7 @@
   "name": "proto-utils",
   "displayName": "Proto Utils",
   "description": "%extension.description%",
-  "version": "0.3.16",
+  "version": "0.3.17",
   "publisher": "proto-utils",
   "engines": {
     "vscode": "^1.85.0"
@@ -60,6 +60,11 @@
         },
         {
           "when": "resourceLangId == proto3",
+          "command": "protoUtils.generateAllTypes",
+          "group": "protoUtils"
+        },
+        {
+          "when": "resourceLangId == proto3",
           "command": "protoUtils.openRpcRunner",
           "group": "protoUtils"
         }
@@ -68,6 +73,11 @@
         {
           "when": "resourceLangId == proto3",
           "command": "protoUtils.generateTypes",
+          "group": "protoUtils"
+        },
+        {
+          "when": "resourceLangId == proto3",
+          "command": "protoUtils.generateAllTypes",
           "group": "protoUtils"
         }
       ]
