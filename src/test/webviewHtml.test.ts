@@ -131,6 +131,8 @@ test('交互结构:搜索、刷新按钮、流式徽标、取消按钮、prefill
   assert.ok(html.includes('@click="refresh()"'));
   assert.ok(html.includes("$store.workbench.refreshing"));
   assert.ok(html.includes('method-stream-badge'));
+  assert.ok(html.includes('copyServiceName(svc.name)'), '服务名旁复制 icon');
+  assert.ok(html.includes('isServiceCopied(svc.name)'), '服务名复制反馈');
   assert.ok(html.includes('cancelStream(svc.name, m.name)'));
   assert.ok(html.includes(":id=\"'method-' + svc.name + '-' + m.name\""));
   assert.ok(html.includes('requestStream'), 'client/bidi 方法禁用提示');

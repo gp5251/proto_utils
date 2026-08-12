@@ -3,7 +3,7 @@
   "displayName": "Proto Utils",
   "l10n": "./l10n",
   "description": "%extension.description%",
-  "version": "0.3.24",
+  "version": "0.3.25",
   "publisher": "proto-utils",
   "engines": {
     "vscode": "^1.85.0"

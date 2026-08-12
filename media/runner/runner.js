@@ -164,6 +164,7 @@
       loading: {},
       copied: {},
       copiedMethodKey: null,
+      copiedServiceName: null,
       editorMode: {},
       jsonText: {},
       jsonError: {},
@@ -718,6 +719,19 @@
 
       isMethodCopied: function (svcName, methodName) {
         return this.copiedMethodKey === this.methodKey(svcName, methodName);
+      },
+
+      copyServiceName: function (svcName) {
+        navigator.clipboard.writeText(svcName);
+        this.copiedServiceName = svcName;
+        var self = this;
+        setTimeout(function () {
+          self.copiedServiceName = null;
+        }, 2000);
+      },
+
+      isServiceCopied: function (svcName) {
+        return this.copiedServiceName === svcName;
       },
     };
     });

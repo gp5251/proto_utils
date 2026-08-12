@@ -160,6 +160,14 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
         <div class="card-title card-title-toggle" @click="toggleService(svc.name)">
           <span>
             <span x-text="svc.name"></span>
+            <span
+              class="copy-icon"
+              role="button"
+              :title="$store.str.copy"
+              x-show="!isServiceCopied(svc.name)"
+              @click.stop="copyServiceName(svc.name)"
+            ><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2"/></svg></span>
+            <span x-show="isServiceCopied(svc.name)" class="copy-badge">${S.copiedBadge}</span>
             <span style="font-weight:400;text-transform:none;color:var(--text-faint)">
               — <span x-text="filteredMethods(svc).length"></span>${S.methodCountSuffix}
             </span>

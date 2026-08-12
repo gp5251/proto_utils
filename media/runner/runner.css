@@ -172,6 +172,21 @@ body {
   font-family: var(--font);
 }
 
+/* 服务名旁的复制按钮:常显弱态,hover 提亮;与 copy-badge 同位切换 */
+.copy-icon {
+  display: inline-flex;
+  vertical-align: -2px;
+  margin-left: 6px;
+  cursor: pointer;
+  color: var(--text-faint);
+  opacity: 0.65;
+}
+
+.copy-icon:hover {
+  color: var(--text);
+  opacity: 1;
+}
+
 .method-panel {
   padding: 12px 12px 16px;
   background: var(--bg);
