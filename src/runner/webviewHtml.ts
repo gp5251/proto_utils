@@ -33,6 +33,10 @@ export function escapeInlineJson(value: unknown): string {
   return json.replace(/</g, '\\u003c');
 }
 
+/** 复制 icon(codicon 风格双方框);服务名/方法名旁共用 */
+const COPY_ICON_SVG =
+  '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2"/></svg>';
+
 export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
   // 静态串 host 侧就地翻译;webview 内 Alpine 表达式求值的串经 boot.strings 下发,
   // webview 通过 $store.str.* / runner.js str() 读取({name} 占位符运行时替换)。
@@ -166,7 +170,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
               :title="$store.str.copy"
               x-show="!isServiceCopied(svc.name)"
               @click.stop="copyServiceName(svc.name)"
-            ><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2"/></svg></span>
+            >${COPY_ICON_SVG}</span>
             <span x-show="isServiceCopied(svc.name)" class="copy-badge">${S.copiedBadge}</span>
             <span style="font-weight:400;text-transform:none;color:var(--text-faint)">
               — <span x-text="filteredMethods(svc).length"></span>${S.methodCountSuffix}
@@ -183,7 +187,14 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                 :class="{ 'method-row-active': isMethodOpen(svc.name, m.name) }"
               >
                 <span class="method-name" @click="toggleMethod(svc.name, m.name, m)">
-                  <span @click.stop="copyMethodName(svc.name, m.name)" x-text="m.name"></span>
+                  <span x-text="m.name"></span>
+                  <span
+                    class="copy-icon"
+                    role="button"
+                    :title="$store.str.copy"
+                    x-show="!isMethodCopied(svc.name, m.name)"
+                    @click.stop="copyMethodName(svc.name, m.name)"
+                  >${COPY_ICON_SVG}</span>
                   <span x-show="isMethodCopied(svc.name, m.name)" class="copy-badge">${S.copiedBadge}</span>
                 </span>
                 <span x-show="m.responseStream" class="method-stream-badge">stream</span>
