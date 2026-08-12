@@ -15,6 +15,51 @@ export interface RunnerConfig {
 
 const DEFAULT_SERVER = 'localhost:50051';
 
+/** 目录扫描排除集:names 命中任一路径段,paths 命中规范化绝对路径自身或子目录。 */
+export interface ScanExcludes {
+  readonly names: ReadonlySet<string>;
+  readonly paths: readonly string[];
+}
+
+export const EMPTY_SCAN_EXCLUDES: ScanExcludes = { names: new Set(), paths: [] };
+
+/** win32 路径比较不分大小写;统一规范化为比较形态。 */
+function normalizeForCompare(p: string): string {
+  const n = path.normalize(p);
+  return process.platform === 'win32' ? n.toLowerCase() : n;
+}
+
+/**
+ * protoUtils.scan.excludeDirs → ScanExcludes。
+ * 条目三种形态:裸目录名(命中任一路径段,如 "out-vscode")、
+ * 含分隔符的相对路径(相对 workspace 根)、绝对路径。
+ */
+export function resolveScanExcludes(get: (key: string) => unknown, workspaceRoot: string | undefined): ScanExcludes {
+  const raw = get('scan.excludeDirs');
+  if (!Array.isArray(raw)) return EMPTY_SCAN_EXCLUDES;
+  const names = new Set<string>();
+  const paths: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'string') continue;
+    const v = item.trim();
+    if (!v) continue;
+    if (path.isAbsolute(v) || v.includes('/') || v.includes('\\')) {
+      paths.push(normalizeForCompare(path.isAbsolute(v) ? v : path.join(workspaceRoot ?? '', v)));
+    } else {
+      names.add(process.platform === 'win32' ? v.toLowerCase() : v);
+    }
+  }
+  return { names, paths };
+}
+
+/** 目录是否被排除:name 为当前路径段,fullPath 为该目录的绝对路径。 */
+export function isDirExcluded(name: string, fullPath: string, excludes: ScanExcludes): boolean {
+  const key = process.platform === 'win32' ? name.toLowerCase() : name;
+  if (excludes.names.has(key)) return true;
+  const full = normalizeForCompare(fullPath);
+  return excludes.paths.some((p) => full === p || full.startsWith(p + path.sep));
+}
+
 export function resolveRunnerConfig(
   get: (key: string) => unknown,
   workspaceRoot: string | undefined,

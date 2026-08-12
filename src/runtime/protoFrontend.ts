@@ -3,6 +3,7 @@ import path from 'node:path';
 import protobuf from 'protobufjs';
 
 import { readProtoFile } from './protoEncoding';
+import { EMPTY_SCAN_EXCLUDES, isDirExcluded, ScanExcludes } from '../runner/config';
 
 /**
  * 扫描时跳过的目录名(构建产物 + 历史约定)。
@@ -83,9 +84,14 @@ export function walkReflection(
 export class ProtoFrontend {
   private cached: { schema: ProtoSchema } | { error: ProtoLoadError } | null = null;
 
-  constructor(readonly includeDirs: string[]) {}
+  constructor(
+    readonly includeDirs: string[],
+    private readonly excludes: ScanExcludes = EMPTY_SCAN_EXCLUDES,
+  ) {}
 
   scan(): string[] {
+    // includeDirs 重叠(如 workspace 与其内的 protoDir)会产生重复绝对路径,去重防 self-conflict(0.3.13)
+    const seen = new Set<string>();
     const results: string[] = [];
     const walk = (dir: string): void => {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -93,12 +99,17 @@ export class ProtoFrontend {
         if (entry.isDirectory()) {
           if (
             !entry.name.startsWith('.') &&
-            !(SCAN_EXCLUDED_DIRS as readonly string[]).includes(entry.name)
+            !(SCAN_EXCLUDED_DIRS as readonly string[]).includes(entry.name) &&
+            !isDirExcluded(entry.name, full, this.excludes)
           ) {
             walk(full);
           }
         } else if (entry.name.endsWith('.proto')) {
-          results.push(full);
+          const key = process.platform === 'win32' ? full.toLowerCase() : full;
+          if (!seen.has(key)) {
+            seen.add(key);
+            results.push(full);
+          }
         }
       }
     };

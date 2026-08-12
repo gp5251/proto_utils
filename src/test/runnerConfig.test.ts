@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { resolveRunnerConfig } from '../runner/config';
+import { resolveRunnerConfig, resolveScanExcludes, isDirExcluded } from '../runner/config';
 
 const ROOT = path.resolve('/ws/root');
 
@@ -34,4 +34,25 @@ test('garbage values fall back to defaults', () => {
 test('no workspace folder and no protoDir configured → protoDir null', () => {
   const cfg = resolveRunnerConfig(() => undefined, undefined);
   assert.equal(cfg.protoDir, null);
+});
+
+test('scan.excludeDirs:裸名进 names,相对/绝对路径进 paths(规范化)', () => {
+  const abs = path.resolve('/elsewhere/protos');
+  const ex = resolveScanExcludes(
+    (k) => (k === 'scan.excludeDirs' ? ['out-vscode', 'src/third_party/protos', abs, '  ', 42] : undefined),
+    ROOT,
+  );
+  const nameKey = process.platform === 'win32' ? 'out-vscode' : 'out-vscode';
+  assert.ok(ex.names.has(nameKey));
+  assert.equal(ex.paths.length, 2);
+  assert.ok(isDirExcluded('out-vscode', path.join(ROOT, 'out-vscode'), ex));
+  assert.ok(isDirExcluded('protos', path.join(ROOT, 'src', 'third_party', 'protos'), ex));
+  assert.ok(isDirExcluded('deep', path.join(ROOT, 'src', 'third_party', 'protos', 'deep'), ex));
+  assert.ok(isDirExcluded('protos', abs, ex));
+  assert.ok(!isDirExcluded('common', path.join(ROOT, 'src', 'common'), ex));
+});
+
+test('scan.excludeDirs:非数组/空配置 → 空排除集', () => {
+  assert.equal(resolveScanExcludes(() => undefined, ROOT).names.size, 0);
+  assert.equal(resolveScanExcludes((k) => (k === 'scan.excludeDirs' ? 'out' : undefined), ROOT).paths.length, 0);
 });

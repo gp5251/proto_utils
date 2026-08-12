@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { FieldInfo, ServiceInfo } from './core/types';
 import { loadProtoDefinitions, resetProtoLoaderCache, scanProtoFiles } from './core/protoLoader';
+import { EMPTY_SCAN_EXCLUDES, ScanExcludes } from './config';
 import { flattenSchemaRows, SchemaRow } from './utils/schemaRows';
 
 /**
@@ -55,6 +56,8 @@ export class ServiceRegistry {
   private cached: ServicesLoadResult | null = null;
   private cachedDir: string | null = null;
 
+  constructor(private readonly excludes: ScanExcludes = EMPTY_SCAN_EXCLUDES) {}
+
   async load(protoDir: string): Promise<ServicesLoadResult> {
     if (this.cached && this.cachedDir === protoDir) {
       return this.cached;
@@ -67,7 +70,7 @@ export class ServiceRegistry {
     } else if (!fs.statSync(protoDir).isDirectory()) {
       errors.push(`protoDir 不是目录: ${protoDir}`);
     } else {
-      protoFiles = scanProtoFiles(protoDir);
+      protoFiles = scanProtoFiles(protoDir, this.excludes);
     }
 
     const result = loadProtoDefinitions(protoFiles, protoDir);

@@ -4,6 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import { ProtoFrontend, ProtoLoadError } from '../runtime/protoFrontend';
+import { resolveScanExcludes } from '../runner/config';
 
 const FIXTURE_DIR = path.resolve('testdata/frontend');
 
@@ -150,4 +151,18 @@ test('memoizes the error; a fixed file only loads after invalidate()', () => {
 
   frontend.invalidate();
   assert.ok(frontend.load().root.lookupType('Fixed'));
+});
+
+test('includeDirs 重叠(同一目录给两次)→ 扫描结果去重', () => {
+  const frontend = new ProtoFrontend([FIXTURE_DIR, FIXTURE_DIR]);
+  const files = frontend.scan();
+  assert.equal(files.length, new Set(files).size);
+  assert.ok(files.length >= 3); // base.proto + sub/acronym.proto + sub/user.proto
+});
+
+test('scan.excludeDirs:按目录名排除子树', () => {
+  const excludes = resolveScanExcludes((k) => (k === 'scan.excludeDirs' ? ['sub'] : undefined), FIXTURE_DIR);
+  const frontend = new ProtoFrontend([FIXTURE_DIR], excludes);
+  const files = frontend.scan();
+  assert.deepEqual(files.map((f) => path.basename(f)), ['base.proto']);
 });

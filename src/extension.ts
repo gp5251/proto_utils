@@ -5,7 +5,7 @@ import { ProtoSemanticTokensProvider, SEMANTIC_LEGEND } from './providers/semant
 import { ProtoCallLensProvider } from './providers/callLens';
 import { SymbolIndex } from './index/symbolIndex';
 import { ProtoFrontend, ProtoLoadError } from './runtime/protoFrontend';
-import { resolveRunnerConfig as resolveRunnerConfigPure } from './runner/config';
+import { resolveRunnerConfig as resolveRunnerConfigPure, resolveScanExcludes, ScanExcludes } from './runner/config';
 import { registerCodeGenCommand } from './codegen/command';
 import type { WorkbenchPanelManager } from './runner/webviewPanel';
 
@@ -18,16 +18,16 @@ export async function activate(context: vscode.ExtensionContext) {
   const workspaceDirs = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [];
   // 显式配置的 runner.protoDir 作为额外 includeDir:codegen 覆盖 workspace 之外的 proto;
   // 留空时 protoDir 回退 workspace 根,与工作区目录去重后不变(0.3.12)
-  const { protoDir } = resolveRunnerConfigPure(
-    (key) => vscode.workspace.getConfiguration('protoUtils').get(key),
-    workspaceDirs[0],
-  );
+  const getSetting = (key: string): unknown => vscode.workspace.getConfiguration('protoUtils').get(key);
+  const { protoDir } = resolveRunnerConfigPure(getSetting, workspaceDirs[0]);
+  // 用户配置的扫描排除目录,runner 与 codegen 共用(0.3.13)
+  const scanExcludes = resolveScanExcludes(getSetting, workspaceDirs[0]);
   const includeDirs = [...workspaceDirs];
   if (protoDir) {
     const target = path.resolve(protoDir).toLowerCase();
     if (!workspaceDirs.some((d) => path.resolve(d).toLowerCase() === target)) includeDirs.push(protoDir);
   }
-  const frontend = new ProtoFrontend(includeDirs);
+  const frontend = new ProtoFrontend(includeDirs, scanExcludes);
 
   const callLens = new ProtoCallLensProvider(index);
   context.subscriptions.push(
@@ -46,7 +46,7 @@ export async function activate(context: vscode.ExtensionContext) {
   registerCodeGenCommand(context, frontend);
 
   // ---- 调用面(懒加载:grpc-js/proto-loader 只在首次打开工作台时载入) ----
-  const workbench = new LazyWorkbench(context);
+  const workbench = new LazyWorkbench(context, scanExcludes);
   context.subscriptions.push(
     vscode.commands.registerCommand('protoUtils.openRpcRunner', () => void workbench.reveal()),
     vscode.commands.registerCommand('protoUtils.callMethod', (args: { service: string; method: string }) => {
@@ -110,7 +110,10 @@ function reportLoadError(diagnostics: vscode.DiagnosticCollection, err: unknown)
 class LazyWorkbench {
   private managerPromise: Promise<WorkbenchPanelManager> | null = null;
 
-  constructor(private readonly context: vscode.ExtensionContext) {}
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly scanExcludes: ScanExcludes,
+  ) {}
 
   async reveal(prefill?: { service: string; method: string }): Promise<void> {
     const manager = await this.getManager();
@@ -130,7 +133,7 @@ class LazyWorkbench {
       // (用户 spec 的懒加载约定);esbuild 对本路径 external,产物 out/runner/index.js 独立加载。
       // 必须带 .js:CJS 里的动态 import 走 ESM 解析器,无扩展名解析失败。
       const runner = await import('./runner/index.js');
-      const registry = new runner.ServiceRegistry();
+      const registry = new runner.ServiceRegistry(this.scanExcludes);
       const config = runner.resolveRunnerConfig();
       const deps = {
         registry,

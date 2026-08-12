@@ -7,15 +7,16 @@ import { buildProtoCommentIndex, lookupEnumValueComment, lookupFieldComment, Pro
 import { readProtoFile } from '../../runtime/protoEncoding';
 import { scanProto } from '../../index/scanner';
 import { SCAN_EXCLUDED_DIRS } from '../../runtime/protoFrontend';
+import { EMPTY_SCAN_EXCLUDES, isDirExcluded, ScanExcludes } from '../config';
 
-export function scanProtoFiles(protoDir: string): string[] {
+export function scanProtoFiles(protoDir: string, excludes: ScanExcludes = EMPTY_SCAN_EXCLUDES): string[] {
   if (!fs.existsSync(protoDir)) return [];
   const results: string[] = [];
-  walkDir(protoDir, results);
+  walkDir(protoDir, results, excludes);
   return results;
 }
 
-function walkDir(dir: string, results: string[]): void {
+function walkDir(dir: string, results: string[], excludes: ScanExcludes): void {
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -27,8 +28,14 @@ function walkDir(dir: string, results: string[]): void {
     if (entry.isDirectory()) {
       // 构建产物/历史约定目录必须排除(与 ProtoFrontend.scan 同一清单):
       // 扫进 out/ 等拷贝会让服务列表/诊断出现 duplicate name
-      if (entry.name.startsWith('.') || (SCAN_EXCLUDED_DIRS as readonly string[]).includes(entry.name)) continue;
-      walkDir(fullPath, results);
+      if (
+        entry.name.startsWith('.') ||
+        (SCAN_EXCLUDED_DIRS as readonly string[]).includes(entry.name) ||
+        isDirExcluded(entry.name, fullPath, excludes)
+      ) {
+        continue;
+      }
+      walkDir(fullPath, results, excludes);
     } else if (entry.name.endsWith('.proto')) {
       results.push(fullPath);
     }
