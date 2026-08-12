@@ -16,7 +16,7 @@ const SOURCE = [
   '}',
 ].join('\n');
 
-test('callable methods: unary + server-streaming, client-streaming excluded', () => {
+test('callable methods: all rpc methods incl. client-streaming (workbench disables send)', () => {
   const scanned = scanProto(SOURCE);
   const targets = callableMethods({ packageName: scanned.packageName, services: scanned.services });
   assert.deepEqual(
@@ -24,6 +24,7 @@ test('callable methods: unary + server-streaming, client-streaming excluded', ()
     [
       ['a.b.Greeter', 'SayHello'],
       ['a.b.Greeter', 'Subscribe'],
+      ['a.b.Greeter', 'Upload'],
       ['a.b.Other', 'Ping'],
     ],
   );

@@ -82,7 +82,7 @@ export interface User {
 
 ### 调用 RPC(RPC 工作台)
 
-在 `.proto` 文件中,每个一元或服务端流的 rpc 方法上方都会出现「▶ 调用」CodeLens。点击后 RPC 工作台打开并预选该方法;也可以通过命令面板运行 **Proto Utils: Open RPC Runner**,或右键 `.proto` 编辑器选择同名命令,手动选择服务和方法。
+在 `.proto` 文件中,每个 rpc 方法上方都会出现「▶ 调用」CodeLens。点击后 RPC 工作台打开并预选该方法;也可以通过命令面板运行 **Proto Utils: Open RPC Runner**,或右键 `.proto` 编辑器选择同名命令,手动选择服务和方法。
 
 - 表单按请求消息的字段 schema 自动生成,嵌套 message 以 JSON 编辑。
 - 一元调用在响应区展示结果;服务端流调用逐条追加响应,可随时取消。

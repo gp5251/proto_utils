@@ -3,8 +3,9 @@ import { SymbolIndex } from '../index/symbolIndex';
 import { Range, ServicePoint } from '../index/symbols';
 
 /**
- * CodeLens 入口(ADR-0006):每个可调用 rpc 方法上方渲染「▶ 调用」。
- * ADR-0007:只覆盖一元 + 服务端流;client/bidi 流方法(requestStream)不出 lens。
+ * CodeLens 入口(ADR-0006):每个 rpc 方法上方渲染「▶ 调用」。
+ * client/bidi 流方法(requestStream)也出 lens——工作台内发送按钮禁用并提示暂不支持,
+ * 比没有入口更能传达"方法存在但暂不可调"(ADR-0007 的调用面限制不变)。
  */
 
 export interface CallTarget {
@@ -20,7 +21,6 @@ export function callableMethods(entry: { packageName: string | null; services: S
   for (const service of entry.services) {
     const serviceFullName = entry.packageName ? `${entry.packageName}.${service.name}` : service.name;
     for (const method of service.methods) {
-      if (method.requestStream) continue;
       targets.push({ serviceFullName, method: method.name, range: method.range });
     }
   }
