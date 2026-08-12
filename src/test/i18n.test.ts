@@ -34,6 +34,11 @@ function extractL10nKeys(source: string): string[] {
   return keys;
 }
 
+test('package.json 声明 l10n 目录(缺失时 vscode.l10n 静默回退英文)', () => {
+  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { l10n?: string };
+  assert.equal(pkg.l10n, './l10n');
+});
+
 test('zh-cn 翻译包覆盖全部 l10n.t 源串且无滞留键', () => {
   const files: string[] = [];
   for (const dir of SRC_DIRS) collectSourceFiles(dir, files);
