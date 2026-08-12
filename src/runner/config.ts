@@ -11,6 +11,8 @@ export interface RunnerConfig {
   server: string;
   /** proto 目录绝对路径;无工作区且未配置时为 null(调用方负责报错提示) */
   protoDir: string | null;
+  /** runner.protoDir 是否被显式配置(非空);false 时 protoDir 为 workspace 回退值(0.3.14 起 codegen 依此决定扫描根) */
+  protoDirExplicit: boolean;
 }
 
 const DEFAULT_SERVER = 'localhost:50051';
@@ -76,5 +78,5 @@ export function resolveRunnerConfig(
     protoDir = path.isAbsolute(dir) ? path.normalize(dir) : path.join(workspaceRoot ?? '', dir);
   }
 
-  return { server, protoDir };
+  return { server, protoDir, protoDirExplicit: dir !== '' };
 }

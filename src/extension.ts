@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import path from 'node:path';
 import { ProtoDefinitionProvider } from './providers/definition';
 import { ProtoSemanticTokensProvider, SEMANTIC_LEGEND } from './providers/semanticTokens';
 import { ProtoCallLensProvider } from './providers/callLens';
@@ -16,17 +15,12 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push({ dispose: () => index.dispose() });
 
   const workspaceDirs = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [];
-  // 显式配置的 runner.protoDir 作为额外 includeDir:codegen 覆盖 workspace 之外的 proto;
-  // 留空时 protoDir 回退 workspace 根,与工作区目录去重后不变(0.3.12)
   const getSetting = (key: string): unknown => vscode.workspace.getConfiguration('protoUtils').get(key);
-  const { protoDir } = resolveRunnerConfigPure(getSetting, workspaceDirs[0]);
+  const { protoDir, protoDirExplicit } = resolveRunnerConfigPure(getSetting, workspaceDirs[0]);
   // 用户配置的扫描排除目录,runner 与 codegen 共用(0.3.13)
   const scanExcludes = resolveScanExcludes(getSetting, workspaceDirs[0]);
-  const includeDirs = [...workspaceDirs];
-  if (protoDir) {
-    const target = path.resolve(protoDir).toLowerCase();
-    if (!workspaceDirs.some((d) => path.resolve(d).toLowerCase() === target)) includeDirs.push(protoDir);
-  }
+  // codegen 扫描根:显式配置 runner.protoDir → 只扫 protoDir;留空 → 扫 workspace(0.3.14)
+  const includeDirs = protoDirExplicit && protoDir ? [protoDir] : workspaceDirs;
   const frontend = new ProtoFrontend(includeDirs, scanExcludes);
 
   const callLens = new ProtoCallLensProvider(index);

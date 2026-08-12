@@ -9,6 +9,7 @@ test('defaults: server localhost:50051, protoDir = workspace root', () => {
   const cfg = resolveRunnerConfig(() => undefined, ROOT);
   assert.equal(cfg.server, 'localhost:50051');
   assert.equal(cfg.protoDir, ROOT);
+  assert.equal(cfg.protoDirExplicit, false);
 });
 
 test('explicit values pass through; relative protoDir resolves against workspace root', () => {
@@ -16,6 +17,7 @@ test('explicit values pass through; relative protoDir resolves against workspace
   const cfg = resolveRunnerConfig((k) => values[k], ROOT);
   assert.equal(cfg.server, '10.0.0.1:9000');
   assert.equal(cfg.protoDir, path.join(ROOT, 'protos'));
+  assert.equal(cfg.protoDirExplicit, true);
 });
 
 test('absolute protoDir is used as-is', () => {
