@@ -87,6 +87,7 @@ export interface User {
 - 表单按请求消息的字段 schema 自动生成,嵌套 message 以 JSON 编辑。
 - 一元调用在响应区展示结果;服务端流调用逐条追加响应,可随时取消。
 - proto 文件变更(保存、外部修改)会自动刷新服务列表,不丢表单状态。
+- 搜索框为模糊匹配(子序列,大小写不敏感):`ldp` 可命中 `ExecuteOpenLDProg`;子串命中仍然有效。
 - client-streaming 与双向流暂不支持(见 `docs/adr/0007`)。
 
 工作台依赖的两个设置:

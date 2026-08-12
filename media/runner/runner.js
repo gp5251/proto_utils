@@ -29,6 +29,18 @@
     });
   }
 
+  // 模糊匹配:query 字符按序出现在 target 中即命中(子序列,大小写不敏感)。
+  // 子串命中是子序列的子集——替换 includes 不丢旧匹配,只多不少。
+  function fuzzyMatch(query, target) {
+    if (!query || !target) return !query;
+    var lower = target.toLowerCase();
+    var qi = 0;
+    for (var ti = 0; ti < lower.length && qi < query.length; ti++) {
+      if (lower[ti] === query[qi]) qi++;
+    }
+    return qi === query.length;
+  }
+
   // webview postMessage 走结构化克隆:Alpine 的响应式数据是 Proxy,直接发会
   // DataCloneError(调用卡死在发送中的根因)。所有出站消息一律先深克隆为纯对象。
   // 注意不能覆写 vscode.postMessage —— acquireVsCodeApi 返回的对象是只读的。
@@ -476,10 +488,10 @@
         var q = this.query.trim().toLowerCase();
         if (!q) return services;
         return services.filter(function (svc) {
-          if (svc.name.toLowerCase().includes(q)) return true;
-          if (svc.fullName && svc.fullName.toLowerCase().includes(q)) return true;
+          if (fuzzyMatch(q, svc.name)) return true;
+          if (svc.fullName && fuzzyMatch(q, svc.fullName)) return true;
           return svc.methods.some(function (m) {
-            return m.name.toLowerCase().includes(q);
+            return fuzzyMatch(q, m.name);
           });
         });
       },
@@ -487,10 +499,10 @@
       filteredMethods: function (svc) {
         var q = this.query.trim().toLowerCase();
         if (!q) return svc.methods;
-        if (svc.name.toLowerCase().includes(q)) return svc.methods;
-        if (svc.fullName && svc.fullName.toLowerCase().includes(q)) return svc.methods;
+        if (fuzzyMatch(q, svc.name)) return svc.methods;
+        if (svc.fullName && fuzzyMatch(q, svc.fullName)) return svc.methods;
         return svc.methods.filter(function (m) {
-          return m.name.toLowerCase().includes(q);
+          return fuzzyMatch(q, m.name);
         });
       },
 
