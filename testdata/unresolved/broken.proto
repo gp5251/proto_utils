@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package demo.v1;
+
+service Broken {
+  // 引用了不存在的类型:resolveAll 报 no such type,应在下一行行内飘红
+  rpc Do (demo.v1.MissingRequest) returns (OkResponse);
+}
+
+message OkResponse {
+  string id = 1;
+}

@@ -3,7 +3,8 @@ import { ProtoDefinitionProvider } from './providers/definition';
 import { ProtoSemanticTokensProvider, SEMANTIC_LEGEND } from './providers/semanticTokens';
 import { ProtoCallLensProvider } from './providers/callLens';
 import { SymbolIndex } from './index/symbolIndex';
-import { ProtoFrontend, ProtoLoadError } from './runtime/protoFrontend';
+import { ProtoFrontend } from './runtime/protoFrontend';
+import { clearLoadErrorState, reportLoadError } from './loadDiagnostics';
 import { resolveRunnerConfig as resolveRunnerConfigPure, resolveScanExcludes, ScanExcludes } from './runner/config';
 import { registerCodeGenCommand } from './codegen/command';
 import type { WorkbenchPanelManager } from './runner/webviewPanel';
@@ -72,32 +73,13 @@ export async function activate(context: vscode.ExtensionContext) {
         frontend.invalidate();
         try {
           frontend.load();
-          diagnostics.clear();
-          lastLoadErrorToast = null;
+          clearLoadErrorState(diagnostics);
         } catch (err) {
-          reportLoadError(diagnostics, err);
+          reportLoadError(diagnostics, frontend, err);
         }
       }, 300);
     }),
   );
-}
-
-/** 上一次弹过 toast 的加载错误;相同错误不重复弹(每次保存都失败会刷屏)。 */
-let lastLoadErrorToast: string | null = null;
-
-function reportLoadError(diagnostics: vscode.DiagnosticCollection, err: unknown): void {
-  diagnostics.clear();
-  if (!(err instanceof ProtoLoadError) || !err.file) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message === lastLoadErrorToast) return;
-    lastLoadErrorToast = message;
-    vscode.window.showErrorMessage(`Proto Utils: ${message}`);
-    return;
-  }
-  const line = Math.max(0, (err.line ?? 1) - 1);
-  const range = new vscode.Range(line, 0, line, Number.MAX_SAFE_INTEGER);
-  const diagnostic = new vscode.Diagnostic(range, err.message, vscode.DiagnosticSeverity.Error);
-  diagnostics.set(vscode.Uri.file(err.file), [diagnostic]);
 }
 
 /** 工作台单例的懒加载包装:首次使用时才 import ./runner/index,拖入 grpc 依赖 */

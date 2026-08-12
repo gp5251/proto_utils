@@ -20,6 +20,36 @@ export const l10n = {
 
 export const env = { language: 'en' };
 
+// 诊断测试最小实现:字段形状对齐 vscode(只读语义够用)
+export class Range {
+  constructor(
+    startLine: number,
+    startCharacter: number,
+    endLine: number,
+    endCharacter: number,
+  ) {
+    this.start = { line: startLine, character: startCharacter };
+    this.end = { line: endLine, character: endCharacter };
+  }
+  readonly start: { line: number; character: number };
+  readonly end: { line: number; character: number };
+}
+
+export const DiagnosticSeverity = { Error: 0, Warning: 1, Information: 2, Hint: 3 } as const;
+
+export class Diagnostic {
+  constructor(
+    readonly range: Range,
+    readonly message: string,
+    readonly severity: number = 0,
+  ) {}
+}
+
+export const window = {
+  showErrorMessage: () => Promise.resolve(undefined),
+  showInformationMessage: () => Promise.resolve(undefined),
+};
+
 let corpusRoot = '';
 export function setCorpusRoot(dir: string): void {
   corpusRoot = dir;
