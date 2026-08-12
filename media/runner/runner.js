@@ -65,16 +65,33 @@
     store.services = Array.isArray(payload) ? payload : [];
     store.errors = [];
     store.state = 'ready';
+    endRefresh(store, '已刷新 · ' + store.services.length + ' 个服务');
     tryApplyPrefill();
   }
 
   function applyLoadError(errors) {
     var store = workbenchStore();
     store.errors = Array.isArray(errors) ? errors : [String(errors)];
+    endRefresh(store, '已刷新 · ' + store.services.length + ' 个服务 · ' + store.errors.length + ' 条解析错误');
     // 致命错误时 services 不会再来,停掉 loading 让错误卡片 + 空态可见
     if (store.services.length === 0) {
       store.state = 'ready';
     }
+  }
+
+  // 刷新反馈:完成提示短暂显示后自动消失;后到的提示覆盖先到的
+  var noticeTimer = 0;
+  function endRefresh(store, notice) {
+    if (!store.refreshing) {
+      return; // 非刷新触发(初次加载/watcher 自动刷新)不打扰
+    }
+    store.refreshing = false;
+    store.refreshNotice = notice;
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(function () {
+      store.refreshNotice = '';
+      noticeTimer = 0;
+    }, 2500);
   }
 
   function tryApplyPrefill() {
@@ -86,8 +103,14 @@
     }
   }
 
-  // 顶栏「刷新」按钮(x-data 作用域外的全局入口)
+  // 顶栏「刷新」按钮(x-data 作用域外的全局入口);进行中防抖,完成提示由 endRefresh 落地
   window.postRefresh = function () {
+    var store = workbenchStore();
+    if (store.refreshing) {
+      return;
+    }
+    store.refreshing = true;
+    store.refreshNotice = '';
     sendMessage({ type: 'refresh' });
   };
 
@@ -99,6 +122,8 @@
       errors: [],
       server: typeof boot.server === 'string' ? boot.server : '',
       protoDir: typeof boot.protoDir === 'string' ? boot.protoDir : '',
+      refreshing: false,
+      refreshNotice: '',
     });
 
     // @alpinejs/csp 不回退全局作用域,组件必须经 Alpine.data 注册(标准版 Alpine 才能用 window.homePage)
