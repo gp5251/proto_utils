@@ -59,7 +59,6 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
 </head>
 <body>
   <div class="topbar">
-    <div class="topbar-brand">RPC 工作台</div>
     <div class="topbar-search" x-data x-cloak>
       <input
         type="search"
