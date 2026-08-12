@@ -15,7 +15,7 @@
   "Service \"{0}\" not found in proto definitions": "在 proto 定义中找不到服务 \"{0}\"",
   "Method \"{0}\" not found. Available: {1}": "找不到方法 \"{0}\"。可用:{1}",
   "Search services or methods...": "搜索服务或方法...",
-  "gRPC Services": "gRPC 服务",
+  "RPC Services": "RPC 服务",
   "Refresh": "刷新",
   "Refreshing…": "刷新中…",
   "Parsing proto files…": "正在解析 proto 文件…",

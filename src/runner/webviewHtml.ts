@@ -39,7 +39,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
   const S = {
     title: l10n.t('RPC Workbench'),
     searchPlaceholder: l10n.t('Search services or methods...'),
-    heading: l10n.t('gRPC Services'),
+    heading: l10n.t('RPC Services'),
     refresh: l10n.t('Refresh'),
     refreshing: l10n.t('Refreshing…'),
     loadingTitle: l10n.t('Parsing proto files…'),
