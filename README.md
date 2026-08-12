@@ -8,7 +8,9 @@
 - 区分内置标量类型和自定义类型
 - 支持同文件、导入文件和 package 命名空间中的类型定义跳转
 - 将 `message`、`enum`、`repeated`、`map` 和 `oneof` 生成为 TypeScript 类型
-- 根据多个 `.proto` 文件之间的类型引用生成 TypeScript `import type`
+- 将 `service` 生成为客户端调用接口(`<Name>Client`,流式方向用 `AsyncIterable` 表达)
+- 根据多个 `.proto` 文件之间的类型引用生成 TypeScript `import type`(默认带 `.ts` 后缀;跨模块同名类型自动取别名,避免重复标识符)
+- 单文件生成或一键全量生成全部 proto
 - 在 rpc 方法上方提供「▶ 调用」CodeLens,一键打开 RPC 工作台并预选方法
 - RPC 工作台:按 proto schema 自动生成请求表单,发起一元与服务端流调用,查看响应
 - 保存 `.proto` 文件时报告语法错误诊断
@@ -30,10 +32,10 @@
 
 可以通过以下任一方式生成类型：
 
-1. 在编辑器或资源管理器中右键点击 `.proto` 文件，然后选择 **Proto Utils: Generate TypeScript Types**。
-2. 打开命令面板，运行 **Proto Utils: Generate TypeScript Types**。使用命令面板时，应先打开目标 `.proto` 文件。
+1. 在编辑器或资源管理器中右键点击 `.proto` 文件，选择 **Proto Utils: Generate TypeScript Types**（仅当前文件）或 **Proto Utils: Generate TypeScript Types (All Protos)**（全部 proto，含跨文件 import 目标）。
+2. 打开命令面板运行同名命令。使用命令面板的单文件命令时，应先打开目标 `.proto` 文件。
 
-默认情况下，生成文件写入工作区的 `generated/` 目录。若 Proto 文件包含：
+默认情况下，生成文件写入工作区的 `generated/` 目录。若 Proto 文件为 `protos/account/user.proto`（且 proto 都在 `protos/` 下）：
 
 ```proto
 syntax = "proto3";
@@ -46,10 +48,10 @@ message User {
 }
 ```
 
-默认输出路径为：
+默认(`pathMapping: "file"`)输出路径为：
 
 ```text
-generated/account/profile.ts
+generated/user.ts
 ```
 
 生成内容类似：
@@ -65,6 +67,19 @@ export interface User {
 
 每次执行生成命令都会覆盖对应的输出文件，请勿手动修改生成文件。
 
+#### service 生成客户端调用接口
+
+每个 `service` 生成一个 `<Name>Client` 接口,方法签名的请求/响应类型按流式方向推导:
+
+| RPC 形态 | 生成的签名 |
+| --- | --- |
+| 一元 | `(request: Req) => Promise<Resp>` |
+| 服务端流 | `(request: Req) => AsyncIterable<Resp>` |
+| 客户端流 | `(request: AsyncIterable<Req>) => Promise<Resp>` |
+| 双向流 | `(request: AsyncIterable<Req>) => AsyncIterable<Resp>` |
+
+跨文件的请求/响应类型自动生成 `import type`(默认带 `.ts` 后缀,可用 `protoUtils.codeGen.importExtension` 关闭);不同模块的同名类型(如两处 `ResponseStatus`)会自动按路径取确定性别名,避免重复标识符报错。
+
 ### 调用 RPC(RPC 工作台)
 
 在 `.proto` 文件中,每个一元或服务端流的 rpc 方法上方都会出现「▶ 调用」CodeLens。点击后 RPC 工作台打开并预选该方法;也可以通过命令面板运行 **Proto Utils: Open RPC Runner**,或右键 `.proto` 编辑器选择同名命令,手动选择服务和方法。
@@ -79,7 +94,7 @@ export interface User {
 | 配置项 | 默认值 | 作用 |
 | --- | --- | --- |
 | `protoUtils.runner.server` | `"localhost:50051"` | gRPC 服务器地址(host:port) |
-| `protoUtils.runner.protoDir` | `""` | proto 目录,**必须指向 .proto 文件所在目录本身**(import 相对它解析,指到父目录会导致跨文件类型解析失败);空 = 工作区根;相对路径相对 workspace folder 解析 |
+| `protoUtils.runner.protoDir` | `""` | proto 目录,**必须指向 .proto 文件所在目录本身**(import 相对它解析,指到父目录会导致跨文件类型解析失败);空 = 工作区根;相对路径相对 workspace folder 解析。**显式配置后,代码生成也只扫描该目录**(不再扫工作区) |
 
 **从 rpc_runner 迁移**:把 `rpc.config.json` 里的 `server` 与 `protoDir` 两个值抄到上述 VS Code 设置即可。`port` 与 `generatedDir` 已删除(不再有 HTTP 服务与 proto-loader-gen-types 生成)。工作台与 gRPC 依赖(@grpc/grpc-js)采用懒加载,只在首次打开工作台时载入,不影响编辑功能激活速度。
 
@@ -96,8 +111,10 @@ export interface User {
 | `protoUtils.codeGen.optionalMessageFields` | `boolean` | `true` | 是否为非 repeated 的 message 类型字段添加 `?` |
 | `protoUtils.codeGen.optionalScalarFields` | `boolean` | `false` | 是否为标量字段添加 `?` |
 | `protoUtils.codeGen.fieldNaming` | `"camelCase"` \| `"preserve"` | `"camelCase"` | 将字段名转换为 camelCase，或保留 Proto 原始名称 |
-| `protoUtils.codeGen.pathMapping` | `"package"` \| `"file"` | `"package"` | 根据 Proto package 或源文件相对路径确定输出路径 |
+| `protoUtils.codeGen.pathMapping` | `"file"` \| `"package"` | `"file"` | 输出路径映射:相对 proto 公共根镜像目录结构,或按 package 语句 |
+| `protoUtils.codeGen.importExtension` | `"ts"` \| `"none"` | `"ts"` | 生成的 import 路径是否带 `.ts` 后缀 |
 | `protoUtils.codeGen.oneofStyle` | `"optional"` \| `"union"` | `"optional"` | 将 oneof 生成为可选字段或互斥联合类型 |
+| `protoUtils.scan.excludeDirs` | `string[]` | `[]` | 扫描 proto 时额外跳过的目录(runner 与代码生成共用);条目为目录名、workspace 相对路径或绝对路径 |
 
 示例配置：
 
@@ -108,14 +125,23 @@ export interface User {
   "protoUtils.codeGen.optionalMessageFields": true,
   "protoUtils.codeGen.optionalScalarFields": false,
   "protoUtils.codeGen.fieldNaming": "camelCase",
-  "protoUtils.codeGen.pathMapping": "package",
-  "protoUtils.codeGen.oneofStyle": "union"
+  "protoUtils.codeGen.pathMapping": "file",
+  "protoUtils.codeGen.importExtension": "ts",
+  "protoUtils.codeGen.oneofStyle": "union",
+  "protoUtils.scan.excludeDirs": ["third_party"]
 }
 ```
 
 ### 输出路径映射
 
-使用 `"package"` 时，插件优先根据 package 生成路径：
+默认 `"file"` 模式:先取所有 proto 文件的最长公共目录作为根,输出保留相对该根的目录结构。proto 全部平级时输出就是平铺:
+
+```text
+protos/user.proto                    → <outputDir>/user.ts            (所有 proto 平级位于 protos/)
+protos/account/admin/x.proto         → <outputDir>/account/admin/x.ts  (公共根为 protos/ 时保留子结构)
+```
+
+使用 `"package"` 时，插件根据 package 语句生成路径：
 
 ```proto
 package my.service;
@@ -127,19 +153,7 @@ package my.service;
 <outputDir>/my/service.ts
 ```
 
-如果文件没有 package，则回退到源文件相对于工作区根目录的路径。
-
-使用 `"file"` 时，插件保留源文件相对于工作区根目录的路径，并将 `.proto` 替换为 `.ts`。例如：
-
-```text
-protos/account/user.proto
-```
-
-对应：
-
-```text
-<outputDir>/protos/account/user.ts
-```
+如果文件没有 package，则回退到 `"file"` 模式的路径规则。
 
 ## 类型映射
 
@@ -154,4 +168,5 @@ protos/account/user.proto
 | `map<K, V>` | `Record<K, V>` |
 | `message` | `interface` |
 | `enum` | `enum` 或字符串字面量联合类型 |
+| `service` | `<Name>Client` 调用接口(见「service 生成客户端调用接口」) |
 
