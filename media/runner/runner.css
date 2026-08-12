@@ -37,20 +37,21 @@ body {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   height: 48px;
-  display: grid;
-  grid-template-columns: minmax(0, 960px) 1fr;
+  display: flex;
+  justify-content: center;
   align-items: center;
-  gap: 24px;
   padding: 0 24px;
   position: sticky;
   top: 0;
   z-index: 10;
 }
-.topbar-meta { font-size: 12px; color: var(--text-dim); display: flex; gap: 16px; align-items: center; justify-content: flex-end; }
-.topbar-meta span { display: flex; align-items: center; gap: 5px; }
+.page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; gap: 16px; }
+.page-header .page-title { margin-bottom: 0; }
+.page-meta { font-size: 12px; color: var(--text-dim); display: flex; gap: 16px; align-items: center; justify-content: flex-end; }
+.page-meta span { display: flex; align-items: center; gap: 5px; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); display: inline-block; }
 
-.topbar-search { max-width: 100%; }
+.topbar-search { flex: 0 1 960px; max-width: 100%; }
 .topbar-search input {
   width: 100%;
   padding: 6px 12px;

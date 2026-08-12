@@ -67,13 +67,15 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
         autocomplete="off"
       >
     </div>
-    <div class="topbar-meta" x-data x-cloak>
-      <span><span class="dot"></span><span x-text="$store.workbench.server"></span></span>
-      <button type="button" class="btn btn-secondary btn-xs" @click="postRefresh()">刷新</button>
-    </div>
   </div>
   <div class="container" x-data="homePage" x-cloak>
-    <h1 class="page-title">gRPC 服务</h1>
+    <div class="page-header">
+      <h1 class="page-title">gRPC 服务</h1>
+      <div class="page-meta" x-data x-cloak>
+        <span><span class="dot"></span><span x-text="$store.workbench.server"></span></span>
+        <button type="button" class="btn btn-secondary btn-xs" @click="postRefresh()">刷新</button>
+      </div>
+    </div>
 
     <div class="card" id="proto-loading-card" x-show="$store.workbench.state === 'loading'">
       <div class="card-title"><span><span class="proto-loading-spinner"></span>正在解析 proto 文件…</span></div>
