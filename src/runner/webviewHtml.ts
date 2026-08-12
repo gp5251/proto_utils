@@ -71,9 +71,9 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
   <div class="container" x-data="homePage" x-cloak>
     <div class="page-header">
       <h1 class="page-title">gRPC 服务</h1>
-      <div class="page-meta" x-data x-cloak>
+      <div class="page-meta" x-data="pageMeta" x-cloak>
         <span><span class="dot"></span><span x-text="$store.workbench.server"></span></span>
-        <button type="button" class="btn btn-secondary btn-xs" :disabled="$store.workbench.refreshing" @click="postRefresh()">
+        <button type="button" class="btn btn-secondary btn-xs" :disabled="$store.workbench.refreshing" @click="refresh()">
           <span x-show="!$store.workbench.refreshing">刷新</span>
           <span x-show="$store.workbench.refreshing"><span class="proto-loading-spinner"></span>刷新中…</span>
         </button>

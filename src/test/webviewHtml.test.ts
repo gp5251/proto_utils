@@ -126,7 +126,10 @@ test('空态:未找到服务与无匹配结果两种标记', () => {
 test('交互结构:搜索、刷新按钮、流式徽标、取消按钮、prefill 锚点 id', () => {
   const html = render();
   assert.ok(html.includes('x-model="$store.search.query"'));
-  assert.ok(html.includes('postRefresh()'));
+  // 刷新走 Alpine.data 组件方法(csp Alpine 见不到 window 全局,postRefresh 入口已移除)
+  assert.ok(html.includes('x-data="pageMeta"'));
+  assert.ok(html.includes('@click="refresh()"'));
+  assert.ok(html.includes("$store.workbench.refreshing"));
   assert.ok(html.includes('method-stream-badge'));
   assert.ok(html.includes('cancelStream(svc.name, m.name)'));
   assert.ok(html.includes(":id=\"'method-' + svc.name + '-' + m.name\""));

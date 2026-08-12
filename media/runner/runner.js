@@ -103,17 +103,6 @@
     }
   }
 
-  // 顶栏「刷新」按钮(x-data 作用域外的全局入口);进行中防抖,完成提示由 endRefresh 落地
-  window.postRefresh = function () {
-    var store = workbenchStore();
-    if (store.refreshing) {
-      return;
-    }
-    store.refreshing = true;
-    store.refreshNotice = '';
-    sendMessage({ type: 'refresh' });
-  };
-
   document.addEventListener('alpine:init', function () {
     Alpine.store('search', { query: '' });
     Alpine.store('workbench', {
@@ -124,6 +113,22 @@
       protoDir: typeof boot.protoDir === 'string' ? boot.protoDir : '',
       refreshing: false,
       refreshNotice: '',
+    });
+
+    // 顶栏刷新区:@alpinejs/csp 表达式见不到 window 全局(0.3.19 前的 postRefresh 全局入口因此从未生效),
+    // 与 homePage 同约定,组件经 Alpine.data 注册,方法体可自由访问 window
+    Alpine.data('pageMeta', function () {
+      return {
+        refresh() {
+          var store = workbenchStore();
+          if (store.refreshing) {
+            return;
+          }
+          store.refreshing = true;
+          store.refreshNotice = '';
+          sendMessage({ type: 'refresh' });
+        },
+      };
     });
 
     // @alpinejs/csp 不回退全局作用域,组件必须经 Alpine.data 注册(标准版 Alpine 才能用 window.homePage)
