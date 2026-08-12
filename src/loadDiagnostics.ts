@@ -36,43 +36,47 @@ export function clearLoadErrorState(diagnostics: vscode.DiagnosticCollection): v
   lastLoadErrorToast = null;
 }
 
-/** 匹配 protobufjs resolveAll 的 "no such type: <as-written>"(可含限定路径,取末段做词边界反查)。 */
-const NO_SUCH_TYPE_RE = /\bno such type:\s*([\w.]+)/;
+/** 匹配 protobufjs resolve 的 "no such type/name: <as-written>"(全局:合并消息一次含多条)。 */
+const NO_SUCH_TYPE_RE = /\bno such (?:type|name):\s*([\w.]+)/g;
 
 function reportUnresolvedTypeRefs(
   diagnostics: vscode.DiagnosticCollection,
   frontend: ProtoFrontend,
   message: string,
 ): boolean {
-  const m = NO_SUCH_TYPE_RE.exec(message);
-  if (!m) return false;
-  const shortName = m[1].slice(m[1].lastIndexOf('.') + 1);
-  const refRe = new RegExp(`\\b${shortName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
+  const shortNames = new Set<string>();
+  for (const m of message.matchAll(NO_SUCH_TYPE_RE)) {
+    shortNames.add(m[1].slice(m[1].lastIndexOf('.') + 1));
+  }
+  if (shortNames.size === 0) return false;
   let found = false;
-  for (const file of frontend.scan()) {
-    const text = fs.readFileSync(file, 'utf8');
-    const lineStarts: number[] = [0];
-    for (let i = 0; i < text.length; i++) {
-      if (text.charCodeAt(i) === 10) lineStarts.push(i + 1);
-    }
-    const diags: vscode.Diagnostic[] = [];
-    refRe.lastIndex = 0;
-    let hit: RegExpExecArray | null;
-    while ((hit = refRe.exec(text))) {
-      let lo = 0;
-      let hi = lineStarts.length - 1;
-      while (lo < hi) {
-        const mid = (lo + hi + 1) >> 1;
-        if (lineStarts[mid] <= hit.index) lo = mid;
-        else hi = mid - 1;
+  for (const shortName of shortNames) {
+    const refRe = new RegExp(`\\b${shortName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
+    for (const file of frontend.scan()) {
+      const text = fs.readFileSync(file, 'utf8');
+      const lineStarts: number[] = [0];
+      for (let i = 0; i < text.length; i++) {
+        if (text.charCodeAt(i) === 10) lineStarts.push(i + 1);
       }
-      const col = hit.index - lineStarts[lo];
-      const range = new vscode.Range(lo, col, lo, col + shortName.length);
-      diags.push(new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Error));
-    }
-    if (diags.length > 0) {
-      diagnostics.set(vscode.Uri.file(file), diags);
-      found = true;
+      const diags = [...(diagnostics.get?.(vscode.Uri.file(file)) ?? [])];
+      refRe.lastIndex = 0;
+      let hit: RegExpExecArray | null;
+      while ((hit = refRe.exec(text))) {
+        let lo = 0;
+        let hi = lineStarts.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi + 1) >> 1;
+          if (lineStarts[mid] <= hit.index) lo = mid;
+          else hi = mid - 1;
+        }
+        const col = hit.index - lineStarts[lo];
+        const range = new vscode.Range(lo, col, lo, col + shortName.length);
+        diags.push(new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Error));
+      }
+      if (diags.length > 0) {
+        diagnostics.set(vscode.Uri.file(file), diags);
+        found = true;
+      }
     }
   }
   return found;

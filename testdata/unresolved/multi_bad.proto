@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package demo.v2;
+
+service MultiBad {
+  rpc First (demo.v2.MissingAlpha) returns (OkReply);
+  rpc Second (demo.v2.MissingBeta) returns (OkReply);
+}
+
+message OkReply {
+  string id = 1;
+}

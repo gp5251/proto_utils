@@ -138,6 +138,26 @@ export class ProtoFrontend {
     const files = this.scan();
     const loaded = new Set<string>();
     for (const file of files) this.loadInto(root, file, false, loaded);
+
+    // resolveAll 遇首个未解析类型即抛(级联报错)——逐 Field/Method 单独 resolve
+    // 收集全部失败一次报齐,诊断平面才能把每一处坏引用都飘红。
+    // 注意 Field/Method 不在 nestedArray(分挂 fieldsArray/methodsArray),walkReflection 走不到。
+    const resolutionErrors = new Set<string>();
+    const tryResolve = (obj: protobuf.Field | protobuf.Method): void => {
+      try {
+        obj.resolve();
+      } catch (err) {
+        resolutionErrors.add(err instanceof Error ? err.message : String(err));
+      }
+    };
+    walkReflection(root, (obj) => {
+      if (obj instanceof protobuf.Type) {
+        for (const field of obj.fieldsArray) tryResolve(field);
+      } else if (obj instanceof protobuf.Service) {
+        for (const method of obj.methodsArray) tryResolve(method);
+      }
+    });
+    if (resolutionErrors.size > 0) throw new Error([...resolutionErrors].join('\n'));
     root.resolveAll();
 
     const declarations = new Map<string, string>();

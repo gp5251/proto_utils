@@ -15,6 +15,9 @@ class FakeDiagnostics {
   clear(): void {
     this.calls.clear();
   }
+  get(uri: vscode.Uri): vscode.Diagnostic[] | undefined {
+    return this.calls.get(uri.fsPath);
+  }
   set(uri: vscode.Uri, diags: vscode.Diagnostic[]): void {
     this.calls.set(uri.fsPath, diags);
   }
@@ -44,6 +47,29 @@ test('no such type:引用处精确飘红(file/line/col),不弹 toast', () => {
   assert.equal(d.range.start.line, 6);
   assert.equal(d.range.start.character, '  rpc Do (demo.v1.'.length);
   assert.equal(d.range.end.character, '  rpc Do (demo.v1.'.length + 'MissingRequest'.length);
+});
+
+test('多个缺失类型一次报齐(resolveAll 级联报错已修)', () => {
+  const frontend = new ProtoFrontend([FIXTURE_DIR]);
+  let err: unknown;
+  try {
+    frontend.load();
+  } catch (e) {
+    err = e;
+  }
+  assert.ok(err instanceof Error);
+  // 合并消息应同时含两个缺失类型名
+  assert.match(err.message, /MissingAlpha/);
+  assert.match(err.message, /MissingBeta/);
+
+  const fake = new FakeDiagnostics();
+  reportLoadError(fake as unknown as vscode.DiagnosticCollection, frontend, err);
+
+  const file = path.join(FIXTURE_DIR, 'multi_bad.proto');
+  const diags = fake.calls.get(file);
+  assert.ok(diags && diags.length === 2, 'multi_bad.proto 应有 2 处诊断');
+  assert.equal(diags[0].range.start.line, 5);
+  assert.equal(diags[1].range.start.line, 6);
 });
 
 test('定位不到引用的错误仍退回 toast 分支(不产生诊断)', () => {
