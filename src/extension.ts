@@ -33,7 +33,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // 全量索引后台跑,不阻塞激活:打开文档的 lens/跳转/高亮由各 provider 的
   // updateFromDocument 就地索引(立即可用);全量只服务跨文件解析,完成后刷新 lens。
   void vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Window, title: 'Proto Utils: 正在索引 proto 文件…' },
+    { location: vscode.ProgressLocation.Window, title: vscode.l10n.t('Proto Utils: Indexing proto files…') },
     () => index.build().then(() => callLens.refresh()),
   );
 

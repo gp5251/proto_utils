@@ -51,7 +51,7 @@ export class ProtoCallLensProvider implements vscode.CodeLensProvider {
         target.range.end.character,
       );
       return new vscode.CodeLens(range, {
-        title: `▶ 调用 ${target.method}`,
+        title: `▶ ${vscode.l10n.t('Call')} ${target.method}`,
         command: 'protoUtils.callMethod',
         arguments: [{ service: target.serviceFullName, method: target.method }],
       });

@@ -51,7 +51,7 @@ test('asWebviewUri 资源(样式 + formMapping.js + runner.js + alpine)均出现
 test('双模式编辑器锚点:Tab 条/json-editor/sendFromEditor/formMapping 先于 runner.js 加载', () => {
   const html = render();
   assert.ok(html.includes('class="editor-tabs"'));
-  assert.ok(html.includes('>表单</button>'));
+  assert.ok(html.includes('>Form</button>'));
   assert.ok(html.includes('>JSON</button>'));
   assert.ok(html.includes('class="json-editor"'));
   assert.ok(html.includes('class="json-error"'));
@@ -106,20 +106,20 @@ test('loading 态:加载卡片与 spinner 标记', () => {
   const html = render();
   assert.ok(html.includes('id="proto-loading-card"'));
   assert.ok(html.includes('proto-loading-spinner'));
-  assert.ok(html.includes('正在解析 proto 文件'));
+  assert.ok(html.includes('Parsing proto files'));
 });
 
 test('错误态:错误卡片标记与 errors 渲染', () => {
   const html = render();
   assert.ok(html.includes('id="proto-error-card"'));
-  assert.ok(html.includes('Proto 加载错误'));
+  assert.ok(html.includes('Proto Load Errors'));
   assert.ok(html.includes('$store.workbench.errors'));
 });
 
 test('空态:未找到服务与无匹配结果两种标记', () => {
   const html = render();
-  assert.ok(html.includes('未找到服务'));
-  assert.ok(html.includes('无匹配结果'));
+  assert.ok(html.includes('No services found'));
+  assert.ok(html.includes('No matching results'));
   assert.ok(html.includes('empty-state'));
 });
 

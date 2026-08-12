@@ -10,6 +10,25 @@
   var vscode = acquireVsCodeApi();
   var boot = window.__PROTO_UTILS_BOOT__ || {};
 
+  // UI 文案:host 在 boot.strings 里按显示语言下发,缺键回退英文默认;{name} 占位符运行时替换。
+  var STRING_DEFAULTS = {
+    copy: 'Copy',
+    copied: 'Copied',
+    refreshed: 'Refreshed · {count} services',
+    refreshedErrors: 'Refreshed · {count} services · {errors} parse errors',
+    chunkCount: '{count} messages',
+    ignored: 'Ignored: {fields}',
+  };
+
+  function str(key, vars) {
+    var store = typeof Alpine !== 'undefined' ? Alpine.store('str') : null;
+    var template = (store && store[key]) || STRING_DEFAULTS[key] || key;
+    if (!vars) return template;
+    return template.replace(/\{(\w+)\}/g, function (_, k) {
+      return vars[k] != null ? String(vars[k]) : '';
+    });
+  }
+
   // webview postMessage 走结构化克隆:Alpine 的响应式数据是 Proxy,直接发会
   // DataCloneError(调用卡死在发送中的根因)。所有出站消息一律先深克隆为纯对象。
   // 注意不能覆写 vscode.postMessage —— acquireVsCodeApi 返回的对象是只读的。
@@ -65,14 +84,14 @@
     store.services = Array.isArray(payload) ? payload : [];
     store.errors = [];
     store.state = 'ready';
-    endRefresh(store, '已刷新 · ' + store.services.length + ' 个服务');
+    endRefresh(store, str('refreshed', { count: store.services.length }));
     tryApplyPrefill();
   }
 
   function applyLoadError(errors) {
     var store = workbenchStore();
     store.errors = Array.isArray(errors) ? errors : [String(errors)];
-    endRefresh(store, '已刷新 · ' + store.services.length + ' 个服务 · ' + store.errors.length + ' 条解析错误');
+    endRefresh(store, str('refreshedErrors', { count: store.services.length, errors: store.errors.length }));
     // 致命错误时 services 不会再来,停掉 loading 让错误卡片 + 空态可见
     if (store.services.length === 0) {
       store.state = 'ready';
@@ -105,6 +124,7 @@
 
   document.addEventListener('alpine:init', function () {
     Alpine.store('search', { query: '' });
+    Alpine.store('str', boot.strings && typeof boot.strings === 'object' ? boot.strings : {});
     Alpine.store('workbench', {
       state: Array.isArray(boot.services) ? 'ready' : 'loading',
       services: Array.isArray(boot.services) ? boot.services : [],
@@ -225,7 +245,7 @@
 
       streamChunkCountText: function (svcName, methodName) {
         var s = this.getStream(svcName, methodName);
-        return ((s && s.chunks && s.chunks.length) || 0) + ' 条消息';
+        return str('chunkCount', { count: (s && s.chunks && s.chunks.length) || 0 });
       },
 
       setLoading: function (key, value) {
@@ -399,7 +419,7 @@
       },
 
       jsonWarningText: function (key) {
-        return '已忽略：' + (this.jsonWarnings[key] || []).join(', ');
+        return str('ignored', { fields: (this.jsonWarnings[key] || []).join(', ') });
       },
 
       setEditorMode: function (key, mode, method) {

@@ -24,7 +24,7 @@ test('registry reports a clear error when protoDir is a file, not a directory', 
   const registry = new ServiceRegistry();
   const { services, errors } = await registry.load(path.join(RUNNER_DIR, 'dup_a.proto'));
   assert.deepEqual(services, []);
-  assert.ok(errors.some((e) => e.includes('不是目录')));
+  assert.ok(errors.some((e) => e.includes('is not a directory')));
 });
 
 test('loadProtoDefinitions extracts services, methods and ADR-0007 stream flags', () => {

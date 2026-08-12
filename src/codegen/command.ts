@@ -22,7 +22,9 @@ export function registerCodeGenCommand(
     } catch (err) {
       if (err instanceof ProtoLoadError) {
         const where = err.file ? ` (${err.file}${err.line ? `:${err.line}` : ''})` : '';
-        vscode.window.showErrorMessage(`Proto Utils: Failed to parse proto files${where}: ${err.message}`);
+        vscode.window.showErrorMessage(
+          vscode.l10n.t('Proto Utils: Failed to parse proto files{0}: {1}', where, err.message),
+        );
         return null;
       }
       throw err;
@@ -48,13 +50,13 @@ export function registerCodeGenCommand(
     // Resolve target file: explorer context passes uri, editor context uses active editor
     const targetUri = uri ?? vscode.window.activeTextEditor?.document.uri;
     if (!targetUri) {
-      vscode.window.showErrorMessage('Proto Utils: No .proto file selected.');
+      vscode.window.showErrorMessage(vscode.l10n.t('Proto Utils: No .proto file selected.'));
       return;
     }
 
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
-      vscode.window.showErrorMessage('Proto Utils: No workspace folder open.');
+      vscode.window.showErrorMessage(vscode.l10n.t('Proto Utils: No workspace folder open.'));
       return;
     }
 
@@ -63,26 +65,32 @@ export function registerCodeGenCommand(
 
     const filePath = targetUri.fsPath;
     if (!schemaHasFile(schema, filePath)) {
-      vscode.window.showErrorMessage('Proto Utils: File is not under the configured proto include dirs.');
+      vscode.window.showErrorMessage(vscode.l10n.t('Proto Utils: File is not under the configured proto include dirs.'));
       return;
     }
 
     // 没有任何可生成产物(纯 import 聚合文件):不落空文件,直接说明,避免"Generated 成功但内容为空"的误导。
     if (!hasEmittableTypes(schema, filePath)) {
       vscode.window.showInformationMessage(
-        `Proto Utils: ${path.basename(filePath)} declares no message/enum/service types; nothing to generate.`,
+        vscode.l10n.t(
+          'Proto Utils: {0} declares no message/enum/service types; nothing to generate.',
+          path.basename(filePath),
+        ),
       );
       return;
     }
 
     const relative = await writeTypesFor(schema, filePath, readConfig(), readPathOptions(workspaceRoot));
-    vscode.window.showInformationMessage(`Proto Utils: Generated ${relative}`);
+    // 上游已拦截无产物情形,此处仅类型收窄
+    if (relative) {
+      vscode.window.showInformationMessage(vscode.l10n.t('Proto Utils: Generated {0}', relative));
+    }
   });
 
   const allCmd = vscode.commands.registerCommand('protoUtils.generateAllTypes', async () => {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
-      vscode.window.showErrorMessage('Proto Utils: No workspace folder open.');
+      vscode.window.showErrorMessage(vscode.l10n.t('Proto Utils: No workspace folder open.'));
       return;
     }
 
@@ -101,7 +109,12 @@ export function registerCodeGenCommand(
       const owner = ownerByOut.get(outPath);
       if (owner) {
         vscode.window.showErrorMessage(
-          `Proto Utils: Output path conflict — ${path.basename(owner)} and ${path.basename(filePath)} both map to ${path.relative(workspaceRoot, outPath)}.`,
+          vscode.l10n.t(
+            'Proto Utils: Output path conflict — {0} and {1} both map to {2}.',
+            path.basename(owner),
+            path.basename(filePath),
+            path.relative(workspaceRoot, outPath),
+          ),
         );
         return;
       }
@@ -112,7 +125,9 @@ export function registerCodeGenCommand(
     for (const filePath of schema.files) {
       if (await writeTypesFor(schema, filePath, config, pathOptions)) written++;
     }
-    vscode.window.showInformationMessage(`Proto Utils: Generated ${written} files under ${pathOptions.outputDir}/`);
+    vscode.window.showInformationMessage(
+      vscode.l10n.t('Proto Utils: Generated {0} files under {1}/', written, pathOptions.outputDir),
+    );
   });
 
   context.subscriptions.push(cmd, allCmd);

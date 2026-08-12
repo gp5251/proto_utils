@@ -12,6 +12,14 @@ export const Uri = {
   file: (fsPath: string): StubUri => ({ fsPath, scheme: 'file', path: fsPath }),
 };
 
+// 测试环境恒为默认语言:identity 返回英文源串,{0} 占位符由调用方替换
+export const l10n = {
+  t: (message: string | { message: string }): string =>
+    typeof message === 'string' ? message : message.message,
+};
+
+export const env = { language: 'en' };
+
 let corpusRoot = '';
 export function setCorpusRoot(dir: string): void {
   corpusRoot = dir;

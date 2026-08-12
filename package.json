@@ -2,7 +2,7 @@
   "name": "proto-utils",
   "displayName": "Proto Utils",
   "description": "%extension.description%",
-  "version": "0.3.21",
+  "version": "0.3.22",
   "publisher": "proto-utils",
   "engines": {
     "vscode": "^1.85.0"

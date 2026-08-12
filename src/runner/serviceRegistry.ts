@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { l10n } from 'vscode';
 import { FieldInfo, ServiceInfo } from './core/types';
 import { loadProtoDefinitions, resetProtoLoaderCache, scanProtoFiles } from './core/protoLoader';
 import { EMPTY_SCAN_EXCLUDES, ScanExcludes } from './config';
@@ -66,9 +67,9 @@ export class ServiceRegistry {
     const errors: string[] = [];
     let protoFiles: string[] = [];
     if (!fs.existsSync(protoDir)) {
-      errors.push(`protoDir not found: ${protoDir}`);
+      errors.push(l10n.t('protoDir not found: {0}', protoDir));
     } else if (!fs.statSync(protoDir).isDirectory()) {
-      errors.push(`protoDir 不是目录: ${protoDir}`);
+      errors.push(l10n.t('protoDir is not a directory: {0}', protoDir));
     } else {
       protoFiles = scanProtoFiles(protoDir, this.excludes);
     }

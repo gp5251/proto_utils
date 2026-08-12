@@ -356,7 +356,7 @@ export function createVscodePanelFactory(
     const mediaRoot = vscode.Uri.joinPath(extensionUri, 'media', 'runner');
     const panel = vscode.window.createWebviewPanel(
       'protoUtils.rpcRunner',
-      'RPC 工作台',
+      vscode.l10n.t('RPC Workbench'),
       vscode.ViewColumn.Active,
       {
         enableScripts: true,

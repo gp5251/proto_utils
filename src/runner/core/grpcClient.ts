@@ -1,4 +1,5 @@
 import * as grpc from '@grpc/grpc-js';
+import { l10n } from 'vscode';
 import { CallOptions, CallResult, StreamHandlers, StreamHandle } from './types';
 import { findProtoFileForService } from './protoLoader';
 import { getPackageDefinition } from './protoCache';
@@ -181,7 +182,7 @@ export class GrpcClient {
   private resolveCall(protoDir: string, serviceName: string, methodName: string): ResolveOutcome {
     const protoFile = findProtoFileForService(protoDir, serviceName);
     if (!protoFile) {
-      return { error: `Service "${serviceName}" not found in proto definitions` };
+      return { error: l10n.t('Service "{0}" not found in proto definitions', serviceName) };
     }
 
     const packageDefinition = getPackageDefinition(protoFile, protoDir);
@@ -190,7 +191,7 @@ export class GrpcClient {
     const ServiceClass = this.findServiceClass(grpcObj, serviceName);
 
     if (!ServiceClass) {
-      return { error: `Service "${serviceName}" not found in proto definitions` };
+      return { error: l10n.t('Service "{0}" not found in proto definitions', serviceName) };
     }
 
     const client = new ServiceClass(
@@ -203,7 +204,7 @@ export class GrpcClient {
     if (!resolved) {
       this.safeClose(client);
       const available = this.getAvailableMethods(client);
-      return { error: `Method "${methodName}" not found. Available: ${available.join(', ')}` };
+      return { error: l10n.t('Method "{0}" not found. Available: {1}', methodName, available.join(', ')) };
     }
 
     return {
