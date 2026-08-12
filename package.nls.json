@@ -1,0 +1,17 @@
+{
+  "extension.description": "Proto3 syntax highlighting, go-to-definition, and TypeScript code generation",
+  "command.generateTypes": "Proto Utils: Generate TypeScript Types",
+  "command.generateAllTypes": "Proto Utils: Generate TypeScript Types (All Protos)",
+  "command.openRpcRunner": "Proto Utils: Open RPC Runner",
+  "config.runner.server": "gRPC server address (host:port) for RPC Runner calls",
+  "config.runner.protoDir": "Directory containing the .proto files themselves — imports resolve against it, so pointing at a parent directory breaks cross-file type resolution. Empty = workspace root; relative paths resolve against the workspace folder. When set, code generation also scans only this directory instead of the workspace. Requires a window reload to take effect.",
+  "config.codeGen.outputDir": "Output directory for generated TypeScript files (relative to workspace root)",
+  "config.codeGen.enumStyle": "Generate enums as TypeScript enum or union type",
+  "config.codeGen.optionalMessageFields": "Mark non-repeated message-typed fields as optional (?)",
+  "config.codeGen.optionalScalarFields": "Mark scalar fields as optional (?)",
+  "config.codeGen.fieldNaming": "Field naming convention in generated TypeScript",
+  "config.codeGen.pathMapping": "Output path mapping: 'file' = mirror folder structure relative to the protos' common root; 'package' = directories by proto package declaration",
+  "config.codeGen.importExtension": "Append '.ts' to generated import paths (needs allowImportingTsExtensions or a bundler to resolve)",
+  "config.scan.excludeDirs": "Extra folders to skip when scanning protos (runner + code generation). Entry forms: plain folder name (matches any path segment, e.g. 'out-vscode'), workspace-relative path, or absolute path. Requires a window reload to take effect.",
+  "config.codeGen.oneofStyle": "Generate oneof as simple optional fields or discriminated union"
+}

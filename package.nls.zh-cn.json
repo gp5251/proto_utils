@@ -1,0 +1,17 @@
+{
+  "extension.description": "Proto3 语法高亮、跳转定义与 TypeScript 代码生成",
+  "command.generateTypes": "Proto Utils: 生成 TypeScript 类型",
+  "command.generateAllTypes": "Proto Utils: 生成 TypeScript 类型(全部 proto)",
+  "command.openRpcRunner": "Proto Utils: 打开 RPC 工作台",
+  "config.runner.server": "RPC Runner 调用的 gRPC 服务器地址(host:port)",
+  "config.runner.protoDir": "指向 .proto 文件所在目录本身(import 相对它解析;指到父目录会导致跨文件类型解析失败)。留空 = 工作区根;相对路径相对 workspace folder 解析。显式配置后,代码生成也只扫描该目录(不再扫工作区)。改动需 reload 窗口生效",
+  "config.codeGen.outputDir": "生成的 TypeScript 文件输出目录(相对 workspace 根)",
+  "config.codeGen.enumStyle": "枚举生成方式:TypeScript enum 或联合类型(union)",
+  "config.codeGen.optionalMessageFields": "非 repeated 的 message 类型字段标记为可选(?)",
+  "config.codeGen.optionalScalarFields": "标量字段标记为可选(?)",
+  "config.codeGen.fieldNaming": "生成的 TypeScript 字段命名风格:camelCase 或保留原名",
+  "config.codeGen.pathMapping": "输出路径映射:'file' = 相对 proto 公共根镜像目录结构;'package' = 按 proto package 语句映射目录",
+  "config.codeGen.importExtension": "生成的 import 路径带 '.ts' 后缀(纯 tsc 校验时需开启 allowImportingTsExtensions,或经 bundler 解析)",
+  "config.scan.excludeDirs": "扫描 proto 时额外跳过的目录(runner 与代码生成共用)。条目形态:裸目录名(命中任一路径段,如 'out-vscode')、workspace 相对路径、绝对路径。改动需 reload 窗口生效",
+  "config.codeGen.oneofStyle": "oneof 生成方式:简单可选字段(optional)或判别联合类型(union)"
+}

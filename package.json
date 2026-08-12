@@ -1,8 +1,8 @@
 {
   "name": "proto-utils",
   "displayName": "Proto Utils",
-  "description": "Proto3 syntax highlighting, go-to-definition, and TypeScript code generation",
-  "version": "0.3.14",
+  "description": "%extension.description%",
+  "version": "0.3.15",
   "publisher": "proto-utils",
   "engines": {
     "vscode": "^1.85.0"
@@ -40,15 +40,15 @@
     "commands": [
       {
         "command": "protoUtils.generateTypes",
-        "title": "Proto Utils: Generate TypeScript Types"
+        "title": "%command.generateTypes%"
       },
       {
         "command": "protoUtils.generateAllTypes",
-        "title": "Proto Utils: Generate TypeScript Types (All Protos)"
+        "title": "%command.generateAllTypes%"
       },
       {
         "command": "protoUtils.openRpcRunner",
-        "title": "Proto Utils: Open RPC Runner"
+        "title": "%command.openRpcRunner%"
       }
     ],
     "menus": {
@@ -78,17 +78,17 @@
         "protoUtils.runner.server": {
           "type": "string",
           "default": "localhost:50051",
-          "description": "gRPC server address (host:port) for RPC Runner calls"
+          "description": "%config.runner.server%"
         },
         "protoUtils.runner.protoDir": {
           "type": "string",
           "default": "",
-          "description": "Proto 目录,必须指向 .proto 文件所在目录本身(import 相对它解析;指到父目录会导致跨文件类型解析失败)。空 = 工作区根;相对路径相对 workspace folder 解析。显式配置后,代码生成也只扫描该目录(不再扫工作区);改动需 reload 窗口生效"
+          "description": "%config.runner.protoDir%"
         },
         "protoUtils.codeGen.outputDir": {
           "type": "string",
           "default": "generated",
-          "description": "Output directory for generated TypeScript files (relative to workspace root)"
+          "description": "%config.codeGen.outputDir%"
         },
         "protoUtils.codeGen.enumStyle": {
           "type": "string",
@@ -97,17 +97,17 @@
             "union"
           ],
           "default": "enum",
-          "description": "Generate enums as TypeScript enum or union type"
+          "description": "%config.codeGen.enumStyle%"
         },
         "protoUtils.codeGen.optionalMessageFields": {
           "type": "boolean",
           "default": true,
-          "description": "Mark non-repeated message-typed fields as optional (?)"
+          "description": "%config.codeGen.optionalMessageFields%"
         },
         "protoUtils.codeGen.optionalScalarFields": {
           "type": "boolean",
           "default": false,
-          "description": "Mark scalar fields as optional (?)"
+          "description": "%config.codeGen.optionalScalarFields%"
         },
         "protoUtils.codeGen.fieldNaming": {
           "type": "string",
@@ -116,7 +116,7 @@
             "preserve"
           ],
           "default": "camelCase",
-          "description": "Field naming convention in generated TypeScript"
+          "description": "%config.codeGen.fieldNaming%"
         },
         "protoUtils.codeGen.pathMapping": {
           "type": "string",
@@ -125,7 +125,7 @@
             "package"
           ],
           "default": "file",
-          "description": "Output path mapping: 'file' = mirror folder structure relative to the protos' common root; 'package' = directories by proto package declaration"
+          "description": "%config.codeGen.pathMapping%"
         },
         "protoUtils.codeGen.importExtension": {
           "type": "string",
@@ -134,7 +134,7 @@
             "none"
           ],
           "default": "ts",
-          "description": "Append '.ts' to generated import paths (needs allowImportingTsExtensions or a bundler to resolve)"
+          "description": "%config.codeGen.importExtension%"
         },
         "protoUtils.scan.excludeDirs": {
           "type": "array",
@@ -142,7 +142,7 @@
             "type": "string"
           },
           "default": [],
-          "description": "Extra folders to skip when scanning protos (runner + code generation). Entry forms: plain folder name (matches any path segment, e.g. 'out-vscode'), workspace-relative path, or absolute path. Requires window reload."
+          "description": "%config.scan.excludeDirs%"
         },
         "protoUtils.codeGen.oneofStyle": {
           "type": "string",
@@ -151,7 +151,7 @@
             "union"
           ],
           "default": "optional",
-          "description": "Generate oneof as simple optional fields or discriminated union"
+          "description": "%config.codeGen.oneofStyle%"
         }
       }
     }
