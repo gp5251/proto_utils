@@ -3,8 +3,13 @@
   "displayName": "Proto Utils",
   "l10n": "./l10n",
   "description": "%extension.description%",
-  "version": "0.3.31",
-  "publisher": "proto-utils",
+  "version": "0.3.32",
+  "publisher": "paulgui",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gp5251/proto_utils"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
