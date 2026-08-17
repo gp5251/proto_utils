@@ -12,4 +12,5 @@ CONTEXT.md
 out/**/*.map
 media/gen_icon.ps1
 media/**/*.map
+media/runner/repro-*
 *.rar

@@ -5,3 +5,4 @@ testdata/golden/
 # 生成物:build.mjs 从 src/runner/utils/formMapping.ts 产出(含 dev sourcemap)
 media/runner/formMapping.js*
 tmp/
+media/runner/repro-*
