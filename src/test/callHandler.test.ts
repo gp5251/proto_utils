@@ -68,6 +68,21 @@ test('callUnary: 未知方法时无 schema,合法 _raw JSON 兜底为请求体',
   assert.equal(payload.requestType, 'unknown');
 });
 
+test('callUnary: _raw 接受 JSON5(注释/裸键名/尾逗号)', async () => {
+  let seenRequest: unknown;
+  const transport: GrpcTransport = {
+    call: async (_dir, options) => {
+      seenRequest = options.request;
+      return { status: 'ok', data: {}, durationMs: 1 };
+    },
+    callServerStream: () => {
+      throw new Error('not used');
+    },
+  };
+  await makeRunner(transport).callUnary('NoSuchService', 'Nope', { _raw: '{ // c\na: 1,\n}' });
+  assert.deepEqual(seenRequest, { a: 1 });
+});
+
 test('callUnary: 非法 _raw JSON 回退为空对象', async () => {
   let seenRequest: unknown;
   const transport: GrpcTransport = {

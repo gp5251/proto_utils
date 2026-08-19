@@ -128,3 +128,11 @@ test('buildRequestFromValues builds nested message objects', () => {
     node: { id: 1, label: 'test' },
   });
 });
+
+test('parseFormValue repeated 标量:JSON5 数组字符串(尾逗号)', () => {
+  assert.deepEqual(parseFormValue(repeatedNumberField, '[1, 2,]'), [1, 2]);
+});
+
+test('parseFormValue message:字符串槽位按 JSON5 解析(裸键名/单引号/尾逗号)', () => {
+  assert.deepEqual(parseFormValue(messageField, "{a: 1, 'b': [2,]}"), { a: 1, b: [2] });
+});

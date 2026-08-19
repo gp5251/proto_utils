@@ -2,6 +2,7 @@ import { CallOptions, CallResult, FieldInfo, StreamHandlers } from './core/types
 import { GrpcClient } from './core/grpcClient';
 import { ServiceRegistry, SerializedMethod } from './serviceRegistry';
 import { buildRequestFromValues } from './utils/formParser';
+import JSON5 from 'json5';
 
 export type { StreamHandlers, StreamHandle } from './core/types';
 
@@ -45,7 +46,7 @@ export interface CallRunner {
 function buildRequestObject(fields: FieldInfo[], values: Record<string, unknown>): Record<string, unknown> {
   if (fields.length === 0 && typeof values._raw === 'string') {
     try {
-      const parsed: unknown = JSON.parse(values._raw);
+      const parsed: unknown = JSON5.parse(values._raw);
       if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
         return parsed as Record<string, unknown>;
       }

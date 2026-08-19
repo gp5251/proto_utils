@@ -84,7 +84,7 @@ export interface User {
 
 在 `.proto` 文件中,每个 rpc 方法上方都会出现「▶ 调用」CodeLens。点击后 RPC 工作台打开并预选该方法;也可以通过命令面板运行 **Proto Utils: Open RPC Runner**,或右键 `.proto` 编辑器选择同名命令,手动选择服务和方法。
 
-- 表单按请求消息的字段 schema 自动生成,嵌套 message 以 JSON 编辑。
+- 表单按请求消息的字段 schema 自动生成,嵌套 message 以 JSON/JSON5 编辑(支持注释、尾逗号、单引号、裸键名)。
 - 一元调用在响应区展示结果;服务端流调用逐条追加响应,可随时取消。
 - proto 文件变更(保存、外部修改)会自动刷新服务列表,不丢表单状态。
 - 搜索框为模糊匹配(子序列,大小写不敏感):`ldp` 可命中 `ExecuteOpenLDProg`;子串命中仍然有效。

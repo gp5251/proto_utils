@@ -140,6 +140,30 @@ test('validateJsonText: 拒绝残缺 JSON、顶层数组、顶层字符串', () 
   assert.equal(validateJsonText('"str"').ok, false);
 });
 
+test('validateJsonText: 接受 JSON5(注释/裸键名/单引号/尾逗号)', () => {
+  assert.equal(validateJsonText(`{
+    // 行注释
+    fileId: 1,
+    'note': "hi", /* 块注释 */
+  }`).ok, true);
+});
+
+test('applyJsonText: JSON5 宽松语法(注释/裸键名/单引号/尾逗号/十六进制)', () => {
+  const r = applyJsonText(fields, `{
+    // 行注释
+    fileId: 0x1f, // 31
+    'bShowComment': true, /* 尾逗号 */
+  }`, {});
+  assert.ok(r.ok);
+  assert.deepEqual(r.values, { fileId: '31', bShowComment: true });
+});
+
+test('formValuesToJson: textarea 槽位 JSON5 字符串解析回结构化值', () => {
+  const out = formValuesToJson(fields, { ids: '[1, 2,]', items: "{a: 1,}" });
+  assert.deepEqual(out.ids, [1, 2]);
+  assert.deepEqual(out.items, [{ a: 1 }]); // items 是 repeated message,按契约包成数组
+});
+
 test('formValuesToJson: 省略未设值字段、保留 bool、数字字符串转数字', () => {
   const out = formValuesToJson(fields, {
     fileId: '7', bShowComment: true, note: '', status: 'ACTIVE',

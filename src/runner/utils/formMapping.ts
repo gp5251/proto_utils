@@ -1,4 +1,5 @@
 import { FieldInfo } from '../core/types';
+import JSON5 from 'json5';
 
 /**
  * JSON ↔ 表单值映射层(纯函数,无 DOM/Alpine 依赖)。
@@ -126,7 +127,7 @@ function mergeObjectIntoValues(
 }
 
 /**
- * 校验 JSON 文本(顶层必须是对象)。空文本视为合法。
+ * 校验 JSON/JSON5 文本(顶层必须是对象)。空文本视为合法。
  */
 export function validateJsonText(text: string): JsonValidation {
   const trimmed = (text == null ? '' : String(text)).trim();
@@ -135,7 +136,7 @@ export function validateJsonText(text: string): JsonValidation {
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(trimmed);
+    parsed = JSON5.parse(trimmed);
   } catch (e) {
     return { ok: false, error: `JSON 解析失败：${e instanceof Error ? e.message : String(e)}` };
   }
@@ -146,7 +147,7 @@ export function validateJsonText(text: string): JsonValidation {
 }
 
 /**
- * 解析 JSON 文本并合并进当前表单值。
+ * 解析 JSON/JSON5 文本并合并进当前表单值。
  */
 export function applyJsonText(
   fields: FieldInfo[],
@@ -161,13 +162,13 @@ export function applyJsonText(
   if (!check.ok) {
     return { ok: false, error: check.error };
   }
-  const r = mergeObjectIntoValues(fields || [], JSON.parse(trimmed) as Record<string, unknown>, currentValues || {}, '');
+  const r = mergeObjectIntoValues(fields || [], JSON5.parse(trimmed) as Record<string, unknown>, currentValues || {}, '');
   return { ok: true, values: r.values, warnings: r.warnings };
 }
 
 /**
  * 表单值 → 纯 JSON 对象(供 JSON 标签页展示)。
- * 未填('')省略;布尔保留布尔;textarea 里的 JSON 字符串还原为结构化 JSON,
+ * 未填('')省略;布尔保留布尔;textarea 里的 JSON/JSON5 字符串还原为结构化 JSON,
  * 解析失败则原样保留字符串。
  */
 export function formValuesToJson(fields: FieldInfo[], values: FormValues): Record<string, unknown> {
@@ -193,7 +194,7 @@ export function formValuesToJson(fields: FieldInfo[], values: FormValues): Recor
       let parsedVal = v;
       if (typeof v === 'string') {
         try {
-          parsedVal = JSON.parse(v);
+          parsedVal = JSON5.parse(v);
         } catch {
           out[f.name] = v;
           continue;
@@ -205,7 +206,7 @@ export function formValuesToJson(fields: FieldInfo[], values: FormValues): Recor
     if (f.protoType === 'TYPE_MESSAGE') {
       if (typeof v === 'string') {
         try {
-          out[f.name] = JSON.parse(v);
+          out[f.name] = JSON5.parse(v);
         } catch {
           out[f.name] = v;
         }
