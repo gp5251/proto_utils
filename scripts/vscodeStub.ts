@@ -45,6 +45,27 @@ export class Diagnostic {
   ) {}
 }
 
+// callLens.refresh() 依赖的最小事件器:onDidChangeCodeLenses 由 changeEmitter.event 提供
+export class EventEmitter<T = void> {
+  private readonly listeners = new Set<(value: T) => void>();
+  readonly event: (listener: (value: T) => void) => { dispose(): void } = (listener) => {
+    this.listeners.add(listener);
+    return { dispose: () => this.listeners.delete(listener) };
+  };
+  fire(value: T): void {
+    for (const listener of this.listeners) listener(value);
+  }
+}
+
+export class CodeLens {
+  constructor(
+    readonly range: Range,
+    readonly command?: unknown,
+  ) {}
+}
+
+export const ViewColumn = { Active: -1, Beside: -2, One: 1, Two: 2, Three: 3 } as const;
+
 export const window = {
   showErrorMessage: () => Promise.resolve(undefined),
   showInformationMessage: () => Promise.resolve(undefined),
