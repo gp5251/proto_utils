@@ -11,6 +11,8 @@ export interface CodeGenConfig {
   oneofStyle: 'optional' | 'union';
   /** 跨文件 import 路径后缀:'ts' 带 .ts(默认,0.3.12 起),'none' 不带。 */
   importExtension: 'ts' | 'none';
+  /** 64 位整数标量(int64/uint64/sint64/fixed64/sfixed64)的 TS 映射,默认 'number'。 */
+  int64Style: 'number' | 'bigint' | 'string';
 }
 
 export const DEFAULT_CONFIG: CodeGenConfig = {
@@ -20,19 +22,21 @@ export const DEFAULT_CONFIG: CodeGenConfig = {
   fieldNaming: 'camelCase',
   oneofStyle: 'optional',
   importExtension: 'ts',
+  int64Style: 'number',
 };
 
+/** 除 64 位整数外的标量静态映射;64 位整数走 int64Style 旋钮。 */
 const SCALAR_MAP: Record<string, string> = {
   double: 'number', float: 'number',
-  int32: 'number', int64: 'number',
-  uint32: 'number', uint64: 'number',
-  sint32: 'number', sint64: 'number',
-  fixed32: 'number', fixed64: 'number',
-  sfixed32: 'number', sfixed64: 'number',
+  int32: 'number', uint32: 'number',
+  sint32: 'number', fixed32: 'number', sfixed32: 'number',
   bool: 'boolean', string: 'string', bytes: 'Uint8Array',
 };
 
-const SCALAR_TYPES = new Set(Object.keys(SCALAR_MAP));
+/** 64 位整数标量集合,TS 映射由 config.int64Style 决定。 */
+const INT64_TYPES: Record<string, true> = {
+  int64: true, uint64: true, sint64: true, fixed64: true, sfixed64: true,
+};
 
 /**
  * Resolve a type name to the proto file path it's defined in (for import generation).
@@ -68,7 +72,7 @@ export function emit(schema: ProtoSchema, filePath: string, config: CodeGenConfi
   lines.push('');
 
   for (const def of defs) {
-    if (def instanceof protobuf.Service) emitService(def, use, lines);
+    if (def instanceof protobuf.Service) emitService(def, use, lines, config);
     else if (def instanceof protobuf.Type) emitMessage(def, config, use, lines, '');
     else emitEnum(def, config, lines, '');
   }
@@ -298,16 +302,23 @@ function fieldName(name: string, config: CodeGenConfig): string {
 }
 
 function isScalar(typeName: string): boolean {
-  return SCALAR_TYPES.has(typeName);
+  // Object.hasOwn:`in`/真值判断会把原型链上的名字(如合法的 `message toString {}`)误判成标量
+  return Object.hasOwn(SCALAR_MAP, typeName) || Object.hasOwn(INT64_TYPES, typeName);
 }
 
 function baseName(typeName: string): string {
   return typeName.includes('.') ? typeName.split('.').pop()! : typeName;
 }
 
+/** 标量 → TS 类型:64 位整数按 config.int64Style,其余查静态表。 */
+function scalarTypeTs(typeName: string, config: CodeGenConfig): string {
+  if (Object.hasOwn(INT64_TYPES, typeName)) return config.int64Style;
+  return SCALAR_MAP[typeName];
+}
+
 /** 字段类型 → TS 类型文本:标量查表,跨文件类型经 use 记录 import 并取可用名。 */
-function fieldTypeTs(typeName: string, resolvedFqn: string | undefined, use: TypeUse): string {
-  if (isScalar(typeName)) return SCALAR_MAP[typeName];
+function fieldTypeTs(typeName: string, resolvedFqn: string | undefined, use: TypeUse, config: CodeGenConfig): string {
+  if (isScalar(typeName)) return scalarTypeTs(typeName, config);
   return use(typeName, resolvedFqn);
 }
 
@@ -354,7 +365,7 @@ function emitMessage(
   for (const oneof of oneofs) {
     for (const field of oneof.fieldsArray) {
       const name = fieldName(field.name, config);
-      const type = fieldTypeTs(field.type, field.resolvedType?.fullName.replace(/^\./, ''), use);
+      const type = fieldTypeTs(field.type, field.resolvedType?.fullName.replace(/^\./, ''), use, config);
       lines.push(`${indent}  ${name}?: ${type};`);
     }
   }
@@ -380,7 +391,7 @@ function emitMessageWithUnionOneof(
     const variants: string[] = [];
     for (const field of oneof.fieldsArray) {
       const name = fieldName(field.name, config);
-      const type = fieldTypeTs(field.type, field.resolvedType?.fullName.replace(/^\./, ''), use);
+      const type = fieldTypeTs(field.type, field.resolvedType?.fullName.replace(/^\./, ''), use, config);
       // This variant has this field set, others in the oneof are never
       const othersNever = oneof.fieldsArray
         .filter((f) => f !== field)
@@ -409,13 +420,13 @@ function renderField(field: protobuf.Field, config: CodeGenConfig, use: TypeUse)
   if (field.map) {
     // protobufjs 运行时 map 字段带 keyType,但 v8 d.ts 未在 Field 上声明 —— 用 in 窄化,不做内联断言
     const keyType = 'keyType' in field && typeof field.keyType === 'string' ? field.keyType : field.type;
-    const key = SCALAR_MAP[keyType] ?? keyType;
-    const val = fieldTypeTs(field.type, fqn, use);
+    const key = isScalar(keyType) ? scalarTypeTs(keyType, config) : keyType;
+    const val = fieldTypeTs(field.type, fqn, use, config);
     return `${name}: Record<${key}, ${val}>`;
   }
 
   if (field.repeated) {
-    return `${name}: ${fieldTypeTs(field.type, fqn, use)}[]`;
+    return `${name}: ${fieldTypeTs(field.type, fqn, use, config)}[]`;
   }
 
   // proto3 optional = 显式 presence,恒渲染为 `?`,不受两个 optional 旋钮影响
@@ -425,7 +436,7 @@ function renderField(field: protobuf.Field, config: CodeGenConfig, use: TypeUse)
     : scalar
       ? config.optionalScalarFields
       : config.optionalMessageFields;
-  return `${name}${optional ? '?' : ''}: ${fieldTypeTs(field.type, fqn, use)}`;
+  return `${name}${optional ? '?' : ''}: ${fieldTypeTs(field.type, fqn, use, config)}`;
 }
 
 function emitEnum(
@@ -453,11 +464,12 @@ function emitService(
   svc: protobuf.Service,
   use: TypeUse,
   lines: string[],
+  config: CodeGenConfig,
 ): void {
   lines.push(`export interface ${svc.name}Client {`);
   for (const method of svc.methodsArray) {
-    const req = fieldTypeTs(method.requestType, method.resolvedRequestType?.fullName.replace(/^\./, ''), use);
-    const res = fieldTypeTs(method.responseType, method.resolvedResponseType?.fullName.replace(/^\./, ''), use);
+    const req = fieldTypeTs(method.requestType, method.resolvedRequestType?.fullName.replace(/^\./, ''), use, config);
+    const res = fieldTypeTs(method.responseType, method.resolvedResponseType?.fullName.replace(/^\./, ''), use, config);
     const param = method.requestStream ? `AsyncIterable<${req}>` : req;
     const ret = method.responseStream ? `AsyncIterable<${res}>` : `Promise<${res}>`;
     lines.push(`  ${method.name}(request: ${param}): ${ret};`);

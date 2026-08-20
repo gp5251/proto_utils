@@ -19,6 +19,26 @@ const numberField: FieldInfo = {
   protoType: 'TYPE_INT32',
 };
 
+// 64 位整型:protoLoader 标 type:'string'(0.3.35),提交保持 string 不 Number() 强转,免 2^53 截断
+const int64Field: FieldInfo = {
+  name: 'bigId',
+  type: 'string',
+  required: false,
+  label: 'optional',
+  protoType: 'TYPE_INT64',
+};
+
+test('parseFormValue 64 位整型保持 string(超 2^53 不截断)', () => {
+  assert.equal(parseFormValue(int64Field, '9223372036854775807'), '9223372036854775807');
+  assert.equal(parseFormValue(int64Field, ''), undefined);
+});
+
+test('buildRequestFromValues 64 位整型不 Number() 强转', () => {
+  assert.deepEqual(buildRequestFromValues([int64Field], { bigId: '9007199254740993' }), {
+    bigId: '9007199254740993',
+  });
+});
+
 test('parseFormValue parses unchecked bool as false', () => {
   assert.equal(parseFormValue(boolField, 'false'), false);
   assert.equal(parseFormValue(boolField, undefined), false);

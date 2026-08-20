@@ -406,3 +406,86 @@ test('proto3 optional always renders ? regardless of knobs', () => {
   assert.ok(preserved.includes('  name?: string;'));
   assert.ok(preserved.includes('  plain: string;'));
 });
+
+// int64Style 三态:64 位整数(int64/uint64/sint64/fixed64/sfixed64)按旋钮映射,
+// 普通字段、repeated、map 值、oneof(optional 与 union 两种风格)共用同一条标量查找路径。
+test("int64Style 'number'(默认)→ 64 位整数映射 number", () => {
+  const out = generate(`
+    syntax = "proto3";
+    message Foo {
+      int64 id = 1;
+      uint64 total = 2;
+      repeated sint64 deltas = 3;
+      map<string, fixed64> points = 4;
+    }
+  `);
+  assert.ok(out.includes('  id: number;'));
+  assert.ok(out.includes('  total: number;'));
+  assert.ok(out.includes('  deltas: number[];'));
+  assert.ok(out.includes('  points: Record<string, number>;'));
+});
+
+test("int64Style 'bigint' → 64 位整数映射 bigint,32 位不受影响", () => {
+  const out = generate(`
+    syntax = "proto3";
+    message Foo {
+      int64 id = 1;
+      int32 seq = 2;
+      repeated sfixed64 samples = 3;
+      map<string, int64> counts = 4;
+    }
+  `, { int64Style: 'bigint' });
+  assert.ok(out.includes('  id: bigint;'));
+  assert.ok(out.includes('  seq: number;'));
+  assert.ok(out.includes('  samples: bigint[];'));
+  assert.ok(out.includes('  counts: Record<string, bigint>;'));
+});
+
+test("int64Style 'string' → 64 位整数映射 string", () => {
+  const out = generate(`
+    syntax = "proto3";
+    message Foo {
+      int64 id = 1;
+      repeated uint64 totals = 2;
+      map<string, sint64> offsets = 3;
+    }
+  `, { int64Style: 'string' });
+  assert.ok(out.includes('  id: string;'));
+  assert.ok(out.includes('  totals: string[];'));
+  assert.ok(out.includes('  offsets: Record<string, string>;'));
+});
+
+test('int64Style 对 oneof 内 64 位整数字段同样生效(optional 与 union 两种风格)', () => {
+  const proto = `
+    syntax = "proto3";
+    message Foo {
+      oneof payload {
+        int64 big_id = 1;
+        string name = 2;
+      }
+    }
+  `;
+  const optional = generate(proto, { int64Style: 'bigint' });
+  assert.ok(optional.includes('  bigId?: bigint;'));
+  assert.ok(optional.includes('  name?: string;'));
+
+  const union = generate(proto, { int64Style: 'string', oneofStyle: 'union' });
+  assert.ok(union.includes('{ bigId: string; name?: never }'));
+  assert.ok(union.includes('{ name: string; bigId?: never }'));
+});
+
+// 回归:原型链上的名字(toString/constructor 等)是合法 message 名,
+// 标量判定必须 own-property,否则被误映射成 number/bigint(string/undefined)
+test('名为 toString/constructor 的 message 不被误判为标量', () => {
+  const out = generate(`
+    syntax = "proto3";
+    message toString { int64 id = 1; }
+    message Holder {
+      toString inner = 1;
+      repeated toString items = 2;
+    }
+  `);
+  assert.ok(out.includes('export interface toString {'));
+  assert.ok(out.includes('  inner?: toString;'));
+  assert.ok(out.includes('  items: toString[];'));
+});

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { ServiceRegistry, ServicesPayload } from './serviceRegistry';
 import type { CallResultPayload, CallRunner } from './callHandler';
+import type { MetadataEntry, TlsSettings } from './config';
 import { resolveRunnerConfig as resolveRunnerConfigPure } from './config';
 import { generateNonce, renderWorkbenchHtml } from './webviewHtml';
 
@@ -9,8 +10,8 @@ import { generateNonce, renderWorkbenchHtml } from './webviewHtml';
 export type WebviewToWorkbench =
   | { type: 'ready' }
   | { type: 'refresh' }
-  | { type: 'call'; service: string; method: string; values: Record<string, unknown> }
-  | { type: 'callStream'; service: string; method: string; values: Record<string, unknown> }
+  | { type: 'call'; service: string; method: string; values: Record<string, unknown>; metadata?: MetadataEntry[] }
+  | { type: 'callStream'; service: string; method: string; values: Record<string, unknown>; metadata?: MetadataEntry[] }
   | { type: 'cancelStream'; service: string; method: string };
 
 export type WorkbenchToWebview =
@@ -32,7 +33,7 @@ export interface WorkbenchHost {
 export interface WorkbenchSessionDeps {
   registry: Pick<ServiceRegistry, 'load' | 'invalidate'>;
   runner: CallRunner;
-  getConfig(): { server: string; protoDir: string };
+  getConfig(): { server: string; protoDir: string; metadata: MetadataEntry[] };
 }
 
 interface CallTarget {
@@ -69,6 +70,28 @@ function readValues(message: object): Record<string, unknown> {
     values[key] = value;
   }
   return values;
+}
+
+/** 仿 readValues:只收 {key:string, value:string} 项,其余丢弃。 */
+function readMetadata(message: object): MetadataEntry[] {
+  if (!('metadata' in message)) {
+    return [];
+  }
+  const raw: unknown = message.metadata;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: MetadataEntry[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'object' || item === null) {
+      continue;
+    }
+    const { key, value } = item as { key?: unknown; value?: unknown };
+    if (typeof key === 'string' && typeof value === 'string') {
+      out.push({ key, value });
+    }
+  }
+  return out;
 }
 
 function toErrorPayload(target: CallTarget, err: unknown, durationMs: number): CallResultPayload {
@@ -144,7 +167,7 @@ export class WorkbenchSession {
         if (!target) {
           return;
         }
-        await this.runUnary(target, readValues(message));
+        await this.runUnary(target, readValues(message), readMetadata(message));
         return;
       }
       case 'callStream': {
@@ -152,7 +175,7 @@ export class WorkbenchSession {
         if (!target) {
           return;
         }
-        this.runStream(target, readValues(message));
+        this.runStream(target, readValues(message), readMetadata(message));
         return;
       }
       case 'cancelStream': {
@@ -206,17 +229,17 @@ export class WorkbenchSession {
     }
   }
 
-  private async runUnary(target: CallTarget, values: Record<string, unknown>): Promise<void> {
+  private async runUnary(target: CallTarget, values: Record<string, unknown>, metadata: MetadataEntry[]): Promise<void> {
     const startedAt = Date.now();
     try {
-      const payload = await this.deps.runner.callUnary(target.service, target.method, values);
+      const payload = await this.deps.runner.callUnary(target.service, target.method, values, metadata);
       this.send({ type: 'callResult', payload });
     } catch (err) {
       this.send({ type: 'callResult', payload: toErrorPayload(target, err, Date.now() - startedAt) });
     }
   }
 
-  private runStream(target: CallTarget, values: Record<string, unknown>): void {
+  private runStream(target: CallTarget, values: Record<string, unknown>, metadata: MetadataEntry[]): void {
     const key = `${target.service}.${target.method}`;
     const previous = this.streams.get(key);
     if (previous) {
@@ -255,7 +278,7 @@ export class WorkbenchSession {
           this.streams.delete(key);
           this.send({ type: 'streamEnd', service: target.service, method: target.method, durationMs });
         },
-      });
+      }, metadata);
       entry.cancel = () => {
         handle.cancel();
       };
@@ -290,12 +313,24 @@ export class WorkbenchSession {
 
 export type WorkbenchPanelDeps = WorkbenchSessionDeps;
 
-/** 读取 protoUtils.runner.* 配置;protoDir 为空 = 工作区根,相对路径相对 workspace folder。 */
-export function resolveRunnerConfig(): { server: string; protoDir: string } {
+/** 读取 protoUtils.runner.* 全量配置;protoDir 为空 = 工作区根,相对路径相对 workspace folder。 */
+export function resolveRunnerConfig(): {
+  server: string;
+  protoDir: string;
+  tls: TlsSettings;
+  metadata: MetadataEntry[];
+  timeoutMs: number;
+} {
   const config = vscode.workspace.getConfiguration('protoUtils');
   const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const resolved = resolveRunnerConfigPure((key) => config.get(key), root);
-  return { server: resolved.server, protoDir: resolved.protoDir ?? '' };
+  return {
+    server: resolved.server,
+    protoDir: resolved.protoDir ?? '',
+    tls: resolved.tls,
+    metadata: resolved.metadata,
+    timeoutMs: resolved.timeoutMs,
+  };
 }
 
 /** 工厂产出:已创建面板的最小面。host 供 session 挂载;reveal 聚焦。 */
@@ -373,6 +408,7 @@ export function createVscodePanelFactory(
       alpineScriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'alpine.min.js')).toString(),
       server: deps.getConfig().server,
       protoDir: deps.getConfig().protoDir,
+      metadataDefault: deps.getConfig().metadata,
     });
     return {
       host: {

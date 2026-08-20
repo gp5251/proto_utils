@@ -7,6 +7,8 @@
 - 为 `.proto` 文件提供 Proto3 语法高亮
 - 区分内置标量类型和自定义类型
 - 支持同文件、导入文件和 package 命名空间中的类型定义跳转
+- 悬停在类型引用或定义上时显示类型摘要(种类 + 限定名)与定义处前导注释
+- 大纲/符号导航:列出 `message`、`enum`、`service` 及 service 下的 rpc 方法
 - 将 `message`、`enum`、`repeated`、`map` 和 `oneof` 生成为 TypeScript 类型
 - 将 `service` 生成为客户端调用接口(`<Name>Client`,流式方向用 `AsyncIterable` 表达)
 - 根据多个 `.proto` 文件之间的类型引用生成 TypeScript `import type`(默认带 `.ts` 后缀;跨模块同名类型自动取别名,避免重复标识符)
@@ -90,12 +92,25 @@ export interface User {
 - 搜索框为模糊匹配(子序列,大小写不敏感):`ldp` 可命中 `ExecuteOpenLDProg`;子串命中仍然有效。
 - client-streaming 与双向流暂不支持(见 `docs/adr/0007`)。
 
-工作台依赖的两个设置:
+工作台依赖的设置:
 
 | 配置项 | 默认值 | 作用 |
 | --- | --- | --- |
 | `protoUtils.runner.server` | `"localhost:50051"` | gRPC 服务器地址(host:port) |
 | `protoUtils.runner.protoDir` | `""` | proto 目录,**必须指向 .proto 文件所在目录本身**(import 相对它解析,指到父目录会导致跨文件类型解析失败);空 = 工作区根;相对路径相对 workspace folder 解析。**显式配置后,代码生成也只扫描该目录**(不再扫工作区) |
+| `protoUtils.runner.tls` | `false` | 是否使用 TLS 通道(默认明文) |
+| `protoUtils.runner.tlsRootCert` | `""` | 根证书 PEM 路径;空 = 系统默认 CA;相对路径相对 workspace folder 解析 |
+| `protoUtils.runner.tlsClientCert` | `""` | 客户端证书 PEM 路径(双向 TLS;须与 `tlsClientKey` 成对配置) |
+| `protoUtils.runner.tlsClientKey` | `""` | 客户端私钥 PEM 路径(双向 TLS;须与 `tlsClientCert` 成对配置) |
+| `protoUtils.runner.metadata` | `[]` | 每次调用默认携带的请求头,一行一条 `"Key: Value"`;工作台 Headers 编辑器可在每次调用前增删 |
+| `protoUtils.runner.timeoutMs` | `15000` | 一元调用超时(毫秒),走 grpc deadline;`0` = 不限。服务端流始终不限时 |
+
+#### TLS、请求头与超时
+
+- **TLS**:开启 `runner.tls` 后按 `createSsl` 语义建通道——只配 `tlsRootCert` 为单向 TLS;再成对配置 `tlsClientCert`/`tlsClientKey` 为双向 TLS(只给一个会在调用时报错)。PEM 路径支持绝对路径或相对 workspace folder。
+- **请求头(metadata)**:`runner.metadata` 里的条目作为每个方法 Headers 编辑器的初始值;在编辑器里增删改只影响后续调用,不回写设置。空 key 的行会被丢弃。
+- **超时**:一元调用在 `timeoutMs` 后未响应即返回 `DEADLINE_EXCEEDED`(0 = 不限);服务端流不受此限,可随时手动取消。
+- **int64 往返**:`int64`/`uint64`/`sint64`/`fixed64`/`sfixed64` 字段以字符串往返(表单用文本输入,响应里也是字符串),避免超过 2^53 的数值被截断;请求侧直接填十进制字符串即可。32 位整型仍为数字。
 
 **从 rpc_runner 迁移**:把 `rpc.config.json` 里的 `server` 与 `protoDir` 两个值抄到上述 VS Code 设置即可。`port` 与 `generatedDir` 已删除(不再有 HTTP 服务与 proto-loader-gen-types 生成)。工作台与 gRPC 依赖(@grpc/grpc-js)采用懒加载,只在首次打开工作台时载入,不影响编辑功能激活速度。
 
@@ -115,6 +130,7 @@ export interface User {
 | `protoUtils.codeGen.pathMapping` | `"file"` \| `"package"` | `"file"` | 输出路径映射:相对 proto 公共根镜像目录结构,或按 package 语句 |
 | `protoUtils.codeGen.importExtension` | `"ts"` \| `"none"` | `"ts"` | 生成的 import 路径是否带 `.ts` 后缀 |
 | `protoUtils.codeGen.oneofStyle` | `"optional"` \| `"union"` | `"optional"` | 将 oneof 生成为可选字段或互斥联合类型 |
+| `protoUtils.codeGen.int64Style` | `"number"` \| `"bigint"` \| `"string"` | `"number"` | 64 位整数类型(int64/uint64/sint64/fixed64/sfixed64)的 TypeScript 映射 |
 | `protoUtils.scan.excludeDirs` | `string[]` | `[]` | 扫描 proto 时额外跳过的目录(runner 与代码生成共用);条目为目录名、workspace 相对路径或绝对路径 |
 
 示例配置：
@@ -161,7 +177,8 @@ package my.service;
 | Proto3 类型 | TypeScript 类型 |
 | --- | --- |
 | `double`、`float` | `number` |
-| 各种 32/64 位整数类型 | `number` |
+| 各种 32 位整数类型(`int32`、`uint32`、`sint32`、`fixed32`、`sfixed32`) | `number` |
+| 各种 64 位整数类型(`int64`、`uint64`、`sint64`、`fixed64`、`sfixed64`) | `number`(默认;由 `protoUtils.codeGen.int64Style` 决定,可为 `bigint` 或 `string`) |
 | `bool` | `boolean` |
 | `string` | `string` |
 | `bytes` | `Uint8Array` |

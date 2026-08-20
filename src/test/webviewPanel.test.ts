@@ -62,7 +62,7 @@ function makeDeps(overrides: {
       },
       ...overrides.runner,
     } as CallRunner,
-    getConfig: () => ({ server: 'localhost:50051', protoDir: state.protoDir }),
+    getConfig: () => ({ server: 'localhost:50051', protoDir: state.protoDir, metadata: [] }),
   };
   return { deps, state };
 }
@@ -105,8 +105,40 @@ test('registry 报错 → services 照推 + loadError;load 抛异常 → 仅 loa
   );
 });
 
-test('call → callResult;runner 抛异常 → error payload', async () => {
-  const okPayload = { result: { status: 'ok' } } as CallResultPayload;
+test('call/callStream 的 metadata 经 sanitize 后透传给 runner(只收 {key,value} 字符串项)', async () => {
+  const seen: Array<unknown> = [];
+  const runner: Partial<CallRunner> = {
+    callUnary: async (_s, _m, _v, metadata) => {
+      seen.push(metadata);
+      return { result: { status: 'ok' } } as CallResultPayload;
+    },
+    callServerStream: (_s, _m, _v, _h, metadata) => {
+      seen.push(metadata);
+      return { cancel: () => undefined };
+    },
+  };
+  const { host, emit } = makeHost();
+  new WorkbenchSession(makeDeps({ runner }).deps).attach(host);
+  emit({
+    type: 'call',
+    service: 'c.Greeter',
+    method: 'SayHello',
+    values: {},
+    metadata: [{ key: 'x-token', value: 'abc' }, { key: 1, value: 'x' }, { key: 'no-value' }, 'junk', null],
+  });
+  await nextTick();
+  emit({
+    type: 'callStream',
+    service: 'c.Greeter',
+    method: 'Subscribe',
+    values: {},
+    metadata: 'not-an-array',
+  });
+  await nextTick();
+  assert.deepEqual(seen, [[{ key: 'x-token', value: 'abc' }], []]);
+});
+
+test('call → callResult;runner 抛异常 → error payload', async () => {  const okPayload = { result: { status: 'ok' } } as CallResultPayload;
   const ok = makeHost();
   new WorkbenchSession(makeDeps({ runner: { callUnary: async () => okPayload } }).deps).attach(ok.host);
   ok.emit({ type: 'call', service: 'c.Greeter', method: 'SayHello', values: {} });

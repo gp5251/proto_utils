@@ -1,11 +1,32 @@
 import * as vscode from 'vscode';
 import { SymbolIndex } from '../index/symbolIndex';
+import { Range } from '../index/symbols';
 
-const SCALAR_TYPES = new Set([
+export const SCALAR_TYPES = new Set([
   'double', 'float', 'int32', 'int64', 'uint32', 'uint64',
   'sint32', 'sint64', 'fixed32', 'fixed64', 'sfixed32', 'sfixed64',
   'bool', 'string', 'bytes',
 ]);
+
+/** 位置是否落在 range 内(闭区间;hover 与 definition 共用同一包含判断) */
+export function positionInRange(range: Range, position: { line: number; character: number }): boolean {
+  return (
+    position.line >= range.start.line &&
+    position.line <= range.end.line &&
+    position.character >= range.start.character &&
+    position.character <= range.end.character
+  );
+}
+
+/** 索引层 Range → vscode.Range;hover/documentSymbol 共用 */
+export function toVsCodeRange(range: Range): vscode.Range {
+  return new vscode.Range(
+    range.start.line,
+    range.start.character,
+    range.end.line,
+    range.end.character,
+  );
+}
 
 export class ProtoDefinitionProvider implements vscode.DefinitionProvider {
   constructor(private index: SymbolIndex) {}
@@ -21,12 +42,7 @@ export class ProtoDefinitionProvider implements vscode.DefinitionProvider {
     if (!entry) return null;
 
     // 与索引同一次扫描的引用点(避免对同一文本二次 scanProto)
-    const ref = entry.typeRefs.find(r =>
-      position.line >= r.range.start.line &&
-      position.line <= r.range.end.line &&
-      position.character >= r.range.start.character &&
-      position.character <= r.range.end.character
-    );
+    const ref = entry.typeRefs.find(r => positionInRange(r.range, position));
 
     if (!ref) return null;
     if (SCALAR_TYPES.has(ref.name)) return null;

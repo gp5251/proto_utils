@@ -16,6 +16,29 @@ function makeRunner(transport: GrpcTransport): GrpcCallRunner {
   return new GrpcCallRunner('fake:0', RUNNER_DIR, new ServiceRegistry(), () => transport);
 }
 
+test('callUnary: metadata 透传进 CallOptions;callServerStream 同理', async () => {
+  const seen: Array<unknown> = [];
+  const transport: GrpcTransport = {
+    call: async (_dir, options) => {
+      seen.push(options.metadata);
+      return { status: 'ok', data: {}, durationMs: 1 };
+    },
+    callServerStream: (_dir, options, handlers) => {
+      seen.push(options.metadata);
+      handlers.onEnd(0);
+      return { cancel: () => undefined };
+    },
+  };
+  const runner = makeRunner(transport);
+  const md = [{ key: 'x-token', value: 'abc' }];
+  await runner.callUnary('VarService', 'SetVar', { index: '1' }, md);
+  runner.callServerStream('VarService', 'WatchVars', {}, { onData: () => {}, onError: () => {}, onEnd: () => {} }, md);
+  const { promise: tick, resolve: ticked } = Promise.withResolvers<void>();
+  process.nextTick(ticked);
+  await tick;
+  assert.deepEqual(seen, [md, md]);
+});
+
 test('callUnary: values 经字段 schema 解析后发出,载荷含 requestType 与格式化 resultBody', async () => {
   let seenRequest: unknown;
   const transport: GrpcTransport = {

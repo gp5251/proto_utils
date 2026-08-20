@@ -1,3 +1,5 @@
+import type { MetadataEntry } from '../config';
+
 export interface ServiceInfo {
   name: string;
   fullName: string; // package.Service
@@ -41,6 +43,8 @@ export interface CallOptions {
   service: string;
   method: string;
   request: Record<string, unknown>;
+  /** 本次调用携带的请求 metadata(0.3.35) */
+  metadata?: MetadataEntry[];
 }
 
 export type CallResult = CallOk | CallError;

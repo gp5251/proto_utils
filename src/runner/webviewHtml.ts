@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { env, l10n } from 'vscode';
 import type { ServicesPayload } from './serviceRegistry';
+import type { MetadataEntry } from './config';
 
 export interface WorkbenchHtmlOptions {
   /** webview.cspSource,放行 asWebviewUri 资源 */
@@ -19,6 +20,8 @@ export interface WorkbenchHtmlOptions {
   server: string;
   /** 空态提示用的 proto 目录 */
   protoDir: string;
+  /** runner.metadata 配置值:Headers 编辑器的初始行(0.3.35) */
+  metadataDefault?: MetadataEntry[];
   /** 面板创建时已有缓存 services 可内嵌,避免闪烁;缺省走 loading 态等 postMessage */
   initialServices?: ServicesPayload;
 }
@@ -78,6 +81,10 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     cancelled: l10n.t('Cancelled'),
     done: l10n.t('Done'),
     cancel: l10n.t('Cancel'),
+    headersTitle: l10n.t('Headers'),
+    addHeader: l10n.t('Add header'),
+    headerKeyPlaceholder: l10n.t('Header name'),
+    headerValuePlaceholder: l10n.t('Header value'),
   };
   const strings = {
     copy: l10n.t('Copy'),
@@ -90,6 +97,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
   const boot = {
     server: options.server,
     protoDir: options.protoDir,
+    metadata: options.metadataDefault ?? [],
     services: options.initialServices ?? null,
     strings,
   };
@@ -202,6 +210,41 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
               </div>
               <template x-if="isMethodOpen(svc.name, m.name)">
                 <div class="method-panel" @click.stop>
+                  <div class="headers-editor">
+                    <div class="headers-editor-head">
+                      <span class="headers-title">${S.headersTitle}</span>
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-xs"
+                        @click="addHeaderRow(methodKey(svc.name, m.name))"
+                      >${S.addHeader}</button>
+                    </div>
+                    <template x-for="(h, hIdx) in getHeaders(methodKey(svc.name, m.name))" :key="hIdx">
+                      <div class="header-row">
+                        <input
+                          type="text"
+                          class="header-key"
+                          :value="h.key"
+                          @input="setHeaderField(methodKey(svc.name, m.name), hIdx, 'key', $event.target.value)"
+                          placeholder="${S.headerKeyPlaceholder}"
+                          autocomplete="off"
+                        >
+                        <input
+                          type="text"
+                          class="header-value"
+                          :value="h.value"
+                          @input="setHeaderField(methodKey(svc.name, m.name), hIdx, 'value', $event.target.value)"
+                          placeholder="${S.headerValuePlaceholder}"
+                          autocomplete="off"
+                        >
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-xs header-remove"
+                          @click="removeHeaderRow(methodKey(svc.name, m.name), hIdx)"
+                        >×</button>
+                      </div>
+                    </template>
+                  </div>
                   <div class="method-schema">
                     <div class="method-schema-block">
                       <div class="method-type-row">

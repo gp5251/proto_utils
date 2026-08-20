@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package hover.demo;
+
+import "common.proto";
+
+// 请求消息
+// 第二行注释
+message GetUserRequest {
+  string id = 1;
+}
+
+message GetUserResponse {
+  common.User user = 1;
+  int32 code = 2;
+}

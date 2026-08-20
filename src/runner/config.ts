@@ -6,6 +6,20 @@ import path from 'node:path';
  * 由调用方用 workspace.getConfiguration('protoUtils').get 传入。
  */
 
+/** 一条请求 metadata(对应设置 runner.metadata 的一行 "Key: Value")。 */
+export interface MetadataEntry {
+  key: string;
+  value: string;
+}
+
+/** TLS 设置:证书路径已解析为绝对路径;空配置为 null。 */
+export interface TlsSettings {
+  enabled: boolean;
+  rootCert: string | null;
+  clientCert: string | null;
+  clientKey: string | null;
+}
+
 export interface RunnerConfig {
   /** gRPC 服务器地址 host:port */
   server: string;
@@ -13,9 +27,16 @@ export interface RunnerConfig {
   protoDir: string | null;
   /** runner.protoDir 是否被显式配置(非空);false 时 protoDir 为 workspace 回退值(0.3.14 起 codegen 依此决定扫描根) */
   protoDirExplicit: boolean;
+  /** TLS 通道设置(0.3.35) */
+  tls: TlsSettings;
+  /** 每次调用默认携带的 metadata(0.3.35) */
+  metadata: MetadataEntry[];
+  /** 一元调用超时毫秒数;0 = 不限(0.3.35) */
+  timeoutMs: number;
 }
 
 const DEFAULT_SERVER = 'localhost:50051';
+const DEFAULT_TIMEOUT_MS = 15000;
 
 /** 目录扫描排除集:names 命中任一路径段,paths 命中规范化绝对路径自身或子目录。 */
 export interface ScanExcludes {
@@ -62,6 +83,41 @@ export function isDirExcluded(name: string, fullPath: string, excludes: ScanExcl
   return excludes.paths.some((p) => full === p || full.startsWith(p + path.sep));
 }
 
+/** 证书路径:空串/非字符串 → null;相对路径相对 workspace 根 join。 */
+function resolveCertPath(raw: unknown, workspaceRoot: string | undefined): string | null {
+  if (typeof raw !== 'string') {
+    return null;
+  }
+  const v = raw.trim();
+  if (v === '') {
+    return null;
+  }
+  return path.isAbsolute(v) ? path.normalize(v) : path.join(workspaceRoot ?? '', v);
+}
+
+/** runner.metadata 解析:"Key: Value" 按首个冒号切开,两端 trim;无冒号/空 key 的行跳过。 */
+export function parseMetadataEntries(raw: unknown): MetadataEntry[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: MetadataEntry[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'string') {
+      continue;
+    }
+    const colon = item.indexOf(':');
+    if (colon < 0) {
+      continue;
+    }
+    const key = item.slice(0, colon).trim();
+    if (!key) {
+      continue;
+    }
+    out.push({ key, value: item.slice(colon + 1).trim() });
+  }
+  return out;
+}
+
 export function resolveRunnerConfig(
   get: (key: string) => unknown,
   workspaceRoot: string | undefined,
@@ -78,5 +134,25 @@ export function resolveRunnerConfig(
     protoDir = path.isAbsolute(dir) ? path.normalize(dir) : path.join(workspaceRoot ?? '', dir);
   }
 
-  return { server, protoDir, protoDirExplicit: dir !== '' };
+  const tls: TlsSettings = {
+    enabled: get('runner.tls') === true,
+    rootCert: resolveCertPath(get('runner.tlsRootCert'), workspaceRoot),
+    clientCert: resolveCertPath(get('runner.tlsClientCert'), workspaceRoot),
+    clientKey: resolveCertPath(get('runner.tlsClientKey'), workspaceRoot),
+  };
+
+  const rawTimeout = get('runner.timeoutMs');
+  const timeoutMs =
+    typeof rawTimeout === 'number' && Number.isFinite(rawTimeout) && rawTimeout >= 0
+      ? rawTimeout
+      : DEFAULT_TIMEOUT_MS;
+
+  return {
+    server,
+    protoDir,
+    protoDirExplicit: dir !== '',
+    tls,
+    metadata: parseMetadataEntries(get('runner.metadata')),
+    timeoutMs,
+  };
 }

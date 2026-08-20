@@ -495,3 +495,36 @@ input[type="checkbox"] {
 }
 .json-error { color: var(--danger); font-size: 12px; margin-top: 6px; }
 .json-warning { color: #d4a72c; font-size: 12px; margin-top: 6px; }
+
+/* ---- Headers(请求 metadata)行编辑器 ---- */
+.headers-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.headers-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.headers-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+.header-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.header-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: var(--mono);
+}
+.header-remove { flex-shrink: 0; }

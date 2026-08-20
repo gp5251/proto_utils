@@ -206,3 +206,20 @@ test('form→JSON→form 往返是不动点', () => {
   assert.equal(r.values.ids, '[1,2]');
   assert.deepEqual(r.values.node, { id: '3' });
 });
+
+// 64 位整型(type:'string',0.3.35):formValuesToJson 不转 number,JSON 进表单也保持 string
+const int64Fields: FieldInfo[] = [
+  { name: 'bigId', type: 'string', required: false, label: 'optional', protoType: 'TYPE_INT64' },
+];
+
+test('formValuesToJson: 64 位整型保持 string 不 Number()', () => {
+  assert.deepEqual(formValuesToJson(int64Fields, { bigId: '9223372036854775807' }), {
+    bigId: '9223372036854775807',
+  });
+});
+
+test('applyJsonText: 64 位整型 JSON 数字进表单为 string', () => {
+  const r = applyJsonText(int64Fields, '{"bigId": 123}', {});
+  assert.ok(r.ok);
+  assert.deepEqual(r.values, { bigId: '123' });
+});

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
-import { GrpcClient } from '../runner/core/grpcClient';
+import { GrpcClient, buildChannelCredentials } from '../runner/core/grpcClient';
 
 /**
  * GrpcClient 的行为测试:对 in-process grpc-js Server 发真实 loopback 调用。
@@ -16,6 +16,10 @@ const FRONTEND_DIR = path.resolve('testdata/frontend');
 
 let server: grpc.Server;
 let client: GrpcClient;
+let serverAddress: string;
+/** 最近一次调用收到的 metadata(metadata 穿透测试断言用) */
+let lastUnaryMetadata: grpc.Metadata | null = null;
+let lastStreamMetadata: grpc.Metadata | null = null;
 
 type UnaryImpl = (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<unknown>) => void;
 type StreamImpl = (call: grpc.ServerWritableStream<unknown, unknown>) => void;
@@ -45,14 +49,19 @@ before(async () => {
     grpcObj.c.Greeter.service,
     buildHandlers(grpcObj.c.Greeter.service, {
       SayHello: (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<unknown>) => {
+        lastUnaryMetadata = call.metadata;
         const req = call.request as { nums?: number[] };
         if (req.nums?.includes(999)) {
           cb({ code: grpc.status.INVALID_ARGUMENT, details: 'bad nums' } as grpc.ServiceError, null);
           return;
         }
+        if (req.nums?.includes(555)) {
+          return; // 挂死不回:deadline 测试用,客户端应报 DEADLINE_EXCEEDED
+        }
         cb(null, call.request);
       },
       Subscribe: (call: grpc.ServerWritableStream<unknown, unknown>) => {
+        lastStreamMetadata = call.metadata;
         for (const n of [1, 2, 3]) call.write({ nums: [n] });
         call.end();
       },
@@ -76,7 +85,8 @@ before(async () => {
   });
   const port = await bound;
   server.start();
-  client = new GrpcClient(`127.0.0.1:${port}`);
+  serverAddress = `127.0.0.1:${port}`;
+  client = new GrpcClient(serverAddress);
 });
 
 after(() => {
@@ -90,7 +100,8 @@ test('unary roundtrip through the full resolveCall chain', async () => {
     request: { nums: [7] },
   });
   assert.equal(result.status, 'ok');
-  if (result.status === 'ok') assert.deepEqual((result.data as { nums: number[] }).nums, [7]);
+  // protoCache longs:String(0.3.35):repeated int64 以 string 往返,避免 2^53 截断
+  if (result.status === 'ok') assert.deepEqual((result.data as { nums: string[] }).nums, ['7']);
 });
 
 test('acronym method resolves via case-insensitive fallback, not naive lowercase', async () => {
@@ -196,4 +207,62 @@ test('server-side INVALID_ARGUMENT surfaces as formatted error text', async () =
   });
   assert.equal(result.status, 'error');
   if (result.status === 'error') assert.match(result.error, /INVALID_ARGUMENT/);
+});
+
+test('CallOptions.metadata 到达服务端(一元)', async () => {
+  const result = await client.call(FRONTEND_DIR, {
+    service: 'Greeter',
+    method: 'SayHello',
+    request: { nums: [1] },
+    metadata: [{ key: 'x-token', value: 'abc123' }],
+  });
+  assert.equal(result.status, 'ok');
+  assert.deepEqual(lastUnaryMetadata?.get('x-token'), ['abc123']);
+});
+
+test('CallOptions.metadata 到达服务端(服务端流)', async () => {
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  client.callServerStream(
+    FRONTEND_DIR,
+    { service: 'Greeter', method: 'Subscribe', request: {}, metadata: [{ key: 'x-sub', value: 's1' }] },
+    {
+      onData: () => {},
+      onError: (message) => reject(new Error(message)),
+      onEnd: () => resolve(),
+    },
+  );
+  await promise;
+  assert.deepEqual(lastStreamMetadata?.get('x-sub'), ['s1']);
+});
+
+test('timeoutMs 到点未响应 → DEADLINE_EXCEEDED', async () => {
+  const timed = new GrpcClient(serverAddress, { timeoutMs: 300 });
+  const result = await timed.call(FRONTEND_DIR, {
+    service: 'Greeter',
+    method: 'SayHello',
+    request: { nums: [555] },
+  });
+  assert.equal(result.status, 'error');
+  if (result.status === 'error') assert.match(result.error, /DEADLINE_EXCEEDED/);
+  assert.ok(result.durationMs < 5000, `deadline 未生效,耗时 ${result.durationMs}ms`);
+});
+
+test('buildChannelCredentials:未启用 → insecure;证书只配一个 → 抛中文错误;PEM 不存在 → 抛带路径的中文错', () => {
+  const insecure = buildChannelCredentials({ enabled: false, rootCert: null, clientCert: null, clientKey: null });
+  assert.ok(insecure, 'insecure 凭据应非空');
+  assert.throws(
+    () => buildChannelCredentials({ enabled: true, rootCert: null, clientCert: 'client.pem', clientKey: null }),
+    /tlsClientCert 与 runner\.tlsClientKey 必须同时设置/,
+  );
+  const missing = path.join(FRONTEND_DIR, 'no-such-ca.pem');
+  assert.throws(
+    () =>
+      buildChannelCredentials({
+        enabled: true,
+        rootCert: missing,
+        clientCert: null,
+        clientKey: null,
+      }),
+    new RegExp(`TLS 根证书文件读取失败:${missing.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+  );
 });

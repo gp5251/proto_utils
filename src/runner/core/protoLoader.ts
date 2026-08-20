@@ -320,18 +320,20 @@ function extractEnumValues(
     }));
 }
 
+// 64 位整型标为 'string'(0.3.35 起,原 'number'):配合 protoCache 的 longs:String,
+// 表单用文本输入、提交时保持 string 不 Number() 强转,避免 2^53 截断;32 位整型不变。
 const TYPE_LABEL_BY_PROTO: Record<string, string> = {
   TYPE_STRING: 'string',
   TYPE_INT32: 'number',
-  TYPE_INT64: 'number',
+  TYPE_INT64: 'string',
   TYPE_UINT32: 'number',
-  TYPE_UINT64: 'number',
+  TYPE_UINT64: 'string',
   TYPE_SINT32: 'number',
-  TYPE_SINT64: 'number',
+  TYPE_SINT64: 'string',
   TYPE_FIXED32: 'number',
-  TYPE_FIXED64: 'number',
+  TYPE_FIXED64: 'string',
   TYPE_SFIXED32: 'number',
-  TYPE_SFIXED64: 'number',
+  TYPE_SFIXED64: 'string',
   TYPE_BOOL: 'boolean',
   TYPE_DOUBLE: 'number',
   TYPE_FLOAT: 'number',

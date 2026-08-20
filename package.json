@@ -3,7 +3,7 @@
   "displayName": "Proto Utils",
   "l10n": "./l10n",
   "description": "%extension.description%",
-  "version": "0.3.34",
+  "version": "0.3.35",
   "publisher": "paulgui",
   "license": "MIT",
   "repository": {
@@ -101,6 +101,40 @@
           "default": "",
           "description": "%config.runner.protoDir%"
         },
+        "protoUtils.runner.tls": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.runner.tls%"
+        },
+        "protoUtils.runner.tlsRootCert": {
+          "type": "string",
+          "default": "",
+          "description": "%config.runner.tlsRootCert%"
+        },
+        "protoUtils.runner.tlsClientCert": {
+          "type": "string",
+          "default": "",
+          "description": "%config.runner.tlsClientCert%"
+        },
+        "protoUtils.runner.tlsClientKey": {
+          "type": "string",
+          "default": "",
+          "description": "%config.runner.tlsClientKey%"
+        },
+        "protoUtils.runner.metadata": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "%config.runner.metadata%"
+        },
+        "protoUtils.runner.timeoutMs": {
+          "type": "number",
+          "default": 15000,
+          "minimum": 0,
+          "description": "%config.runner.timeoutMs%"
+        },
         "protoUtils.codeGen.outputDir": {
           "type": "string",
           "default": "generated",
@@ -168,6 +202,16 @@
           ],
           "default": "optional",
           "description": "%config.codeGen.oneofStyle%"
+        },
+        "protoUtils.codeGen.int64Style": {
+          "type": "string",
+          "enum": [
+            "number",
+            "bigint",
+            "string"
+          ],
+          "default": "number",
+          "description": "%config.codeGen.int64Style%"
         }
       }
     }

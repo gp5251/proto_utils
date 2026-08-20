@@ -64,6 +64,55 @@ export class CodeLens {
   ) {}
 }
 
+// hover/documentSymbol 测试最小实现:字段形状对齐 vscode(只读语义够用)
+export class MarkdownString {
+  value = '';
+  appendMarkdown(text: string): this {
+    this.value += text;
+    return this;
+  }
+  appendCodeblock(code: string, language = ''): this {
+    this.value += '```' + language + '\n' + code + '\n```';
+    return this;
+  }
+  appendText(text: string): this {
+    this.value += text;
+    return this;
+  }
+}
+
+export class Hover {
+  constructor(
+    readonly contents: MarkdownString | MarkdownString[],
+    readonly range?: Range,
+  ) {}
+}
+
+export class Location {
+  constructor(
+    readonly uri: StubUri,
+    readonly range: Range,
+  ) {}
+}
+
+export const SymbolKind = {
+  Method: 5,
+  Enum: 9,
+  Interface: 10,
+  Struct: 22,
+} as const;
+
+export class DocumentSymbol {
+  readonly children: DocumentSymbol[] = [];
+  constructor(
+    public name: string,
+    public detail: string,
+    public kind: number,
+    public range: Range,
+    public selectionRange: Range,
+  ) {}
+}
+
 export const ViewColumn = { Active: -1, Beside: -2, One: 1, Two: 2, Three: 3 } as const;
 
 export const window = {

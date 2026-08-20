@@ -1,12 +1,46 @@
 import * as grpc from '@grpc/grpc-js';
+import fs from 'node:fs';
 import { l10n } from 'vscode';
 import { CallOptions, CallResult, StreamHandlers, StreamHandle } from './types';
+import type { MetadataEntry, TlsSettings } from '../config';
 import { findProtoFileForService } from './protoLoader';
 import { getPackageDefinition } from './protoCache';
 import { formatGrpcError } from '../utils/formatGrpcError';
 
-type UnaryCall = (req: unknown, cb: (err: unknown, res: unknown) => void) => void;
-type ServerStreamCall = (req: unknown) => grpc.ClientReadableStream<unknown>;
+/**
+ * TlsSettings → grpc 通道凭据。未启用 TLS → insecure;启用 → createSsl,
+ * PEM 文件就地读取,读失败抛带路径的中文错(经 formatGrpcError 上抛到调用面)。
+ * clientCert/clientKey 必须成对配置,只给一个直接抛错(0.3.35)。
+ */
+export function buildChannelCredentials(tls: TlsSettings): grpc.ChannelCredentials {
+  if (!tls.enabled) {
+    return grpc.credentials.createInsecure();
+  }
+  const { clientCert, clientKey } = tls;
+  if ((clientCert === null) !== (clientKey === null)) {
+    throw new Error('TLS 配置不完整:runner.tlsClientCert 与 runner.tlsClientKey 必须同时设置(当前只配置了一个)');
+  }
+  const readPem = (file: string, label: string): Buffer => {
+    try {
+      return fs.readFileSync(file);
+    } catch {
+      throw new Error(`TLS ${label}文件读取失败:${file}(检查 runner.tls* 路径配置)`);
+    }
+  };
+  return grpc.credentials.createSsl(
+    tls.rootCert ? readPem(tls.rootCert, '根证书') : null,
+    clientKey ? readPem(clientKey, '客户端私钥') : null,
+    clientCert ? readPem(clientCert, '客户端证书') : null,
+  );
+}
+
+type UnaryCall = (
+  req: unknown,
+  metadata: grpc.Metadata,
+  options: grpc.CallOptions,
+  cb: (err: unknown, res: unknown) => void,
+) => void;
+type ServerStreamCall = (req: unknown, metadata: grpc.Metadata) => grpc.ClientReadableStream<unknown>;
 type ClientMethod = UnaryCall | ServerStreamCall;
 
 interface StreamFlags {
@@ -24,11 +58,32 @@ type ResolveOutcome =
 
 const NOOP_STREAM_HANDLE: StreamHandle = { cancel: () => undefined };
 
+/** CallOptions.metadata → grpc.Metadata;无条目也给空实例,调用点签名保持固定。 */
+function buildGrpcMetadata(entries: MetadataEntry[] | undefined): grpc.Metadata {
+  const md = new grpc.Metadata();
+  for (const entry of entries ?? []) {
+    md.add(entry.key, entry.value);
+  }
+  return md;
+}
+
 export class GrpcClient {
-  constructor(private address: string) {}
+  private readonly credentials: grpc.ChannelCredentials | undefined;
+  /** 一元调用超时毫秒数;0/未配置 = 不限(不设 grpc deadline) */
+  private readonly timeoutMs: number;
+
+  constructor(
+    private address: string,
+    options?: { credentials?: grpc.ChannelCredentials; timeoutMs?: number },
+  ) {
+    this.credentials = options?.credentials;
+    this.timeoutMs = options?.timeoutMs ?? 0;
+  }
 
   async call(protoDir: string, options: CallOptions): Promise<CallResult> {
     const start = Date.now();
+    // 提到 try 外:调用失败(含 deadline)时 catch 里也要关通道,避免泄漏
+    let client: Record<string, unknown> | undefined;
 
     try {
       const resolved = this.resolveCall(protoDir, options.service, options.method);
@@ -40,7 +95,8 @@ export class GrpcClient {
         };
       }
 
-      const { client, methodFn, streamFlags } = resolved;
+      client = resolved.client;
+      const { methodFn, streamFlags } = resolved;
 
       // ADR-0007:client/bidi 流不做,撞上 requestStream 方法给明确错误
       if (streamFlags?.requestStream) {
@@ -60,32 +116,34 @@ export class GrpcClient {
         };
       }
 
-      let timeout: NodeJS.Timeout | undefined;
-      try {
-        const response = await Promise.race([
-          new Promise<unknown>((resolve, reject) => {
-            (methodFn as UnaryCall).call(client, options.request, (err: unknown, res: unknown) => {
-              if (err) reject(err);
-              else resolve(res);
-            });
-          }),
-          new Promise<never>((_, reject) => {
-            timeout = setTimeout(() => reject(new Error('gRPC 请求超时 (15s)')), 15000);
-          }),
-        ]);
-
-        this.safeClose(client);
-
-        return {
-          status: 'ok',
-          data: response,
-          durationMs: Date.now() - start,
-        };
-      } finally {
-        // race 输赢已定,超时定时器必须清掉——宿主是长寿命的扩展进程,不是跑完就退的 CLI
-        clearTimeout(timeout);
+      // 超时走 grpc deadline(服务端可见的硬截止,DEADLINE_EXCEEDED 由 formatGrpcError 格式化);
+      // timeoutMs=0 不设 deadline。metadata 恒传实例,grpc-js 的 4 参重载不需要移位判断。
+      const callOptions: grpc.CallOptions = {};
+      if (this.timeoutMs > 0) {
+        callOptions.deadline = Date.now() + this.timeoutMs;
       }
+      const response = await new Promise<unknown>((resolve, reject) => {
+        (methodFn as UnaryCall).call(
+          client,
+          options.request,
+          buildGrpcMetadata(options.metadata),
+          callOptions,
+          (err: unknown, res: unknown) => {
+            if (err) reject(err);
+            else resolve(res);
+          },
+        );
+      });
+
+      this.safeClose(client);
+
+      return {
+        status: 'ok',
+        data: response,
+        durationMs: Date.now() - start,
+      };
     } catch (e: unknown) {
+      if (client) this.safeClose(client);
       return {
         status: 'error',
         error: formatGrpcError(e, this.address),
@@ -133,7 +191,8 @@ export class GrpcClient {
 
     let stream: grpc.ClientReadableStream<unknown>;
     try {
-      stream = (methodFn as ServerStreamCall).call(client, options.request);
+      // ADR-0007:流式不设总超时(deadline);metadata 与一元同构造
+      stream = (methodFn as ServerStreamCall).call(client, options.request, buildGrpcMetadata(options.metadata));
     } catch (e: unknown) {
       this.safeClose(client);
       handlers.onError(formatGrpcError(e, this.address));
@@ -196,7 +255,7 @@ export class GrpcClient {
 
     const client = new ServiceClass(
       this.address,
-      grpc.credentials.createInsecure()
+      this.credentials ?? grpc.credentials.createInsecure()
     ) as Record<string, unknown>;
 
     const resolved = this.resolveMethod(client, methodName);

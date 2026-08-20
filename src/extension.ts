@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { ProtoDefinitionProvider } from './providers/definition';
 import { ProtoSemanticTokensProvider, SEMANTIC_LEGEND } from './providers/semanticTokens';
 import { ProtoCallLensProvider } from './providers/callLens';
+import { ProtoHoverProvider } from './providers/hover';
+import { ProtoDocumentSymbolProvider } from './providers/documentSymbol';
 import { SymbolIndex } from './index/symbolIndex';
 import { ProtoFrontend } from './runtime/protoFrontend';
 import { clearLoadErrorState, reportLoadError } from './loadDiagnostics';
@@ -29,6 +31,8 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.languages.registerDefinitionProvider(PROTO_SELECTOR, new ProtoDefinitionProvider(index)),
     vscode.languages.registerDocumentSemanticTokensProvider(PROTO_SELECTOR, new ProtoSemanticTokensProvider(index), SEMANTIC_LEGEND),
     vscode.languages.registerCodeLensProvider(PROTO_SELECTOR, callLens),
+    vscode.languages.registerHoverProvider(PROTO_SELECTOR, new ProtoHoverProvider(index)),
+    vscode.languages.registerDocumentSymbolProvider(PROTO_SELECTOR, new ProtoDocumentSymbolProvider(index)),
   );
 
   // 全量索引后台跑,不阻塞激活:打开文档的 lens/跳转/高亮由各 provider 的
@@ -113,7 +117,12 @@ class LazyWorkbench {
       const config = runner.resolveRunnerConfig();
       const deps = {
         registry,
-        runner: new runner.GrpcCallRunner(config.server, config.protoDir, registry),
+        // TLS/超时在建 runner 时一次性注入;server/protoDir/metadata 在面板创建时注入。
+        // 改 protoUtils.runner.* 设置需重开面板生效(README 已写明)。
+        runner: new runner.GrpcCallRunner(config.server, config.protoDir, registry, undefined, {
+          tls: config.tls,
+          timeoutMs: config.timeoutMs,
+        }),
         getConfig: () => runner.resolveRunnerConfig(),
       };
       return new runner.WorkbenchPanelManager(deps, runner.createVscodePanelFactory(this.context.extensionUri, deps));

@@ -5,6 +5,12 @@
   "command.openRpcRunner": "Proto Utils: 打开 RPC 工作台",
   "config.runner.server": "RPC Runner 调用的 gRPC 服务器地址(host:port)",
   "config.runner.protoDir": "指向 .proto 文件所在目录本身(import 相对它解析;指到父目录会导致跨文件类型解析失败)。留空 = 工作区根;相对路径相对 workspace folder 解析。显式配置后,代码生成也只扫描该目录(不再扫工作区)。改动需 reload 窗口生效",
+  "config.runner.tls": "RPC Runner 调用启用 TLS(默认使用系统根证书)。自签名 CA 或双向 TLS 时配合 tls*Cert 设置使用",
+  "config.runner.tlsRootCert": "校验服务端的 PEM 根 CA 证书文件(留空 = 系统根证书)。相对路径相对 workspace folder 解析",
+  "config.runner.tlsClientCert": "双向 TLS 的 PEM 客户端证书文件(需同时配置 tlsClientKey)",
+  "config.runner.tlsClientKey": "双向 TLS 的 PEM 客户端私钥文件(需同时配置 tlsClientCert)",
+  "config.runner.metadata": "RPC 工作台默认携带的请求 metadata(gRPC 头),每条一个 'Key: Value'(如 'authorization: Bearer xxx')。工作台内可按调用临时修改",
+  "config.runner.timeoutMs": "一元调用超时(毫秒,0 = 不超时)。流式调用不设总超时",
   "config.codeGen.outputDir": "生成的 TypeScript 文件输出目录(相对 workspace 根)",
   "config.codeGen.enumStyle": "枚举生成方式:TypeScript enum 或联合类型(union)",
   "config.codeGen.optionalMessageFields": "非 repeated 的 message 类型字段标记为可选(?)",
@@ -13,5 +19,6 @@
   "config.codeGen.pathMapping": "输出路径映射:'file' = 相对 proto 公共根镜像目录结构;'package' = 按 proto package 语句映射目录",
   "config.codeGen.importExtension": "生成的 import 路径带 '.ts' 后缀(纯 tsc 校验时需开启 allowImportingTsExtensions,或经 bundler 解析)",
   "config.scan.excludeDirs": "扫描 proto 时额外跳过的目录(runner 与代码生成共用)。条目形态:裸目录名(命中任一路径段,如 'out-vscode')、workspace 相对路径、绝对路径。改动需 reload 窗口生效",
-  "config.codeGen.oneofStyle": "oneof 生成方式:简单可选字段(optional)或判别联合类型(union)"
+  "config.codeGen.oneofStyle": "oneof 生成方式:简单可选字段(optional)或判别联合类型(union)",
+  "config.codeGen.int64Style": "64 位整数字段(int64/uint64/sint64/fixed64/sfixed64)的 TypeScript 映射:'number'(超过 2^53 可能丢精度)、'bigint' 或 'string'"
 }

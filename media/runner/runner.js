@@ -181,6 +181,53 @@
       jsonText: {},
       jsonError: {},
       jsonWarnings: {},
+      headers: {},
+
+      // ---- Headers(请求 metadata)行编辑器:初始行来自 boot.metadata(runner.metadata 配置) ----
+
+      getHeaders: function (key) {
+        var rows = this.headers[key];
+        if (!rows) {
+          var initial = Array.isArray(boot.metadata) ? boot.metadata : [];
+          rows = initial.map(function (e) {
+            return { key: String((e && e.key) || ''), value: String((e && e.value) || '') };
+          });
+          this.headers = Object.assign({}, this.headers, { [key]: rows });
+        }
+        return rows;
+      },
+
+      addHeaderRow: function (key) {
+        var rows = this.getHeaders(key).slice();
+        rows.push({ key: '', value: '' });
+        this.headers = Object.assign({}, this.headers, { [key]: rows });
+      },
+
+      removeHeaderRow: function (key, idx) {
+        var rows = this.getHeaders(key).slice();
+        rows.splice(idx, 1);
+        this.headers = Object.assign({}, this.headers, { [key]: rows });
+      },
+
+      setHeaderField: function (key, idx, field, value) {
+        var rows = this.getHeaders(key).map(function (row, i) {
+          if (i !== idx) return row;
+          return { key: field === 'key' ? value : row.key, value: field === 'value' ? value : row.value };
+        });
+        this.headers = Object.assign({}, this.headers, { [key]: rows });
+      },
+
+      // 发送前收敛:空 key 行丢弃,value 统一为字符串
+      collectMetadata: function (key) {
+        var rows = this.getHeaders(key);
+        var out = [];
+        for (var i = 0; i < rows.length; i++) {
+          var k = (rows[i].key || '').trim();
+          if (!k) continue;
+          out.push({ key: k, value: rows[i].value == null ? '' : String(rows[i].value) });
+        }
+        return out;
+      },
 
       init: function () {
         component = this;
@@ -612,6 +659,7 @@
           service: svcName,
           method: methodName,
           values: this.formValues[key] || {},
+          metadata: this.collectMetadata(key),
         });
       },
 
@@ -627,6 +675,7 @@
           service: svcName,
           method: methodName,
           values: this.formValues[key] || {},
+          metadata: this.collectMetadata(key),
         });
       },
 

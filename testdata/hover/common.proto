@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package hover.common;
+
+/* 用户模型
+ * 跨文件注释块
+ */
+message User {
+  string name = 1;
+  int64 age = 2;
+}

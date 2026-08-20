@@ -135,6 +135,9 @@ export function registerCodeGenCommand(
 
 function readConfig(): CodeGenConfig {
   const cfg = vscode.workspace.getConfiguration('protoUtils.codeGen');
+  // int64Style 非法值兜底 'number'(package.json 枚举之外的旧配置)
+  const int64StyleRaw = cfg.get<string>('int64Style', 'number');
+  const int64Style = int64StyleRaw === 'bigint' || int64StyleRaw === 'string' ? int64StyleRaw : 'number';
   return {
     enumStyle: cfg.get<'enum' | 'union'>('enumStyle', 'enum'),
     optionalMessageFields: cfg.get<boolean>('optionalMessageFields', true),
@@ -142,6 +145,7 @@ function readConfig(): CodeGenConfig {
     fieldNaming: cfg.get<'camelCase' | 'preserve'>('fieldNaming', 'camelCase'),
     oneofStyle: cfg.get<'optional' | 'union'>('oneofStyle', 'optional'),
     importExtension: cfg.get<'ts' | 'none'>('importExtension', 'ts'),
+    int64Style,
   };
 }
 

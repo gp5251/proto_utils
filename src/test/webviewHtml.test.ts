@@ -102,6 +102,17 @@ test('boot 数据内嵌 server 与 protoDir', () => {
   assert.ok(html.includes('D:/work/protos'));
 });
 
+test('Headers 编辑器:行编辑锚点 + metadataDefault 注入 boot', () => {
+  const html = render({ metadataDefault: [{ key: 'authorization', value: 'Bearer t' }] });
+  assert.ok(html.includes('class="headers-editor"'));
+  assert.ok(html.includes('addHeaderRow(methodKey(svc.name, m.name))'));
+  assert.ok(html.includes('removeHeaderRow(methodKey(svc.name, m.name), hIdx)'));
+  assert.ok(html.includes('setHeaderField(methodKey(svc.name, m.name), hIdx'));
+  assert.ok(html.includes('"metadata":[{"key":"authorization","value":"Bearer t"}]'));
+  // 缺省为空数组
+  assert.ok(render().includes('"metadata":[]'));
+});
+
 test('loading 态:加载卡片与 spinner 标记', () => {
   const html = render();
   assert.ok(html.includes('id="proto-loading-card"'));

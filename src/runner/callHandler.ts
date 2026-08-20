@@ -1,7 +1,8 @@
 import { CallOptions, CallResult, FieldInfo, StreamHandlers } from './core/types';
-import { GrpcClient } from './core/grpcClient';
+import { GrpcClient, buildChannelCredentials } from './core/grpcClient';
 import { ServiceRegistry, SerializedMethod } from './serviceRegistry';
 import { buildRequestFromValues } from './utils/formParser';
+import type { MetadataEntry, TlsSettings } from './config';
 import JSON5 from 'json5';
 
 export type { StreamHandlers, StreamHandle } from './core/types';
@@ -33,12 +34,18 @@ export interface CallResultPayload {
 }
 
 export interface CallRunner {
-  callUnary(service: string, method: string, values: Record<string, unknown>): Promise<CallResultPayload>;
+  callUnary(
+    service: string,
+    method: string,
+    values: Record<string, unknown>,
+    metadata?: MetadataEntry[],
+  ): Promise<CallResultPayload>;
   callServerStream(
     service: string,
     method: string,
     values: Record<string, unknown>,
     handlers: StreamHandlers,
+    metadata?: MetadataEntry[],
   ): { cancel(): void };
 }
 
@@ -66,21 +73,32 @@ export class GrpcCallRunner implements CallRunner {
     private readonly protoDir: string,
     private readonly registry: ServiceRegistry,
     clientFactory?: (server: string) => GrpcTransport,
+    /** 通道级默认:TLS 凭据与一元超时(0.3.35);不传则保持 insecure 无超时 */
+    callDefaults?: { tls: TlsSettings; timeoutMs: number },
   ) {
-    this.clientFactory = clientFactory ?? ((addr) => new GrpcClient(addr));
+    this.clientFactory =
+      clientFactory ??
+      (callDefaults
+        ? (addr) =>
+            new GrpcClient(addr, {
+              credentials: buildChannelCredentials(callDefaults.tls),
+              timeoutMs: callDefaults.timeoutMs,
+            })
+        : (addr) => new GrpcClient(addr));
   }
 
   async callUnary(
     service: string,
     method: string,
     values: Record<string, unknown>,
+    metadata?: MetadataEntry[],
   ): Promise<CallResultPayload> {
     const m = await this.findMethod(service, method);
     const fields: FieldInfo[] = m?.requestFields ?? [];
     const requestObj = buildRequestObject(fields, values);
 
     const client = this.clientFactory(this.server);
-    const result = await client.call(this.protoDir, { service, method, request: requestObj });
+    const result = await client.call(this.protoDir, { service, method, request: requestObj, metadata });
 
     return {
       service,
@@ -101,6 +119,7 @@ export class GrpcCallRunner implements CallRunner {
     method: string,
     values: Record<string, unknown>,
     handlers: StreamHandlers,
+    metadata?: MetadataEntry[],
   ): { cancel(): void } {
     const client = this.clientFactory(this.server);
     let handle: { cancel(): void } | null = null;
@@ -111,7 +130,7 @@ export class GrpcCallRunner implements CallRunner {
         return;
       }
       const requestObj = buildRequestObject(m?.requestFields ?? [], values);
-      handle = client.callServerStream(this.protoDir, { service, method, request: requestObj }, handlers);
+      handle = client.callServerStream(this.protoDir, { service, method, request: requestObj, metadata }, handlers);
       if (cancelled) {
         handle.cancel();
       }

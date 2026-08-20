@@ -4,8 +4,10 @@ import * as protoLoader from '@grpc/proto-loader';
 const cache = new Map<string, protoLoader.PackageDefinition>();
 
 /**
- * 调用面契约(keepCase:false/longs:Number/enums:Number/defaults:true/oneofs:true),
+ * 调用面契约(keepCase:false/longs:String/enums:Number/defaults:true/oneofs:true),
  * 逐字沿用 rpc_runner;与 emitter 平面的 ProtoFrontend(keepCase:true)互不共享。
+ * longs:String(0.3.35 起,原 Number):int64/uint64 等 64 位整型以 string 往返,
+ * 避免超过 2^53 被截断;请求侧 protobufjs fromObject 接受 string,无需额外转换。
  */
 export function getPackageDefinition(
   protoFile: string,
@@ -19,7 +21,7 @@ export function getPackageDefinition(
 
   const def = protoLoader.loadSync(absPath, {
     keepCase: false,
-    longs: Number,
+    longs: String,
     enums: Number,
     defaults: true,
     oneofs: true,
