@@ -91,6 +91,7 @@ export interface User {
 - proto 文件变更(保存、外部修改)会自动刷新服务列表,不丢表单状态。
 - 搜索框为模糊匹配(子序列,大小写不敏感):`ldp` 可命中 `ExecuteOpenLDProg`;子串命中仍然有效。
 - client-streaming 与双向流暂不支持(见 `docs/adr/0007`)。
+- 工作台界面配色自动跟随 VS Code 明/暗主题(暗色为 GitHub Dark、亮色为 GitHub Light 固定配色,见 `docs/adr/0011`)。
 
 工作台依赖的设置:
 
