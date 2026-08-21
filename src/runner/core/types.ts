@@ -54,6 +54,10 @@ export interface StreamHandlers {
   onData(data: unknown): void;
   onError(message: string): void;
   onEnd(durationMs: number): void;
+  /** 0.3.38:响应初始 metadata(headers)到达,先于首个 data */
+  onHeaders?(headers: MetadataEntry[]): void;
+  /** 0.3.38:trailer metadata 到达(随流的 status 事件,end 之前) */
+  onTrailers?(trailers: MetadataEntry[]): void;
 }
 
 export interface StreamHandle {
@@ -64,6 +68,10 @@ export interface CallOk {
   status: 'ok';
   data: unknown;
   durationMs: number;
+  /** 0.3.38:服务器响应初始 metadata(headers);未到达为 undefined */
+  responseHeaders?: MetadataEntry[];
+  /** 0.3.38:响应 trailer metadata(随最终 status 到达) */
+  responseTrailers?: MetadataEntry[];
 }
 
 export interface CallError {

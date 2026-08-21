@@ -58,12 +58,24 @@ before(async () => {
         if (req.nums?.includes(555)) {
           return; // 挂死不回:deadline 测试用,客户端应报 DEADLINE_EXCEEDED
         }
-        cb(null, call.request);
+        // 响应 headers(含 -bin 二进制键)+ trailers:metadata 捕获测试的服务端来源
+        const headers = new grpc.Metadata();
+        headers.add('x-test-header', 'unary-hdr');
+        headers.add('trace-bin', Buffer.from([1, 2, 3]));
+        call.sendMetadata(headers);
+        const trailers = new grpc.Metadata();
+        trailers.add('x-test-trailer', 'unary-trl');
+        cb(null, call.request, trailers);
       },
       Subscribe: (call: grpc.ServerWritableStream<unknown, unknown>) => {
         lastStreamMetadata = call.metadata;
+        const headers = new grpc.Metadata();
+        headers.add('x-test-header', 'stream-hdr');
+        call.sendMetadata(headers);
         for (const n of [1, 2, 3]) call.write({ nums: [n] });
-        call.end();
+        const trailers = new grpc.Metadata();
+        trailers.add('x-test-trailer', 'stream-trl');
+        call.end(trailers);
       },
     }),
   );
@@ -102,6 +114,65 @@ test('unary roundtrip through the full resolveCall chain', async () => {
   assert.equal(result.status, 'ok');
   // protoCache longs:String(0.3.35):repeated int64 以 string 往返,避免 2^53 截断
   if (result.status === 'ok') assert.deepEqual((result.data as { nums: string[] }).nums, ['7']);
+});
+
+test('unary: 响应 headers/trailers 进 CallOk;-bin 二进制值 base64 化', async () => {
+  const result = await client.call(FRONTEND_DIR, {
+    service: 'Greeter',
+    method: 'SayHello',
+    request: { nums: [1] },
+  });
+  assert.equal(result.status, 'ok');
+  if (result.status !== 'ok') return;
+  assert.deepEqual(
+    result.responseHeaders?.filter((e) => e.key === 'x-test-header'),
+    [{ key: 'x-test-header', value: 'unary-hdr' }],
+  );
+  // -bin 键的 Buffer 值无法进 postMessage JSON,以 base64 透出([1,2,3] → AQID)
+  assert.deepEqual(
+    result.responseHeaders?.filter((e) => e.key === 'trace-bin'),
+    [{ key: 'trace-bin', value: 'AQID' }],
+  );
+  assert.deepEqual(
+    result.responseTrailers?.filter((e) => e.key === 'x-test-trailer'),
+    [{ key: 'x-test-trailer', value: 'unary-trl' }],
+  );
+});
+
+test('server-streaming: onHeaders 先于首个 data,onTrailers 在 onEnd 前', async () => {
+  const events: string[] = [];
+  let headers: unknown;
+  let trailers: unknown;
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  client.callServerStream(
+    FRONTEND_DIR,
+    { service: 'Greeter', method: 'Subscribe', request: {} },
+    {
+      onHeaders: (h) => {
+        headers = h;
+        events.push('headers');
+      },
+      onData: () => events.push('data'),
+      onTrailers: (t) => {
+        trailers = t;
+        events.push('trailers');
+      },
+      onError: (message) => reject(new Error(message)),
+      onEnd: () => {
+        events.push('end');
+        resolve();
+      },
+    },
+  );
+  await promise;
+  assert.deepEqual(events, ['headers', 'data', 'data', 'data', 'trailers', 'end']);
+  // headers 里还混有 grpc-js 自己合成的 content-type/date,只断言服务端发出的键
+  const headerEntries = headers as Array<{ key: string; value: string }>;
+  assert.deepEqual(
+    headerEntries.filter((e) => e.key === 'x-test-header'),
+    [{ key: 'x-test-header', value: 'stream-hdr' }],
+  );
+  assert.deepEqual(trailers, [{ key: 'x-test-trailer', value: 'stream-trl' }]);
 });
 
 test('acronym method resolves via case-insensitive fallback, not naive lowercase', async () => {

@@ -85,6 +85,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     addHeader: l10n.t('Add header'),
     headerKeyPlaceholder: l10n.t('Header name'),
     headerValuePlaceholder: l10n.t('Header value'),
+    respMetaTitle: l10n.t('Response metadata'),
   };
   const strings = {
     copy: l10n.t('Copy'),
@@ -93,6 +94,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     refreshedErrors: l10n.t('Refreshed · {count} services · {errors} parse errors'),
     chunkCount: l10n.t('{count} messages'),
     ignored: l10n.t('Ignored: {fields}'),
+    respMetaHeader: l10n.t('header'),
+    respMetaTrailer: l10n.t('trailer'),
   };
   const boot = {
     server: options.server,
@@ -489,6 +492,22 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                           x-text="isCopied(svc.name, m.name) ? $store.str.copied : $store.str.copy"
                         ></button>
                       </div>
+                      <div class="resp-meta" x-show="hasRespMeta(svc.name, m.name)">
+                        <div class="resp-meta-toggle" @click="toggleRespMeta(svc.name, m.name)">
+                          <span class="collapse-icon" x-text="isRespMetaOpen(svc.name, m.name) ? '▼' : '▶'"></span>
+                          <span>${S.respMetaTitle}</span>
+                          <span class="resp-meta-count" x-text="respMetaCountText(svc.name, m.name)"></span>
+                        </div>
+                        <div x-show="isRespMetaOpen(svc.name, m.name)" class="resp-meta-body">
+                          <template x-for="(entry, eIdx) in respMetaEntries(svc.name, m.name)" :key="eIdx">
+                            <div class="resp-meta-row">
+                              <span class="resp-meta-source" x-text="entry.source"></span>
+                              <span class="resp-meta-key" x-text="entry.key"></span>
+                              <span class="resp-meta-value" x-text="entry.value"></span>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
                       <pre class="result-body" x-text="resultBodyText(svc.name, m.name)"></pre>
                     </div>
                   </template>
@@ -526,6 +545,22 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                             @click="copyStreamResult(svc.name, m.name)"
                             x-text="isCopied(svc.name, m.name) ? $store.str.copied : $store.str.copy"
                           ></button>
+                        </div>
+                      </div>
+                      <div class="resp-meta" x-show="hasRespMeta(svc.name, m.name)">
+                        <div class="resp-meta-toggle" @click="toggleRespMeta(svc.name, m.name)">
+                          <span class="collapse-icon" x-text="isRespMetaOpen(svc.name, m.name) ? '▼' : '▶'"></span>
+                          <span>${S.respMetaTitle}</span>
+                          <span class="resp-meta-count" x-text="respMetaCountText(svc.name, m.name)"></span>
+                        </div>
+                        <div x-show="isRespMetaOpen(svc.name, m.name)" class="resp-meta-body">
+                          <template x-for="(entry, eIdx) in respMetaEntries(svc.name, m.name)" :key="eIdx">
+                            <div class="resp-meta-row">
+                              <span class="resp-meta-source" x-text="entry.source"></span>
+                              <span class="resp-meta-key" x-text="entry.key"></span>
+                              <span class="resp-meta-value" x-text="entry.value"></span>
+                            </div>
+                          </template>
                         </div>
                       </div>
                       <pre class="result-body" x-text="getStreamBody(svc.name, m.name)"></pre>

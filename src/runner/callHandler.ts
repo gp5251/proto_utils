@@ -31,6 +31,9 @@ export interface CallResultPayload {
   values: Record<string, string>;
   result: CallResult;
   resultBody: string;
+  /** 0.3.38:响应 headers/trailers(仅 result.status === 'ok' 时填充;错误路径缺省) */
+  responseHeaders?: MetadataEntry[];
+  responseTrailers?: MetadataEntry[];
 }
 
 export interface CallRunner {
@@ -111,6 +114,8 @@ export class GrpcCallRunner implements CallRunner {
       resultBody: result.status === 'ok'
         ? JSON.stringify(result.data, null, 2)
         : result.error,
+      responseHeaders: result.status === 'ok' ? (result.responseHeaders ?? []) : undefined,
+      responseTrailers: result.status === 'ok' ? (result.responseTrailers ?? []) : undefined,
     };
   }
 

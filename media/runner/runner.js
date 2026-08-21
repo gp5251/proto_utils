@@ -77,6 +77,10 @@
       case 'streamChunk':
         if (component) component.applyStreamChunk(msg);
         break;
+      case 'streamHeaders':
+      case 'streamTrailers':
+        if (component) component.applyStreamMeta(msg);
+        break;
       case 'streamEnd':
         if (component) component.applyStreamEnd(msg);
         break;
@@ -182,6 +186,7 @@
       jsonError: {},
       jsonWarnings: {},
       headers: {},
+      respMeta: {},
 
       // ---- Headers(请求 metadata)行编辑器:初始行来自 boot.metadata(runner.metadata 配置) ----
 
@@ -259,6 +264,53 @@
 
       getStream: function (svcName, methodName) {
         return this.streams[this.methodKey(svcName, methodName)] ?? null;
+      },
+
+      // ---- 响应 metadata(headers/trailers):折叠块,默认收起,有数据才渲染 ----
+
+      getRespMeta: function (svcName, methodName) {
+        return this.respMeta[this.methodKey(svcName, methodName)] ?? null;
+      },
+
+      setRespMeta: function (key, patch) {
+        var prev = this.respMeta[key] || { headers: [], trailers: [], open: false };
+        this.respMeta = Object.assign({}, this.respMeta, { [key]: Object.assign({}, prev, patch) });
+      },
+
+      hasRespMeta: function (svcName, methodName) {
+        var m = this.getRespMeta(svcName, methodName);
+        return Boolean(m && (m.headers.length > 0 || m.trailers.length > 0));
+      },
+
+      isRespMetaOpen: function (svcName, methodName) {
+        var m = this.getRespMeta(svcName, methodName);
+        return Boolean(m && m.open);
+      },
+
+      toggleRespMeta: function (svcName, methodName) {
+        var key = this.methodKey(svcName, methodName);
+        var m = this.getRespMeta(svcName, methodName);
+        this.setRespMeta(key, { open: !(m && m.open) });
+      },
+
+      respMetaCountText: function (svcName, methodName) {
+        var m = this.getRespMeta(svcName, methodName);
+        if (!m) return '';
+        return String(m.headers.length + m.trailers.length);
+      },
+
+      respMetaEntries: function (svcName, methodName) {
+        var m = this.getRespMeta(svcName, methodName);
+        if (!m) return [];
+        var out = [];
+        var collect = function (source) {
+          return function (e) {
+            out.push({ source: source, key: String((e && e.key) || ''), value: String((e && e.value) || '') });
+          };
+        };
+        m.headers.forEach(collect(str('respMetaHeader')));
+        m.trailers.forEach(collect(str('respMetaTrailer')));
+        return out;
       },
 
       // ---- @alpinejs/csp 表达式解析器不支持 ?. / ??,结果区取值收敛到这里(纯 JS,随便写) ----
@@ -667,6 +719,7 @@
         var key = this.methodKey(svcName, methodName);
         this.setResult(key, null);
         this.setCopied(key, false);
+        this.setRespMeta(key, { headers: [], trailers: [], open: false });
         this.streams = Object.assign({}, this.streams, {
           [key]: { chunks: [], done: false, cancelled: false, durationMs: 0 },
         });
@@ -697,11 +750,24 @@
         var key = this.methodKey(payload.service, payload.method);
         this.setResult(key, payload);
         this.setLoading(key, false);
+        this.setRespMeta(key, {
+          headers: Array.isArray(payload.responseHeaders) ? payload.responseHeaders : [],
+          trailers: Array.isArray(payload.responseTrailers) ? payload.responseTrailers : [],
+        });
         var stream = this.streams[key];
         if (stream) {
           this.streams = Object.assign({}, this.streams, {
             [key]: Object.assign({}, stream, { done: true }),
           });
+        }
+      },
+
+      applyStreamMeta: function (msg) {
+        var key = this.methodKey(msg.service, msg.method);
+        if (msg.type === 'streamHeaders') {
+          this.setRespMeta(key, { headers: Array.isArray(msg.headers) ? msg.headers : [] });
+        } else {
+          this.setRespMeta(key, { trailers: Array.isArray(msg.trailers) ? msg.trailers : [] });
         }
       },
 

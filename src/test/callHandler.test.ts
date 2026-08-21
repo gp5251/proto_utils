@@ -75,6 +75,34 @@ test('callUnary: 调用错误进 result,resultBody 为错误文本', async () =>
   assert.equal(payload.resultBody, 'UNAVAILABLE: down');
 });
 
+test('callUnary: ok 载荷携带响应 headers/trailers;错误载荷缺省', async () => {
+  const okTransport: GrpcTransport = {
+    call: async () => ({
+      status: 'ok',
+      data: {},
+      durationMs: 1,
+      responseHeaders: [{ key: 'x-h', value: '1' }],
+      responseTrailers: [{ key: 'x-t', value: '2' }],
+    }),
+    callServerStream: () => {
+      throw new Error('not used');
+    },
+  };
+  const okPayload = await makeRunner(okTransport).callUnary('VarService', 'SetVar', {});
+  assert.deepEqual(okPayload.responseHeaders, [{ key: 'x-h', value: '1' }]);
+  assert.deepEqual(okPayload.responseTrailers, [{ key: 'x-t', value: '2' }]);
+
+  const errTransport: GrpcTransport = {
+    call: async () => ({ status: 'error', error: 'boom', durationMs: 1 }),
+    callServerStream: () => {
+      throw new Error('not used');
+    },
+  };
+  const errPayload = await makeRunner(errTransport).callUnary('VarService', 'SetVar', {});
+  assert.equal(errPayload.responseHeaders, undefined);
+  assert.equal(errPayload.responseTrailers, undefined);
+});
+
 test('callUnary: 未知方法时无 schema,合法 _raw JSON 兜底为请求体', async () => {
   let seenRequest: unknown;
   const transport: GrpcTransport = {

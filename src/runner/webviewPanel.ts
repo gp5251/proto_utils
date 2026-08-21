@@ -20,6 +20,8 @@ export type WorkbenchToWebview =
   | { type: 'loadError'; errors: string[] }
   | { type: 'callResult'; payload: CallResultPayload }
   | { type: 'streamChunk'; service: string; method: string; data: unknown }
+  | { type: 'streamHeaders'; service: string; method: string; headers: MetadataEntry[] }
+  | { type: 'streamTrailers'; service: string; method: string; trailers: MetadataEntry[] }
   | { type: 'streamEnd'; service: string; method: string; durationMs: number }
   | { type: 'prefill'; service: string; method: string };
 
@@ -257,6 +259,16 @@ export class WorkbenchSession {
         onData: (data: unknown) => {
           if (entry.active) {
             this.send({ type: 'streamChunk', service: target.service, method: target.method, data });
+          }
+        },
+        onHeaders: (headers: MetadataEntry[]) => {
+          if (entry.active) {
+            this.send({ type: 'streamHeaders', service: target.service, method: target.method, headers });
+          }
+        },
+        onTrailers: (trailers: MetadataEntry[]) => {
+          if (entry.active) {
+            this.send({ type: 'streamTrailers', service: target.service, method: target.method, trailers });
           }
         },
         onError: (message: string) => {

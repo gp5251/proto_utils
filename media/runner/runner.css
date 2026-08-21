@@ -560,3 +560,45 @@ input[type="checkbox"] {
   font-family: var(--mono);
 }
 .header-remove { flex-shrink: 0; }
+
+/* ---- 响应 metadata(headers/trailers)折叠块:默认收起,有数据才渲染 ---- */
+.resp-meta {
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.resp-meta-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.resp-meta-toggle:hover { color: var(--text); }
+.resp-meta-count { font-weight: 400; color: var(--text-faint); }
+.resp-meta-body {
+  border-top: 1px solid var(--border);
+  padding: 6px 10px 8px;
+}
+.resp-meta-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.resp-meta-source {
+  flex-shrink: 0;
+  min-width: 56px;
+  font-family: var(--font);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.resp-meta-key { flex-shrink: 0; color: var(--text-dim); }
+.resp-meta-value { color: var(--text); word-break: break-all; }

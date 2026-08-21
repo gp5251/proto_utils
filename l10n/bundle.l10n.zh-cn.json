@@ -56,5 +56,8 @@
   "Refreshed · {count} services": "已刷新 · {count} 个服务",
   "Refreshed · {count} services · {errors} parse errors": "已刷新 · {count} 个服务 · {errors} 条解析错误",
   "{count} messages": "{count} 条消息",
-  "Ignored: {fields}": "已忽略:{fields}"
+  "Ignored: {fields}": "已忽略:{fields}",
+  "Response metadata": "响应 metadata",
+  "header": "头部",
+  "trailer": "尾部"
 }

@@ -193,6 +193,35 @@ test('callStream → streamChunk×N → streamEnd;cancelStream 取消并收尾',
   assert.deepEqual(posted.map((m) => m.type), ['streamEnd']);
 });
 
+test('callStream: onHeaders/onTrailers 转发为 streamHeaders/streamTrailers 消息', async () => {
+  const { host, posted, emit } = makeHost();
+  let handlers: StreamHandlers | null = null;
+  const runner: Partial<CallRunner> = {
+    callServerStream: (_s, _m, _v, h) => {
+      handlers = h;
+      return { cancel: () => undefined };
+    },
+  };
+  new WorkbenchSession(makeDeps({ runner }).deps).attach(host);
+
+  emit({ type: 'callStream', service: 'c.Greeter', method: 'Subscribe', values: {} });
+  assert.ok(handlers);
+  const streamHandlers = handlers as StreamHandlers;
+  const headers = [{ key: 'x-h', value: '1' }];
+  const trailers = [{ key: 'x-t', value: '2' }];
+  streamHandlers.onHeaders?.(headers);
+  streamHandlers.onData({ nums: [1] });
+  streamHandlers.onTrailers?.(trailers);
+  streamHandlers.onEnd(9);
+
+  assert.deepEqual(
+    posted.map((m) => m.type),
+    ['streamHeaders', 'streamChunk', 'streamTrailers', 'streamEnd'],
+  );
+  assert.equal((posted[0] as { headers: unknown }).headers, headers);
+  assert.equal((posted[2] as { trailers: unknown }).trailers, trailers);
+});
+
 test('流错误进 callResult;dispose 取消进行中的流', async () => {
   const { host, posted, emit, dispose } = makeHost();
   let handlers: StreamHandlers | null = null;

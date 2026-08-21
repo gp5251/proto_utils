@@ -64,6 +64,17 @@ test('双模式编辑器锚点:Tab 条/json-editor/sendFromEditor/formMapping �
   );
 });
 
+test('响应 metadata 折叠块锚点:一元/流式结果区各一份,标题与行标签串进 boot', () => {
+  const html = render();
+  assert.equal(html.match(/class="resp-meta"/g)?.length, 2);
+  assert.ok(html.includes('hasRespMeta(svc.name, m.name)'));
+  assert.ok(html.includes('toggleRespMeta(svc.name, m.name)'));
+  assert.ok(html.includes('respMetaEntries(svc.name, m.name)'));
+  assert.ok(html.includes('Response metadata'));
+  assert.ok(html.includes('respMetaHeader'));
+  assert.ok(html.includes('respMetaTrailer'));
+});
+
 test('内嵌 services 序列化防 </script> 注入', () => {
   const evil = '</script><script>alert(1)</script>';
   const services = [

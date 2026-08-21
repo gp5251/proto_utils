@@ -39,7 +39,7 @@ type UnaryCall = (
   metadata: grpc.Metadata,
   options: grpc.CallOptions,
   cb: (err: unknown, res: unknown) => void,
-) => void;
+) => grpc.ClientUnaryCall;
 type ServerStreamCall = (req: unknown, metadata: grpc.Metadata) => grpc.ClientReadableStream<unknown>;
 type ClientMethod = UnaryCall | ServerStreamCall;
 
@@ -65,6 +65,20 @@ function buildGrpcMetadata(entries: MetadataEntry[] | undefined): grpc.Metadata 
     md.add(entry.key, entry.value);
   }
   return md;
+}
+
+/** grpc.Metadata → 展示用条目。保留同 key 多值;-bin 二进制键 base64 化(Buffer 无法进 JSON/页面)。 */
+function metadataToEntries(md: grpc.Metadata | undefined): MetadataEntry[] {
+  if (!md) {
+    return [];
+  }
+  const out: MetadataEntry[] = [];
+  for (const key of Object.keys(md.getMap())) {
+    for (const value of md.get(key)) {
+      out.push({ key, value: typeof value === 'string' ? value : Buffer.from(value).toString('base64') });
+    }
+  }
+  return out;
 }
 
 export class GrpcClient {
@@ -122,8 +136,11 @@ export class GrpcClient {
       if (this.timeoutMs > 0) {
         callOptions.deadline = Date.now() + this.timeoutMs;
       }
+      // 响应 headers/trailers 经 ClientUnaryCall 的 metadata/status 事件到达,与回调独立
+      let responseHeaders: grpc.Metadata | undefined;
+      let responseTrailers: grpc.Metadata | undefined;
       const response = await new Promise<unknown>((resolve, reject) => {
-        (methodFn as UnaryCall).call(
+        const call = (methodFn as UnaryCall).call(
           client,
           options.request,
           buildGrpcMetadata(options.metadata),
@@ -133,6 +150,12 @@ export class GrpcClient {
             else resolve(res);
           },
         );
+        call.on('metadata', (md: grpc.Metadata) => {
+          responseHeaders = md;
+        });
+        call.on('status', (s: grpc.StatusObject) => {
+          responseTrailers = s.metadata;
+        });
       });
 
       this.safeClose(client);
@@ -141,6 +164,8 @@ export class GrpcClient {
         status: 'ok',
         data: response,
         durationMs: Date.now() - start,
+        responseHeaders: metadataToEntries(responseHeaders),
+        responseTrailers: metadataToEntries(responseTrailers),
       };
     } catch (e: unknown) {
       if (client) this.safeClose(client);
@@ -201,6 +226,17 @@ export class GrpcClient {
 
     let cancelled = false;
     let settled = false;
+    // 响应 headers 先于首个 data;trailers 随 status 事件在 end/error 之前到达
+    stream.on('metadata', (md: grpc.Metadata) => {
+      if (!cancelled) {
+        handlers.onHeaders?.(metadataToEntries(md));
+      }
+    });
+    stream.on('status', (s: grpc.StatusObject) => {
+      if (!cancelled && !settled) {
+        handlers.onTrailers?.(metadataToEntries(s.metadata));
+      }
+    });
     stream.on('data', (data: unknown) => {
       if (!cancelled) {
         handlers.onData(data);
