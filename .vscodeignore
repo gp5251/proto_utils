@@ -9,6 +9,7 @@ out/test/**
 SPEC.md
 CONTEXT.md
 .gitignore
+pnpm-workspace.yaml
 out/**/*.map
 media/gen_icon.ps1
 media/**/*.map
