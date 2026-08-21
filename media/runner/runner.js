@@ -134,6 +134,10 @@
       return;
     }
     if (component.openMethod(pendingPrefill.service, pendingPrefill.method)) {
+      // CodeLens 跳入视同重新定位:清掉残留搜索词。
+      // 面板 retainContextWhenHidden,旧查询会跨次存活;openMethod 查的是未过滤的
+      // store.services,过滤态下能"开"成功但目标行被搜索隐藏,必须清。
+      Alpine.store('search').query = '';
       pendingPrefill = null;
     }
   }
