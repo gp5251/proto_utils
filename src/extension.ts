@@ -96,7 +96,18 @@ class LazyWorkbench {
   ) {}
 
   async reveal(prefill?: { service: string; method: string }): Promise<void> {
-    const manager = await this.getManager();
+    // 冷启动 reveal 触发懒加载(bundle import 拖入 grpc-js/protobufjs),可能数秒无反馈;
+    // 弹通知进度提示。仅首次弹:managerPromise 创建后,并发/后续 reveal 直接 await 同一 promise。
+    const manager = this.managerPromise
+      ? await this.managerPromise
+      : await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: vscode.l10n.t('Proto Utils: Loading RPC Workbench…'),
+            cancellable: false,
+          },
+          () => this.getManager(),
+        );
     manager.reveal(prefill);
   }
 

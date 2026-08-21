@@ -2,6 +2,7 @@
   "Call": "调用",
   "RPC Workbench": "RPC 工作台",
   "Proto Utils: Indexing proto files…": "Proto Utils: 正在索引 proto 文件…",
+  "Proto Utils: Loading RPC Workbench…": "Proto Utils: 正在加载 RPC 工作台…",
   "Proto Utils: Failed to parse proto files{0}: {1}": "Proto Utils: proto 文件解析失败{0}:{1}",
   "Proto Utils: No .proto file selected.": "Proto Utils: 未选择 .proto 文件。",
   "Proto Utils: No workspace folder open.": "Proto Utils: 未打开工作区文件夹。",
