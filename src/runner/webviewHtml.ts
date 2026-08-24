@@ -14,6 +14,8 @@ export interface WorkbenchHtmlOptions {
   runnerScriptUri: string;
   /** media/runner/formMapping.js 的 asWebviewUri(ADR-0009:build.mjs 从 src/runner/utils/formMapping.ts 产出) */
   formMappingScriptUri: string;
+  /** media/runner/resultTree.js 的 asWebviewUri(0.3.41:响应 JSON 折叠树,同 ADR-0009 共享源通道) */
+  resultTreeScriptUri: string;
   /** media/runner/alpine.min.js 的 asWebviewUri */
   alpineScriptUri: string;
   /** 顶栏显示的 gRPC server 地址 */
@@ -120,6 +122,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
   <title>${S.title}</title>
   <script nonce="${options.nonce}">window.__PROTO_UTILS_BOOT__ = ${escapeInlineJson(boot)};</script>
   <script nonce="${options.nonce}" src="${options.formMappingScriptUri}"></script>
+  <script nonce="${options.nonce}" src="${options.resultTreeScriptUri}"></script>
   <script nonce="${options.nonce}" src="${options.runnerScriptUri}"></script>
   <script nonce="${options.nonce}" defer src="${options.alpineScriptUri}"></script>
 </head>
@@ -509,7 +512,25 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                           </template>
                         </div>
                       </div>
-                      <pre class="result-body" x-text="resultBodyText(svc.name, m.name)"></pre>
+                      <!-- 0.3.41:响应数据 DevTools 风格折叠树;错误/缺 data 退化为原始 <pre> -->
+                      <div x-show="resultTreeAvailable(svc.name, m.name)" class="result-body result-tree">
+                        <template x-for="row in resultTreeRows(svc.name, m.name)" :key="row.path">
+                          <div
+                            class="tree-row"
+                            :class="{ 'tree-row-container': row.children && row.children.length }"
+                            :style="'padding-left:' + (row.depth * 14 + 8) + 'px'"
+                            @click.stop="row.children && row.children.length ? toggleTreeNode(svc.name, m.name, row.path) : null"
+                          >
+                            <span x-show="row.children && row.children.length" class="collapse-icon" x-text="isTreeNodeOpen(svc.name, m.name, row.path) ? '▼' : '▶'"></span>
+                            <span x-show="!(row.children && row.children.length)" class="tree-spacer"></span>
+                            <span x-show="row.key" class="tree-key" x-text="row.key"></span>
+                            <span x-show="row.key" class="tree-colon">:</span>
+                            <span class="tree-value" :class="'tree-value-' + row.kind" x-text="row.value"></span>
+                            <span x-show="row.count" class="tree-count" x-text="row.count"></span>
+                          </div>
+                        </template>
+                      </div>
+                      <pre x-show="!resultTreeAvailable(svc.name, m.name)" class="result-body" x-text="resultBodyText(svc.name, m.name)"></pre>
                     </div>
                   </template>
 
@@ -564,7 +585,35 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                           </template>
                         </div>
                       </div>
-                      <pre class="result-body" x-text="getStreamBody(svc.name, m.name)"></pre>
+                      <!-- 0.3.41:每 chunk 一条折叠条,条内同款折叠树;空/错误流退化为原始 <pre> -->
+                      <div x-show="streamIsTreeable(svc.name, m.name)" class="stream-tree">
+                        <template x-for="sec in chunkSections(svc.name, m.name)" :key="sec.idx">
+                          <div class="chunk-section">
+                            <div class="chunk-toggle" @click="toggleChunkTree(svc.name, m.name, sec.idx)">
+                              <span class="collapse-icon" x-text="isChunkTreeOpen(svc.name, m.name, sec.idx) ? '▼' : '▶'"></span>
+                              <span class="chunk-label" x-text="sec.label"></span>
+                            </div>
+                            <div x-show="isChunkTreeOpen(svc.name, m.name, sec.idx)" class="chunk-tree">
+                              <template x-for="row in chunkTreeRows(svc.name, m.name, sec.idx)" :key="row.path">
+                                <div
+                                  class="tree-row"
+                                  :class="{ 'tree-row-container': row.children && row.children.length }"
+                                  :style="'padding-left:' + (row.depth * 14 + 8) + 'px'"
+                                  @click.stop="row.children && row.children.length ? toggleTreeNode(svc.name, m.name, row.path) : null"
+                                >
+                                  <span x-show="row.children && row.children.length" class="collapse-icon" x-text="isTreeNodeOpen(svc.name, m.name, row.path) ? '▼' : '▶'"></span>
+                                  <span x-show="!(row.children && row.children.length)" class="tree-spacer"></span>
+                                  <span x-show="row.key" class="tree-key" x-text="row.key"></span>
+                                  <span x-show="row.key" class="tree-colon">:</span>
+                                  <span class="tree-value" :class="'tree-value-' + row.kind" x-text="row.value"></span>
+                                  <span x-show="row.count" class="tree-count" x-text="row.count"></span>
+                                </div>
+                              </template>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+                      <pre x-show="!streamIsTreeable(svc.name, m.name)" class="result-body" x-text="getStreamBody(svc.name, m.name)"></pre>
                     </div>
                   </template>
                 </div>

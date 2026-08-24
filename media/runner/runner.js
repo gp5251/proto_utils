@@ -198,6 +198,16 @@
       headers: {},
       respMeta: {},
 
+      // ---- 响应 JSON 折叠树(0.3.41):行构建与可见性遍历在 TS(全局 ResultTree) ----
+      // resultTrees: methodKey → 根行数组(一元,applyCallResult 一次构建)
+      // streamTrees: methodKey → 每 chunk 一列行数组(append 时只建新 chunk,旧列引用不变)
+      // chunkSizes:  methodKey → 各 chunk 字节数(append 时算一次,chunk 标签免每渲染 stringify)
+      // treeOpen:    methodKey → { nodes: {[path]: true}, chunks: {[idx]: true} },默认全折叠
+      resultTrees: {},
+      streamTrees: {},
+      chunkSizes: {},
+      treeOpen: {},
+
       // ---- Headers(请求 metadata)行编辑器:初始行来自 boot.metadata(runner.metadata 配置) ----
 
       getHeaders: function (key) {
@@ -321,6 +331,82 @@
         m.headers.forEach(collect(str('respMetaHeader')));
         m.trailers.forEach(collect(str('respMetaTrailer')));
         return out;
+      },
+
+      // ---- 响应 JSON 折叠树(0.3.41):状态机粘合,行构建/可见性在全局 ResultTree ----
+
+      // 一元成功且带结构化 data 时才挂树;错误/缺 data 走原始 <pre> 兜底
+      resultTreeAvailable: function (svcName, methodName) {
+        return !!this.resultTrees[this.methodKey(svcName, methodName)];
+      },
+
+      resultTreeRows: function (svcName, methodName) {
+        var key = this.methodKey(svcName, methodName);
+        var rows = this.resultTrees[key] || [];
+        var nodes = (this.treeOpen[key] && this.treeOpen[key].nodes) || {};
+        return window.ResultTree.visibleRows(rows, function (path) {
+          return nodes[path] === true;
+        });
+      },
+
+      isTreeNodeOpen: function (svcName, methodName, path) {
+        var t = this.treeOpen[this.methodKey(svcName, methodName)];
+        return Boolean(t && t.nodes[path] === true);
+      },
+
+      toggleTreeNode: function (svcName, methodName, path) {
+        var key = this.methodKey(svcName, methodName);
+        var t = this.treeOpen[key] || { nodes: {}, chunks: {} };
+        this.treeOpen = Object.assign({}, this.treeOpen, {
+          [key]: Object.assign({}, t, {
+            nodes: Object.assign({}, t.nodes, { [path]: !t.nodes[path] }),
+          }),
+        });
+      },
+
+      isChunkTreeOpen: function (svcName, methodName, idx) {
+        var t = this.treeOpen[this.methodKey(svcName, methodName)];
+        return Boolean(t && t.chunks[idx] === true);
+      },
+
+      toggleChunkTree: function (svcName, methodName, idx) {
+        var key = this.methodKey(svcName, methodName);
+        var t = this.treeOpen[key] || { nodes: {}, chunks: {} };
+        this.treeOpen = Object.assign({}, this.treeOpen, {
+          [key]: Object.assign({}, t, {
+            chunks: Object.assign({}, t.chunks, { [idx]: !t.chunks[idx] }),
+          }),
+        });
+      },
+
+      // 流式:每 chunk 一条折叠条(#N · 大小);字节数 append 时已缓存,渲染零 stringify
+      chunkSections: function (svcName, methodName) {
+        var sizes = this.chunkSizes[this.methodKey(svcName, methodName)] || [];
+        return sizes.map(function (size, idx) {
+          return { idx: idx, label: window.ResultTree.formatChunkLabel(idx, size) };
+        });
+      },
+
+      // 收起的 chunk 返回 []:闭块挂零 DOM 行。chunk 间共享节点展开态(同型消息同构展开)
+      chunkTreeRows: function (svcName, methodName, idx) {
+        var key = this.methodKey(svcName, methodName);
+        var t = this.treeOpen[key];
+        if (!t || t.chunks[idx] !== true) return [];
+        var rows = (this.streamTrees[key] || [])[idx] || [];
+        return window.ResultTree.visibleRows(rows, function (path) {
+          return t.nodes[path] === true;
+        });
+      },
+
+      // 流式树可用:有 chunk 且不是错误结果
+      streamIsTreeable: function (svcName, methodName) {
+        var key = this.methodKey(svcName, methodName);
+        var stream = this.streams[key];
+        var result = this.results[key];
+        return Boolean(
+          stream && stream.chunks && stream.chunks.length > 0 &&
+          (!result || !result.result || result.result.status !== 'error'),
+        );
       },
 
       // ---- @alpinejs/csp 表达式解析器不支持 ?. / ??,结果区取值收敛到这里(纯 JS,随便写) ----
@@ -729,6 +815,10 @@
         var key = this.methodKey(svcName, methodName);
         this.setResult(key, null);
         this.setCopied(key, false);
+        // 折叠树态随流重置:旧 chunk 行/字节缓存与展开态一并清零(0.3.41)
+        this.streamTrees = Object.assign({}, this.streamTrees, { [key]: [] });
+        this.chunkSizes = Object.assign({}, this.chunkSizes, { [key]: [] });
+        this.treeOpen = Object.assign({}, this.treeOpen, { [key]: { nodes: {}, chunks: {} } });
         this.setRespMeta(key, { headers: [], trailers: [], open: false });
         this.streams = Object.assign({}, this.streams, {
           [key]: { chunks: [], done: false, cancelled: false, durationMs: 0 },
@@ -759,6 +849,20 @@
         }
         var key = this.methodKey(payload.service, payload.method);
         this.setResult(key, payload);
+        // 0.3.41:一元成功且带结构化 data → 一次构建折叠树;根行种子展开(顶层键可见),
+        // 整条替换 = 重调重置展开态。错误/无 data 清掉上次成功的树,退原始 <pre>
+        // (否则失败徽标旁会挂着上一次响应的旧树)。
+        if (payload.result && payload.result.status === 'ok' && payload.result.data !== undefined) {
+          this.resultTrees = Object.assign({}, this.resultTrees, {
+            [key]: window.ResultTree.buildResultTree(payload.result.data),
+          });
+          this.treeOpen = Object.assign({}, this.treeOpen, {
+            [key]: { nodes: { '': true }, chunks: {} },
+          });
+        } else {
+          this.resultTrees = Object.assign({}, this.resultTrees, { [key]: null });
+        }
+
         this.setLoading(key, false);
         this.setRespMeta(key, {
           headers: Array.isArray(payload.responseHeaders) ? payload.responseHeaders : [],
@@ -789,6 +893,14 @@
         }
         this.streams = Object.assign({}, this.streams, {
           [key]: Object.assign({}, stream, { chunks: stream.chunks.concat([msg.data]) }),
+        });
+        // 0.3.41:只建新 chunk 的行与字节缓存;旧列引用不变,Alpine keyed diff 不重渲染旧块
+        this.streamTrees = Object.assign({}, this.streamTrees, {
+          [key]: (this.streamTrees[key] || []).concat([window.ResultTree.buildResultTree(msg.data)]),
+        });
+        this.chunkSizes = Object.assign({}, this.chunkSizes, {
+          // UTF-8 字节数而非字符串长度:标签单位是 B/KB/MB,中文等多字节字符不低估
+          [key]: (this.chunkSizes[key] || []).concat([new TextEncoder().encode(JSON.stringify(msg.data)).length]),
         });
       },
 

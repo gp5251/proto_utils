@@ -48,6 +48,16 @@ const configs = [
     entryPoints: ['src/runner/utils/formMapping.ts'],
     outfile: 'media/runner/formMapping.js',
   },
+  {
+    ...shared,
+    // webview 侧的响应 JSON 折叠树(0.3.41):iife 全局 ResultTree,同 ADR-0009 共享源通道
+    format: 'iife',
+    globalName: 'ResultTree',
+    platform: 'browser',
+    external: [],
+    entryPoints: ['src/runner/utils/resultTree.ts'],
+    outfile: 'media/runner/resultTree.js',
+  },
 ];
 
 // Webview 工作台静态资源:Alpine 打包进 media/runner,避免 CDN(CSP 不允许远端脚本)。

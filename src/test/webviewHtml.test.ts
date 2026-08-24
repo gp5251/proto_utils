@@ -8,6 +8,7 @@ const baseOptions = {
   stylesUri: 'vscode-webview://test/runner.css',
   runnerScriptUri: 'vscode-webview://test/runner.js',
   formMappingScriptUri: 'vscode-webview://test/formMapping.js',
+  resultTreeScriptUri: 'vscode-webview://test/resultTree.js',
   alpineScriptUri: 'vscode-webview://test/alpine.min.js',
   server: 'localhost:50051',
   protoDir: 'D:/work/protos',
@@ -40,10 +41,11 @@ test('CSP: default-src none、style-src 放行 cspSource 与 unsafe-inline、无
   assert.ok(!html.includes('https://'), 'CSP/资源不得引用远端 URL');
 });
 
-test('asWebviewUri 资源(样式 + formMapping.js + runner.js + alpine)均出现在 HTML', () => {
+test('asWebviewUri 资源(样式 + formMapping.js + resultTree.js + runner.js + alpine)均出现在 HTML', () => {
   const html = render();
   assert.ok(html.includes('href="vscode-webview://test/runner.css"'));
   assert.ok(html.includes('src="vscode-webview://test/formMapping.js"'));
+  assert.ok(html.includes('src="vscode-webview://test/resultTree.js"'));
   assert.ok(html.includes('src="vscode-webview://test/runner.js"'));
   assert.ok(html.includes('src="vscode-webview://test/alpine.min.js"'));
 });
@@ -62,6 +64,11 @@ test('双模式编辑器锚点:Tab 条/json-editor/sendFromEditor/formMapping �
     html.indexOf('formMapping.js') < html.indexOf('runner.js'),
     'formMapping.js 必须在 runner.js 之前加载',
   );
+  // resultTree 同约:runner.js 折叠树方法同步调用 window.ResultTree
+  assert.ok(
+    html.indexOf('resultTree.js') < html.indexOf('runner.js'),
+    'resultTree.js 必须在 runner.js 之前加载',
+  );
 });
 
 test('响应 metadata 折叠块锚点:一元/流式结果区各一份,标题与行标签串进 boot', () => {
@@ -73,6 +80,26 @@ test('响应 metadata 折叠块锚点:一元/流式结果区各一份,标题与�
   assert.ok(html.includes('Response metadata'));
   assert.ok(html.includes('respMetaHeader'));
   assert.ok(html.includes('respMetaTrailer'));
+});
+
+test('响应折叠树锚点:一元/流式各一份树 + 原始 pre 兜底;chunk 折叠条与树方法齐备', () => {
+  const html = render();
+  assert.equal(html.match(/class="result-body result-tree"/g)?.length, 1, '一元树恰好 1 处');
+  assert.equal(html.match(/class="stream-tree"/g)?.length, 1, '流式树恰好 1 处');
+  // 原始 <pre> 兜底仍在(错误/空流路径),一元与流式各 1
+  assert.equal(html.match(/class="result-body"/g)?.length, 2);
+  for (const anchor of [
+    'resultTreeAvailable(svc.name, m.name)',
+    'resultTreeRows(svc.name, m.name)',
+    'toggleTreeNode(svc.name, m.name, row.path)',
+    'streamIsTreeable(svc.name, m.name)',
+    'chunkSections(svc.name, m.name)',
+    'chunkTreeRows(svc.name, m.name, sec.idx)',
+    'toggleChunkTree(svc.name, m.name, sec.idx)',
+    'tree-value-',
+  ]) {
+    assert.ok(html.includes(anchor), `缺少锚点: ${anchor}`);
+  }
 });
 
 test('内嵌 services 序列化防 </script> 注入', () => {

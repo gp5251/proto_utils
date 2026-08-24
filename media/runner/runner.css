@@ -609,3 +609,62 @@ input[type="checkbox"] {
 }
 .resp-meta-key { flex-shrink: 0; color: var(--text-dim); }
 .resp-meta-value { color: var(--text); word-break: break-all; }
+
+/* ---- 响应 JSON 折叠树(0.3.41):DevTools 风格;盒子复用 .result-body 边框/底色 ---- */
+.result-tree {
+  padding: 8px 12px;
+  white-space: normal;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.stream-tree {
+  max-height: 500px;
+  overflow-y: auto;
+}
+.tree-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.tree-row-container {
+  cursor: pointer;
+  border-radius: 4px;
+}
+.tree-row-container:hover {
+  background: var(--surface-hover);
+}
+/* 标量行无箭头,占位对齐 */
+.tree-spacer {
+  display: inline-block;
+  width: 12px;
+  flex-shrink: 0;
+}
+.tree-key { color: var(--text-dim); flex-shrink: 0; }
+.tree-colon { color: var(--text-dim); flex-shrink: 0; }
+.tree-value {
+  white-space: pre-wrap;
+  word-break: break-all;
+  min-width: 0;
+}
+.tree-value-string { color: var(--danger); }
+.tree-value-number { color: var(--accent); }
+.tree-value-boolean { color: var(--warning); }
+.tree-value-null { color: var(--text-faint); font-style: italic; }
+.tree-value-truncated { color: var(--text-faint); }
+.tree-count { color: var(--text-faint); font-size: 12px; flex-shrink: 0; }
+.chunk-section + .chunk-section { border-top: 1px solid var(--border); }
+.chunk-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+.chunk-toggle:hover .chunk-label { color: var(--text); }
+.chunk-label { color: var(--text-dim); font-family: var(--mono); font-size: 13px; }
+.chunk-tree {
+  padding-bottom: 6px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
