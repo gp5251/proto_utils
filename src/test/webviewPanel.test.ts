@@ -41,6 +41,7 @@ function makeDeps(overrides: {
   loadResult?: { services: ServicesPayload; errors: string[] };
   loadError?: Error;
   runner?: Partial<CallRunner>;
+  onLoadSettled?: () => void;
 } = {}) {
   const state = { invalidated: 0, protoDir: 'D:/protos' };
   const deps = {
@@ -63,6 +64,7 @@ function makeDeps(overrides: {
       ...overrides.runner,
     } as CallRunner,
     getConfig: () => ({ server: 'localhost:50051', protoDir: state.protoDir, metadata: [] }),
+    ...(overrides.onLoadSettled ? { onLoadSettled: overrides.onLoadSettled } : {}),
   };
   return { deps, state };
 }
@@ -103,6 +105,58 @@ test('registry 报错 → services 照推 + loadError;load 抛异常 → 仅 loa
     throwing.posted.map((m) => m.type),
     ['loading', 'loadError'],
   );
+});
+
+test('loadError 携带与 errors 对齐的 segments(出错点分段);抛异常路径同约', async () => {
+  const errorsCase = makeHost();
+  new WorkbenchSession(
+    makeDeps({ loadResult: { services: [], errors: ['bad.proto: no such type: demo.v1.MissingReq'] } }).deps,
+  ).attach(errorsCase.host);
+  errorsCase.emit({ type: 'ready' });
+  await nextTick();
+  const loadError = errorsCase.posted.find((m) => m.type === 'loadError') as {
+    errors: string[];
+    segments?: Array<Array<{ text: string; spot?: string }>>;
+  };
+  assert.ok(loadError.segments, 'errors 路径必须带 segments');
+  assert.equal(loadError.segments.length, loadError.errors.length, 'segments 与 errors 逐条对齐');
+  const segs = loadError.segments[0];
+  assert.equal(segs.map((s) => s.text).join(''), 'bad.proto: no such type: demo.v1.MissingReq', '分段拼回原文');
+  assert.ok(
+    segs.some((s) => s.spot === 'type' && s.text === 'demo.v1.MissingReq'),
+    '缺失类型名标 type 出错点',
+  );
+  assert.ok(segs.some((s) => s.spot === 'file' && s.text === 'bad.proto'), '文件前缀标 file 出错点');
+
+  const throwCase = makeHost();
+  new WorkbenchSession(makeDeps({ loadError: new Error('parse blew up') }).deps).attach(throwCase.host);
+  throwCase.emit({ type: 'ready' });
+  await nextTick();
+  const thrown = throwCase.posted.find((m) => m.type === 'loadError') as { segments?: unknown[][] };
+  assert.ok(thrown.segments && thrown.segments.length === 1, 'catch 路径同样带 segments');
+});
+
+test('onLoadSettled:成功/部分错误/抛错三种结局各回调一次', async () => {
+  const scenarios: Array<{
+    loadResult?: { services: ServicesPayload; errors: string[] };
+    loadError?: Error;
+  }> = [{}, { loadResult: { services: [], errors: ['e1'] } }, { loadError: new Error('boom') }];
+  for (const overrides of scenarios) {
+    let settled = 0;
+    const { host, emit } = makeHost();
+    new WorkbenchSession(makeDeps({ ...overrides, onLoadSettled: () => settled++ }).deps).attach(host);
+    emit({ type: 'ready' });
+    await nextTick();
+    assert.equal(settled, 1, '每次 loadAndSend 恰好回调一次');
+  }
+});
+
+test('未注入 onLoadSettled 时加载照常(可选依赖)', async () => {
+  const { host, posted, emit } = makeHost();
+  new WorkbenchSession(makeDeps().deps).attach(host);
+  emit({ type: 'ready' });
+  await nextTick();
+  assert.deepEqual(posted.map((m) => m.type), ['loading', 'services']);
 });
 
 test('call/callStream 的 metadata 经 sanitize 后透传给 runner(只收 {key,value} 字符串项)', async () => {

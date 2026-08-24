@@ -158,6 +158,13 @@ body {
   font-size: 12px;
   color: var(--danger);
   margin-bottom: 4px;
+  white-space: pre-wrap; /* 0.3.40:合并消息的 \n 分段不再塌掉 */
+}
+/* 0.3.40:出错点红色波浪线,仿编辑器 squiggle */
+.error-spot {
+  text-decoration: underline wavy var(--danger);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
 }
 
 .method-block + .method-block { border-top: 1px solid var(--border); }

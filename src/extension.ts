@@ -6,7 +6,7 @@ import { ProtoHoverProvider } from './providers/hover';
 import { ProtoDocumentSymbolProvider } from './providers/documentSymbol';
 import { SymbolIndex } from './index/symbolIndex';
 import { ProtoFrontend } from './runtime/protoFrontend';
-import { clearLoadErrorState, reportLoadError } from './loadDiagnostics';
+import { createLoadDiagnosticsTrigger } from './loadDiagnostics';
 import { resolveRunnerConfig as resolveRunnerConfigPure, resolveScanExcludes, ScanExcludes } from './runner/config';
 import { registerCodeGenCommand } from './codegen/command';
 import type { WorkbenchPanelManager } from './runner/webviewPanel';
@@ -44,8 +44,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
   registerCodeGenCommand(context, frontend);
 
+  // 诊断集合与防抖触发器先于工作台创建:onLoadSettled 回调闭包引用二者(0.3.40)。
+  // 触发时机(ADR-0002 既定代价:编辑中态不报):保存 proto 时 + 工作台加载尘埃落定时。
+  const diagnostics = vscode.languages.createDiagnosticCollection('proto-utils');
+  context.subscriptions.push(diagnostics);
+  const loadDiagnosticsTrigger = createLoadDiagnosticsTrigger(diagnostics, frontend);
+  context.subscriptions.push(loadDiagnosticsTrigger);
+
   // ---- 调用面(懒加载:grpc-js/proto-loader 只在首次打开工作台时载入) ----
-  const workbench = new LazyWorkbench(context, scanExcludes);
+  const workbench = new LazyWorkbench(context, scanExcludes, loadDiagnosticsTrigger.trigger);
   context.subscriptions.push(
     vscode.commands.registerCommand('protoUtils.openRpcRunner', () => void workbench.reveal()),
     vscode.commands.registerCommand('protoUtils.callMethod', (args: { service: string; method: string }) => {
@@ -64,24 +71,11 @@ export async function activate(context: vscode.ExtensionContext) {
   watcher.onDidDelete(onProtoChanged);
   context.subscriptions.push(watcher);
 
-  // 保存时诊断(ADR-0002 的既定代价:编辑中态不报,保存才报,首错即止)。
-  // 防抖 300ms:快速连续保存只解析一次(load 是同步全量解析,会短暂阻塞宿主)。
-  const diagnostics = vscode.languages.createDiagnosticCollection('proto-utils');
-  context.subscriptions.push(diagnostics);
-  let saveTimer: NodeJS.Timeout | undefined;
+  // 保存时诊断走共享触发器(防抖在触发器内,0.3.40)。
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
       if (doc.languageId !== 'proto3') return;
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(() => {
-        frontend.invalidate();
-        try {
-          frontend.load();
-          clearLoadErrorState(diagnostics);
-        } catch (err) {
-          reportLoadError(diagnostics, frontend, err);
-        }
-      }, 300);
+      loadDiagnosticsTrigger.trigger();
     }),
   );
 }
@@ -93,6 +87,8 @@ class LazyWorkbench {
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly scanExcludes: ScanExcludes,
+    /** 工作台 proto 加载尘埃落定(成功/部分错误/抛错)时回调:诊断平面借此补一次飘红(0.3.40) */
+    private readonly onLoadSettled: () => void,
   ) {}
 
   async reveal(prefill?: { service: string; method: string }): Promise<void> {
@@ -135,6 +131,7 @@ class LazyWorkbench {
           timeoutMs: config.timeoutMs,
         }),
         getConfig: () => runner.resolveRunnerConfig(),
+        onLoadSettled: this.onLoadSettled,
       };
       return new runner.WorkbenchPanelManager(deps, runner.createVscodePanelFactory(this.context.extensionUri, deps));
     })();

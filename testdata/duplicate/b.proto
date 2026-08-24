@@ -1,0 +1,6 @@
+syntax = "proto3";
+package dup;
+
+message Foo {
+  int32 b = 1;
+}

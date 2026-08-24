@@ -1,0 +1,6 @@
+syntax = "proto3";
+package f.v1;
+
+message Foo {
+  demo.v1.MissingField f = 1;
+}

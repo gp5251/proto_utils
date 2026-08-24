@@ -155,7 +155,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     <div class="card error-card" id="proto-error-card" x-show="$store.workbench.errors.length > 0">
       <div class="card-title">${S.errorCardTitle}</div>
       <template x-for="(e, eIdx) in $store.workbench.errors" :key="eIdx">
-        <p class="error-line" x-text="e"></p>
+        <!-- 0.3.40:出错点分段渲染,spot 段红色波浪线(仿编辑器飘红);x-text 结构化转义,无注入面 -->
+        <p class="error-line"><template x-for="(seg, sIdx) in $store.workbench.errorSegs[eIdx]" :key="sIdx"><span x-text="seg.text" :class="{ 'error-spot': seg.spot }"></span></template></p>
       </template>
     </div>
 

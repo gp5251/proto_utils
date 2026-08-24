@@ -136,6 +136,10 @@ test('错误态:错误卡片标记与 errors 渲染', () => {
   assert.ok(html.includes('id="proto-error-card"'));
   assert.ok(html.includes('Proto Load Errors'));
   assert.ok(html.includes('$store.workbench.errors'));
+  // 0.3.40:出错点分段渲染(spot 段波浪线,x-text 结构化转义)
+  assert.ok(html.includes('$store.workbench.errorSegs[eIdx]'));
+  assert.ok(html.includes('seg.text'));
+  assert.ok(html.includes('error-spot'));
 });
 
 test('空态:未找到服务与无匹配结果两种标记', () => {

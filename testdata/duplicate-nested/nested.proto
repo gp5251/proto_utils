@@ -1,0 +1,11 @@
+syntax = "proto3";
+package p;
+
+message A {
+  message Foo {
+    int32 x = 1;
+  }
+  message Foo {
+    int32 y = 1;
+  }
+}

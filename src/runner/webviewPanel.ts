@@ -4,8 +4,9 @@ import type { CallResultPayload, CallRunner } from './callHandler';
 import type { MetadataEntry, TlsSettings } from './config';
 import { resolveRunnerConfig as resolveRunnerConfigPure } from './config';
 import { generateNonce, renderWorkbenchHtml } from './webviewHtml';
+import { parseProtoError, type ErrorSegment } from '../protoErrorMessage';
 
-// ---- 消息协议(字段名冻结,只增不改) ----
+// ---- 消息协议(字段名冻结,只增不改;0.3.40 loadError 增 segments) ----
 
 export type WebviewToWorkbench =
   | { type: 'ready' }
@@ -17,7 +18,8 @@ export type WebviewToWorkbench =
 export type WorkbenchToWebview =
   | { type: 'loading' }
   | { type: 'services'; payload: ServicesPayload }
-  | { type: 'loadError'; errors: string[] }
+  /** segments 与 errors 逐条对齐:出错点分段(spot 非空渲染波浪线);缺省由 webview 退化为整行纯文本段 */
+  | { type: 'loadError'; errors: string[]; segments?: ErrorSegment[][] }
   | { type: 'callResult'; payload: CallResultPayload }
   | { type: 'streamChunk'; service: string; method: string; data: unknown }
   | { type: 'streamHeaders'; service: string; method: string; headers: MetadataEntry[] }
@@ -36,6 +38,8 @@ export interface WorkbenchSessionDeps {
   registry: Pick<ServiceRegistry, 'load' | 'invalidate'>;
   runner: CallRunner;
   getConfig(): { server: string; protoDir: string; metadata: MetadataEntry[] };
+  /** 0.3.40:proto 加载尘埃落定(成功/部分错误/抛错)后回调,activation 侧借此补诊断飘红。可选,测试不受影响。 */
+  onLoadSettled?(): void;
 }
 
 interface CallTarget {
@@ -221,13 +225,16 @@ export class WorkbenchSession {
       const { services, errors } = await this.deps.registry.load(this.deps.getConfig().protoDir);
       this.send({ type: 'services', payload: services });
       if (errors.length > 0) {
-        this.send({ type: 'loadError', errors });
+        this.send({ type: 'loadError', errors, segments: errors.map((e) => parseProtoError(e).segments) });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.send({ type: 'loadError', errors: [message] });
+      this.send({ type: 'loadError', errors: [message], segments: [parseProtoError(message).segments] });
     } finally {
       this.loadInFlight = false;
+      // 诊断平面补充触发:runner 只发信号不解释错误串(ADR-0002 单语义解析器),
+      // activation 侧重跑 ProtoFrontend 得出与保存路径一致的飘红
+      this.deps.onLoadSettled?.();
     }
   }
 

@@ -69,7 +69,7 @@
         applyServices(msg.payload);
         break;
       case 'loadError':
-        applyLoadError(msg.errors);
+        applyLoadError(msg.errors, msg.segments);
         break;
       case 'callResult':
         if (component) component.applyCallResult(msg.payload);
@@ -99,14 +99,19 @@
     var store = workbenchStore();
     store.services = Array.isArray(payload) ? payload : [];
     store.errors = [];
+    store.errorSegs = [];
     store.state = 'ready';
     endRefresh(store, str('refreshed', { count: store.services.length }));
     tryApplyPrefill();
   }
 
-  function applyLoadError(errors) {
+  function applyLoadError(errors, segments) {
     var store = workbenchStore();
     store.errors = Array.isArray(errors) ? errors : [String(errors)];
+    // 0.3.40:出错点分段由扩展侧 parseProtoError 预解析;旧协议缺 segments 退化为整行纯文本段
+    store.errorSegs = Array.isArray(segments) && segments.length === store.errors.length
+      ? segments
+      : store.errors.map(function (e) { return [{ text: e }]; });
     endRefresh(store, str('refreshedErrors', { count: store.services.length, errors: store.errors.length }));
     // 致命错误时 services 不会再来,停掉 loading 让错误卡片 + 空态可见
     if (store.services.length === 0) {
@@ -149,6 +154,7 @@
       state: Array.isArray(boot.services) ? 'ready' : 'loading',
       services: Array.isArray(boot.services) ? boot.services : [],
       errors: [],
+      errorSegs: [],
       server: typeof boot.server === 'string' ? boot.server : '',
       protoDir: typeof boot.protoDir === 'string' ? boot.protoDir : '',
       refreshing: false,
