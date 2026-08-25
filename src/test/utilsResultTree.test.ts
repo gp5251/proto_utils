@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildResultTree,
   visibleRows,
+  collectContainerPaths,
   formatChunkLabel,
   MAX_DEPTH,
   MAX_ROWS,
@@ -148,4 +149,17 @@ test('formatChunkLabel:序号 + 字节/B/KB/MB 三档', () => {
   assert.equal(formatChunkLabel(0, 342), '#1 · 342 B');
   assert.equal(formatChunkLabel(2, 1024 * 1.2), '#3 · 1.2 KB');
   assert.equal(formatChunkLabel(7, 1024 * 1024 * 2), '#8 · 2.0 MB');
+});
+
+test('collectContainerPaths:全部容器路径含根行;叶与空容器不收', () => {
+  const rows = buildResultTree({ a: { b: 1 }, list: [{ id: 1 }], empty: {}, s: 'x' });
+  const paths = collectContainerPaths(rows);
+  assert.deepEqual(paths, ['', '"a"', '"list"', '"list"[0]']);
+  // 与 visibleRows 联用:全部展开 = 全部节点可见
+  const open = new Set(paths);
+  assert.equal(visibleRows(rows, (p) => open.has(p)).length, allNodes(rows).length);
+});
+
+test('collectContainerPaths:根标量只有根行且根行非容器 → 空集', () => {
+  assert.deepEqual(collectContainerPaths(buildResultTree(42)), []);
 });

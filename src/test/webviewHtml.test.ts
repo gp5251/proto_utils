@@ -97,9 +97,18 @@ test('响应折叠树锚点:一元/流式各一份树 + 原始 pre 兜底;chunk 
     'chunkTreeRows(svc.name, m.name, sec.idx)',
     'toggleChunkTree(svc.name, m.name, sec.idx)',
     'tree-value-',
+    // 0.3.42:全部展开/收起按钮(一元 + 流式各一对)
+    'expandAllResult(svc.name, m.name)',
+    'collapseAllResult(svc.name, m.name)',
+    'expandAllChunks(svc.name, m.name)',
+    'collapseAllChunks(svc.name, m.name)',
   ]) {
     assert.ok(html.includes(anchor), `缺少锚点: ${anchor}`);
   }
+  assert.ok(html.includes('Expand all'));
+  assert.ok(html.includes('Collapse all'));
+  assert.equal(html.match(/Expand all/g)?.length, 2, '一元与流式各一个全部展开');
+  assert.equal(html.match(/Collapse all/g)?.length, 2, '一元与流式各一个全部收起');
 });
 
 test('内嵌 services 序列化防 </script> 注入', () => {

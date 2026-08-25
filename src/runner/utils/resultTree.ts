@@ -151,6 +151,24 @@ export function visibleRows(rows: TreeNode[], isOpen: (path: string) => boolean)
   return out;
 }
 
+/**
+ * 收集全部容器节点(有 children)的路径,含根行 '' —— 供「全部展开」使用。
+ * 展开态字典以此全集为 true,等效于 DevTools 的 Expand recursively。
+ */
+export function collectContainerPaths(rows: TreeNode[]): string[] {
+  const out: string[] = [];
+  const walk = (list: TreeNode[]): void => {
+    for (const row of list) {
+      if (row.children && row.children.length) {
+        out.push(row.path);
+        walk(row.children);
+      }
+    }
+  };
+  walk(rows);
+  return out;
+}
+
 /** 流式 chunk 折叠条标签:'#1 · 342 B' / '#3 · 1.2 KB' / '#8 · 2.0 MB'(纯符号与数字,免 l10n)。 */
 export function formatChunkLabel(index: number, byteLength: number): string {
   const size =

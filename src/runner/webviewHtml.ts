@@ -82,6 +82,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     receiving: l10n.t('Receiving…'),
     cancelled: l10n.t('Cancelled'),
     done: l10n.t('Done'),
+    expandAll: l10n.t('Expand all'),
+    collapseAll: l10n.t('Collapse all'),
     cancel: l10n.t('Cancel'),
     headersTitle: l10n.t('Headers'),
     addHeader: l10n.t('Add header'),
@@ -492,6 +494,18 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                         <button
                           type="button"
                           class="btn btn-secondary"
+                          x-show="resultTreeAvailable(svc.name, m.name)"
+                          @click="expandAllResult(svc.name, m.name)"
+                        >${S.expandAll}</button>
+                        <button
+                          type="button"
+                          class="btn btn-secondary"
+                          x-show="resultTreeAvailable(svc.name, m.name)"
+                          @click="collapseAllResult(svc.name, m.name)"
+                        >${S.collapseAll}</button>
+                        <button
+                          type="button"
+                          class="btn btn-secondary"
                           @click="copyResult(svc.name, m.name)"
                           x-text="isCopied(svc.name, m.name) ? $store.str.copied : $store.str.copy"
                         ></button>
@@ -561,6 +575,18 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                             x-show="streamIsLive(svc.name, m.name)"
                             @click="cancelStream(svc.name, m.name)"
                           >${S.cancel}</button>
+                          <button
+                            type="button"
+                            class="btn btn-secondary"
+                            x-show="streamIsTreeable(svc.name, m.name)"
+                            @click="expandAllChunks(svc.name, m.name)"
+                          >${S.expandAll}</button>
+                          <button
+                            type="button"
+                            class="btn btn-secondary"
+                            x-show="streamIsTreeable(svc.name, m.name)"
+                            @click="collapseAllChunks(svc.name, m.name)"
+                          >${S.collapseAll}</button>
                           <button
                             type="button"
                             class="btn btn-secondary"

@@ -409,6 +409,53 @@
         );
       },
 
+      // 全部展开/收起(0.3.42):展开 = 容器路径全集置 true;收起 = 清空(根行一并收合,只余根行)
+
+      expandAllResult: function (svcName, methodName) {
+        var key = this.methodKey(svcName, methodName);
+        var t = this.treeOpen[key] || { nodes: {}, chunks: {} };
+        var nodes = {};
+        window.ResultTree.collectContainerPaths(this.resultTrees[key] || []).forEach(function (p) {
+          nodes[p] = true;
+        });
+        this.treeOpen = Object.assign({}, this.treeOpen, {
+          [key]: Object.assign({}, t, { nodes: nodes }),
+        });
+      },
+
+      collapseAllResult: function (svcName, methodName) {
+        var key = this.methodKey(svcName, methodName);
+        var t = this.treeOpen[key] || { nodes: {}, chunks: {} };
+        this.treeOpen = Object.assign({}, this.treeOpen, {
+          [key]: Object.assign({}, t, { nodes: {} }),
+        });
+      },
+
+      // 流式:折叠条与条内节点一并展开/收起(全部展开 = 所见即全部数据)
+      expandAllChunks: function (svcName, methodName) {
+        var key = this.methodKey(svcName, methodName);
+        var nodes = {};
+        (this.streamTrees[key] || []).forEach(function (rows) {
+          window.ResultTree.collectContainerPaths(rows).forEach(function (p) {
+            nodes[p] = true;
+          });
+        });
+        var chunks = {};
+        (this.chunkSizes[key] || []).forEach(function (_size, idx) {
+          chunks[idx] = true;
+        });
+        this.treeOpen = Object.assign({}, this.treeOpen, {
+          [key]: { nodes: nodes, chunks: chunks },
+        });
+      },
+
+      collapseAllChunks: function (svcName, methodName) {
+        var key = this.methodKey(svcName, methodName);
+        this.treeOpen = Object.assign({}, this.treeOpen, {
+          [key]: { nodes: {}, chunks: {} },
+        });
+      },
+
       // ---- @alpinejs/csp 表达式解析器不支持 ?. / ??,结果区取值收敛到这里(纯 JS,随便写) ----
 
       resultStatusIs: function (svcName, methodName, status) {

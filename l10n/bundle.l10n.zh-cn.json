@@ -46,6 +46,8 @@
   "Receiving…": "接收中…",
   "Cancelled": "已取消",
   "Done": "完成",
+  "Expand all": "全部展开",
+  "Collapse all": "全部收起",
   "Cancel": "取消",
   "Headers": "请求头",
   "Add header": "添加请求头",
