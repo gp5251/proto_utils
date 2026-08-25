@@ -26,10 +26,37 @@ export const SCAN_EXCLUDED_DIRS = [
 
 const GOOGLE_PROTO_PREFIX = 'google/protobuf/';
 
-/** Root.getBundledFileName + common 查表的公开 API 等价物(内建 google/protobuf/* 类型)。 */
-function bundledGoogleJson(target: string): protobuf.INamespace | null {
+/** Root.getBundledFileName + common 查表的公开 API 等价物(内建 google/protobuf/* 类型)。非内建名返回 null——与 loadInto 的 bundled 判定同源,analysis 闭包遍历共用。 */
+export function bundledGoogleJson(target: string): protobuf.INamespace | null {
   const idx = target.indexOf(GOOGLE_PROTO_PREFIX);
   return idx === -1 ? null : protobuf.common.get(target.slice(idx));
+}
+
+/** protobufjs 运行时往 parse 出的对象上挂 filename(d.ts 未声明)——in 窄化;buildSchema 与 analysis/missingImport 共用。 */
+export function filenameOf(obj: protobuf.ReflectionObject): string {
+  return 'filename' in obj && typeof obj.filename === 'string' ? obj.filename : '';
+}
+
+/**
+ * import 解析器工厂:includeDirs(protoc -I 语义)优先,找不到则退回导入文件所在目录
+ * (protobufjs 默认 resolvePath 语义)——深层布局里同目录裸 import 很常见,
+ * 如 src/vs/platform/autoshop/common 里写 import "var_table.proto"。
+ * 找不到返回 null;ProtoFrontend.resolveImport 在其上包装抛错,
+ * analysis/missingImport 的闭包 BFS 则跳过 null 边。
+ */
+export function createImportResolver(includeDirs: string[]): (target: string, origin?: string) => string | null {
+  return (target, origin) => {
+    if (path.isAbsolute(target) && fs.existsSync(target)) return path.normalize(target);
+    for (const dir of includeDirs) {
+      const candidate = path.join(path.resolve(dir), target);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    if (origin) {
+      const candidate = path.join(path.dirname(origin), target);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    return null;
+  };
 }
 
 /** parse.filename 运行时挂载但 d.ts 未声明 —— 结构化标注出该属性,不做内联断言;toProtoLoadError 靠它提取出错文件名。 */
@@ -83,11 +110,15 @@ export function walkReflection(
 /** 扫描结果不做缓存——load() 每次都重新发现文件,靠 invalidate() 触发。 */
 export class ProtoFrontend {
   private cached: { schema: ProtoSchema } | { error: ProtoLoadError } | null = null;
+  private readonly importResolver: (target: string, origin?: string) => string | null;
 
   constructor(
     readonly includeDirs: string[],
     private readonly excludes: ScanExcludes = EMPTY_SCAN_EXCLUDES,
-  ) {}
+  ) {
+    // includeDirs 构造期即定:缓存一份 resolver,loadInto 每条 import 边复用,不逐边新建闭包
+    this.importResolver = createImportResolver(includeDirs);
+  }
 
   scan(): string[] {
     // includeDirs 重叠(如 workspace 与其内的 protoDir)会产生重复绝对路径,去重防 self-conflict(0.3.13)
@@ -167,9 +198,7 @@ export class ProtoFrontend {
         obj instanceof protobuf.Enum ||
         obj instanceof protobuf.Service
       ) {
-        // protobufjs 运行时会在 parse 的对象上挂 filename,但 d.ts 未声明 —— 用 in 窄化,不做内联断言
-        const filename = 'filename' in obj && typeof obj.filename === 'string' ? obj.filename : '';
-        declarations.set(obj.fullName.slice(1), filename);
+        declarations.set(obj.fullName.slice(1), filenameOf(obj));
       }
     });
     return { root, declarations, files };
@@ -207,20 +236,12 @@ export class ProtoFrontend {
   }
 
   /**
-   * import 解析:includeDirs(protoc -I 语义)优先,找不到则退回导入文件所在目录
-   * (protobufjs 默认 resolvePath 语义)——深层布局里同目录裸 import 很常见,
-   * 如 src/vs/platform/autoshop/common 里写 import "var_table.proto"。
+   * import 解析:委托缓存的 createImportResolver(同一套 includeDirs/origin 语义),
+   * 找不到时抛错——loadInto 的调用契约要求硬失败;闭包遍历等容忍场景用 createImportResolver 直取 null。
    */
   private resolveImport(target: string, origin?: string): string {
-    if (path.isAbsolute(target) && fs.existsSync(target)) return path.normalize(target);
-    for (const dir of this.includeDirs) {
-      const candidate = path.join(path.resolve(dir), target);
-      if (fs.existsSync(candidate)) return candidate;
-    }
-    if (origin) {
-      const candidate = path.join(path.dirname(origin), target);
-      if (fs.existsSync(candidate)) return candidate;
-    }
+    const resolved = this.importResolver(target, origin);
+    if (resolved) return resolved;
     throw new Error(`import not found: ${target}${origin ? `(由 ${path.basename(origin)} 导入)` : ''}`);
   }
 }

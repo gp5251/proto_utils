@@ -4,6 +4,7 @@ import { ProtoSemanticTokensProvider, SEMANTIC_LEGEND } from './providers/semant
 import { ProtoCallLensProvider } from './providers/callLens';
 import { ProtoHoverProvider } from './providers/hover';
 import { ProtoDocumentSymbolProvider } from './providers/documentSymbol';
+import { MissingImportCodeActionProvider } from './providers/missingImportCodeAction';
 import { SymbolIndex } from './index/symbolIndex';
 import { ProtoFrontend } from './runtime/protoFrontend';
 import { createLoadDiagnosticsTrigger } from './loadDiagnostics';
@@ -33,6 +34,9 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.languages.registerCodeLensProvider(PROTO_SELECTOR, callLens),
     vscode.languages.registerHoverProvider(PROTO_SELECTOR, new ProtoHoverProvider(index)),
     vscode.languages.registerDocumentSymbolProvider(PROTO_SELECTOR, new ProtoDocumentSymbolProvider(index)),
+    vscode.languages.registerCodeActionsProvider(PROTO_SELECTOR, new MissingImportCodeActionProvider(), {
+      providedCodeActionKinds: MissingImportCodeActionProvider.providedCodeActionKinds,
+    }),
   );
 
   // 全量索引后台跑,不阻塞激活:打开文档的 lens/跳转/高亮由各 provider 的

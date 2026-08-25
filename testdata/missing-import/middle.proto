@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package middle.v1;
+
+import "dep.proto";
+
+message Middle {
+  dep.v1.Widget widget = 1;
+}

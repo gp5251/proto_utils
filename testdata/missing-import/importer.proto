@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package importer.v1;
+
+import "dep.proto";
+
+// 已正确 import:不应产生任何 missing-import 诊断
+message ImporterReq {
+  dep.v1.Widget widget = 1;
+}

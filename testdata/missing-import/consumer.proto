@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package consumer.v1;
+
+// 引用了 dep.proto 的类型但没 import 它:全量 load 能 resolve,
+// 但 runner 平面逐文件加载会报 no such type,应飘红全部引用处
+message ConsumerReq {
+  dep.v1.Widget widget = 1;
+  dep.v1.WidgetKind kind = 2;
+}
+
+message ConsumerResp {
+  dep.v1.Widget widget = 1;
+}
+
+service ConsumerService {
+  rpc GetWidget (ConsumerReq) returns (ConsumerResp);
+  rpc GetWidgetDirect (dep.v1.Widget) returns (dep.v1.Widget);
+}

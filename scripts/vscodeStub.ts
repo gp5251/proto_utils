@@ -115,6 +115,33 @@ export class DocumentSymbol {
 
 export const ViewColumn = { Active: -1, Beside: -2, One: 1, Two: 2, Three: 3 } as const;
 
+// missingImportCodeAction 测试最小实现:字段形状对齐 vscode(只读语义够用)
+export class Position {
+  constructor(
+    readonly line: number,
+    readonly character: number,
+  ) {}
+}
+
+export const CodeActionKind = { QuickFix: 'quickfix' } as const;
+
+export class CodeAction {
+  diagnostics?: Diagnostic[];
+  edit?: WorkspaceEdit;
+  isPreferred?: boolean;
+  constructor(
+    readonly title: string,
+    readonly kind?: string,
+  ) {}
+}
+
+export class WorkspaceEdit {
+  readonly inserts: { uri: StubUri; position: Position; text: string }[] = [];
+  insert(uri: StubUri, position: Position, text: string): void {
+    this.inserts.push({ uri, position, text });
+  }
+}
+
 export const window = {
   showErrorMessage: () => Promise.resolve(undefined),
   showInformationMessage: () => Promise.resolve(undefined),

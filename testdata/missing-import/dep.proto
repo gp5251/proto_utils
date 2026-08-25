@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package dep.v1;
+
+message Widget {
+  string name = 1;
+}
+
+enum WidgetKind {
+  WIDGET_KIND_UNSPECIFIED = 0;
+  WIDGET_KIND_A = 1;
+}

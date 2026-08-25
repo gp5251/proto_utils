@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package transitive.v1;
+
+import "middle.proto";
+
+// dep.proto 在传递闭包内(middle → dep):runner 平面也能 resolve,不报
+message TransitiveReq {
+  dep.v1.Widget widget = 1;
+}

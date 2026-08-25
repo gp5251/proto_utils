@@ -1,8 +1,17 @@
 import * as vscode from 'vscode';
-import { ProtoFrontend, ProtoLoadError } from './runtime/protoFrontend';
+import { ProtoFrontend, ProtoLoadError, ProtoSchema, createImportResolver } from './runtime/protoFrontend';
 import { readProtoFile } from './runtime/protoEncoding';
 import { parseProtoError } from './protoErrorMessage';
 import { scanProto } from './index/scanner';
+import type { ScanResult } from './index/scanner';
+import { toVsCodeRange } from './providers/definition';
+import {
+  MISSING_IMPORT_CODE,
+  MissingImportFix,
+  computeImportPath,
+  findMissingImports,
+  locateTypeRefs,
+} from './analysis/missingImport';
 
 /**
  * 诊断链路(ADR-0002):触发源 = 保存 proto 时 + 工作台加载尘埃落定后(0.3.40,
@@ -63,8 +72,9 @@ export function createLoadDiagnosticsTrigger(
       timer = setTimeout(() => {
         frontend.invalidate();
         try {
-          frontend.load();
+          const schema = frontend.load();
           clearLoadErrorState(diagnostics);
+          reportMissingImports(diagnostics, frontend, schema);
         } catch (err) {
           reportLoadError(diagnostics, frontend, err);
         }
@@ -145,6 +155,76 @@ function reportDuplicateNameSites(
     }
   }
   return found;
+}
+
+/**
+ * load 成功路径的「漏 import」提醒(0.3.43):ProtoFrontend 全量加载下工作区内类型
+ * 总能 resolve,但 runner 平面逐文件加载,漏 import 要到运行时才报 no such type——
+ * 这里在保存/工作台 settled 后提前飘红。判定在纯函数层(analysis/missingImport),
+ * 本函数只做 finding→Diagnostic 适配:按引用文件分组,借扫描器 typeRefs 定位,
+ * 诊断挂 missingImportFix 供 Quick Fix provider 零重算读取。绝不抛。
+ */
+export function reportMissingImports(
+  diagnostics: vscode.DiagnosticCollection,
+  frontend: ProtoFrontend,
+  schema: ProtoSchema,
+): void {
+  try {
+    // 同一文件只读扫一次:imports(闭包计算)与 typeRefs(定位)共享同一份扫描结果
+    const scanCache = new Map<string, ScanResult | null>();
+    const scanOf = (file: string): ScanResult | null => {
+      if (!scanCache.has(file)) {
+        let result: ScanResult | null = null;
+        try {
+          result = scanProto(readProtoFile(file));
+        } catch {
+          result = null; // 读取失败:闭包少边只可能多报;文件此时多半本就坏掉
+        }
+        scanCache.set(file, result);
+      }
+      return scanCache.get(file) ?? null;
+    };
+    const findings = findMissingImports(
+      schema,
+      (file) => scanOf(file)?.imports ?? [],
+      createImportResolver(frontend.includeDirs),
+    );
+    const byFile = new Map<string, typeof findings>();
+    for (const finding of findings) {
+      const group = byFile.get(finding.referencingFile);
+      if (group) group.push(finding);
+      else byFile.set(finding.referencingFile, [finding]);
+    }
+    for (const [file, fileFindings] of byFile) {
+      const typeRefs = scanOf(file)?.typeRefs;
+      if (!typeRefs) continue;
+      const diags: vscode.Diagnostic[] = [];
+      for (const finding of fileFindings) {
+        const ranges = locateTypeRefs(typeRefs, finding.refText);
+        if (ranges.length === 0) continue;
+        const importPath = computeImportPath(finding.definingFile, finding.referencingFile, frontend.includeDirs);
+        const message = vscode.l10n.t(
+          'Type "{0}" is defined in "{1}", but this file does not import it',
+          finding.typeFqn,
+          importPath,
+        );
+        for (const range of ranges) {
+          const diag: vscode.Diagnostic & { missingImportFix?: MissingImportFix } = new vscode.Diagnostic(
+            toVsCodeRange(range),
+            message,
+            vscode.DiagnosticSeverity.Error,
+          );
+          diag.source = 'proto-utils';
+          diag.code = MISSING_IMPORT_CODE;
+          diag.missingImportFix = { importPath };
+          diags.push(diag);
+        }
+      }
+      if (diags.length > 0) diagnostics.set(vscode.Uri.file(file), diags);
+    }
+  } catch {
+    // 检测自身出错不得把一次成功的 load 变成报错
+  }
 }
 
 /**
