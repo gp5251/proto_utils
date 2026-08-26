@@ -87,7 +87,7 @@ export interface User {
 在 `.proto` 文件中,每个 rpc 方法上方都会出现「▶ 调用」CodeLens。点击后 RPC 工作台打开并预选该方法;也可以通过命令面板运行 **Proto Utils: Open RPC Runner**,或右键 `.proto` 编辑器选择同名命令,手动选择服务和方法。
 
 - 表单按请求消息的字段 schema 自动生成,嵌套 message 以 JSON/JSON5 编辑(支持注释、尾逗号、单引号、裸键名)。
-- 一元调用在响应区以可折叠 JSON 树展示结果,嵌套对象/数组默认收起、逐级展开,长字符串截断,附「全部展开/全部收起」快捷按钮;服务端流调用按 chunk 折叠展示,可随时取消。原始 JSON 仍可一键复制。
+- 一元调用在响应区以可折叠 JSON 树展示结果,嵌套对象/数组默认收起、逐级展开,长字符串截断,附「全部展开/全部收起」快捷按钮;服务端流调用按 chunk 折叠展示,可随时取消;长流只保留最近 200 条的折叠数据与原始 JSON(计数仍为真实总量),防止内存与页面被无限撑大。原始 JSON 仍可一键复制。
 - 响应区带「Response metadata / 响应 metadata」折叠块,展示服务器返回的 headers 与 trailers(二进制 `-bin` 键以 base64 显示),有数据才出现。
 - proto 文件变更(保存、外部修改)会自动刷新服务列表,不丢表单状态。
 - 搜索框为模糊匹配(子序列,大小写不敏感):`ldp` 可命中 `ExecuteOpenLDProg`;子串命中仍然有效。
@@ -116,7 +116,7 @@ export interface User {
 
 **从 rpc_runner 迁移**:把 `rpc.config.json` 里的 `server` 与 `protoDir` 两个值抄到上述 VS Code 设置即可。`port` 与 `generatedDir` 已删除(不再有 HTTP 服务与 proto-loader-gen-types 生成)。工作台与 gRPC 依赖(@grpc/grpc-js)采用懒加载,只在首次打开工作台时载入,不影响编辑功能激活速度。
 
-修改 `protoUtils.runner.*` 设置后,已打开的工作台会在下次重开时使用新配置。
+修改 `protoUtils.runner.*` 设置后,下一次调用/刷新即按新配置执行,无需重开工作台(0.3.44 起;顶栏显示的服务器地址在重开面板后更新)。
 
 ## 配置
 
