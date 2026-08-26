@@ -147,6 +147,78 @@ export function validateJsonText(text: string): JsonValidation {
 }
 
 /**
+ * 发送前表单值校验(0.3.44):逐字段检查表单值,返回「路径: 问题」清单,空数组 = 可发。
+ * 空值(''/null/undefined)= 未填,不算问题。分支语义与 formParser.buildRequestFromValues
+ * 一一对应——这里放行的值,转换层才不会把类型不符的文本原样发上线
+ * (此前非法数字/坏 JSON 数组会静默发出,由 gRPC 序列化报出难懂的错误)。
+ */
+export function validateFormValues(fields: FieldInfo[], values: FormValues): string[] {
+  const problems: string[] = [];
+  const walk = (fs: FieldInfo[], vals: FormValues, prefix: string): void => {
+    for (const f of fs) {
+      const path = prefix ? `${prefix}.${f.name}` : f.name;
+      const v = vals ? vals[f.name] : undefined;
+
+      // 嵌套 message 表单:递归下钻
+      if (f.protoType === 'TYPE_MESSAGE' && f.label !== 'repeated' && f.nestedFields?.length) {
+        if (isPlainObject(v)) walk(f.nestedFields, v as FormValues, path);
+        continue;
+      }
+
+      if (v === undefined || v === null || v === '') continue;
+
+      // repeated 标量槽位是 JSON 数组字符串(真数组 = JSON 模式合并产物,放行)
+      if (f.label === 'repeated' && f.protoType !== 'TYPE_MESSAGE') {
+        if (typeof v !== 'string') continue;
+        const t = v.trim();
+        if (!t.startsWith('[')) {
+          problems.push(`${path}: 应为 JSON 数组，如 [1,2]`);
+          continue;
+        }
+        try {
+          if (!Array.isArray(JSON5.parse(t))) problems.push(`${path}: 应为 JSON 数组，如 [1,2]`);
+        } catch {
+          problems.push(`${path}: JSON 数组解析失败`);
+        }
+        continue;
+      }
+
+      if (f.protoType === 'TYPE_BOOL') continue;
+
+      // bytes:webview 文本框填 base64(线上编码),乱码在这里拦下而不是到服务端才炸
+      if (f.protoType === 'TYPE_BYTES') {
+        const s = String(v).trim();
+        if (s.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(s)) {
+          problems.push(`${path}: 应为 base64 编码`);
+        }
+        continue;
+      }
+
+      if (f.type === 'number') {
+        if (Number.isNaN(Number(String(v)))) problems.push(`${path}: 不是合法数字`);
+        continue;
+      }
+
+      // 无 nestedFields 的 message:textarea 里的 JSON 字符串(对象/数组均可)
+      if (f.protoType === 'TYPE_MESSAGE') {
+        if (typeof v !== 'string') continue;
+        let parsed: unknown;
+        try {
+          parsed = JSON5.parse(v);
+        } catch {
+          problems.push(`${path}: JSON 解析失败`);
+          continue;
+        }
+        if (!isPlainObject(parsed) && !Array.isArray(parsed)) problems.push(`${path}: 应为 JSON 对象`);
+        continue;
+      }
+    }
+  };
+  walk(fields, values ?? {}, '');
+  return problems;
+}
+
+/**
  * 解析 JSON/JSON5 文本并合并进当前表单值。
  */
 export function applyJsonText(

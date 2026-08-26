@@ -13,6 +13,7 @@ import { GrpcClient, buildChannelCredentials } from '../runner/core/grpcClient';
  */
 
 const FRONTEND_DIR = path.resolve('testdata/frontend');
+const DUP_DIR = path.resolve('testdata/dupsvc');
 
 let server: grpc.Server;
 let client: GrpcClient;
@@ -87,6 +88,28 @@ before(async () => {
         // 写一块后永不主动 end:只为 cancel 测试提供「活着但不结束」的流,无需定时器
         call.write({ names: ['tick'] });
       },
+    }),
+  );
+
+  // 跨包同短名服务(alpha.Echo / beta.Echo):全限定名定位测试的服务端来源
+  const dupPkgDef = protoLoader.loadSync(
+    [path.join(DUP_DIR, 'alpha.proto'), path.join(DUP_DIR, 'beta.proto')],
+    { keepCase: false, longs: String, enums: Number, defaults: true, oneofs: true, includeDirs: [DUP_DIR] },
+  );
+  const dupObj = grpc.loadPackageDefinition(dupPkgDef) as unknown as Record<
+    string,
+    Record<string, grpc.ServiceClientConstructor>
+  >;
+  const echoHandler = (from: string): UnaryImpl => (_call, cb) => cb(null, { from });
+  server.addService(
+    dupObj.alpha.Echo.service,
+    buildHandlers(dupObj.alpha.Echo.service, { Send: echoHandler('alpha') }),
+  );
+  server.addService(
+    dupObj.beta.Echo.service,
+    buildHandlers(dupObj.beta.Echo.service, {
+      Send: echoHandler('beta'),
+      SendTwice: echoHandler('beta'),
     }),
   );
 
@@ -193,6 +216,60 @@ test('unknown service reports not-found error', async () => {
   if (result.status === 'error') assert.match(result.error, /not found in proto definitions/);
 });
 
+test('全限定服务名定位到所属包的桩,跨包同短名不串线', async () => {
+  const excluded = new GrpcClient(serverAddress, {
+    scanExcludes: { names: new Set(['vendor_copy']), paths: [] },
+  });
+  const alphaResult = await excluded.call(DUP_DIR, {
+    service: 'alpha.Echo',
+    method: 'Send',
+    request: { name: 'x' },
+  });
+  assert.equal(alphaResult.status, 'ok');
+  if (alphaResult.status === 'ok') assert.equal((alphaResult.data as { from: string }).from, 'alpha');
+
+  const betaResult = await excluded.call(DUP_DIR, {
+    service: 'beta.Echo',
+    method: 'Send',
+    request: { name: 'y' },
+  });
+  assert.equal(betaResult.status, 'ok');
+  if (betaResult.status === 'ok') assert.equal((betaResult.data as { from: string }).from, 'beta');
+});
+
+test('裸短名沿用「最多方法」启发式(dupsvc 下 Echo 落到 beta)', async () => {
+  const excluded = new GrpcClient(serverAddress, {
+    scanExcludes: { names: new Set(['vendor_copy']), paths: [] },
+  });
+  const result = await excluded.call(DUP_DIR, { service: 'Echo', method: 'Send', request: {} });
+  assert.equal(result.status, 'ok');
+  if (result.status === 'ok') assert.equal((result.data as { from: string }).from, 'beta');
+});
+
+test('scanExcludes 排除陈旧拷贝:无排除时 Send 落到缺方法的 vendor_copy 版本而失败', async () => {
+  // 默认 client 无排除:alpha.Echo 的精确候选里 vendor_copy(4 方法)胜出,
+  // 它没有 Send → not found。这是「同 fullName 多拷贝按方法数竞选」语义的钉子。
+  const noExclude = await client.call(DUP_DIR, {
+    service: 'alpha.Echo',
+    method: 'Send',
+    request: {},
+  });
+  assert.equal(noExclude.status, 'error');
+  if (noExclude.status === 'error') assert.match(noExclude.error, /not found/);
+
+  // 带 excludes(names 含 vendor_copy):只剩 src 的 alpha.proto,Send 正常命中
+  const excluded = new GrpcClient(serverAddress, {
+    scanExcludes: { names: new Set(['vendor_copy']), paths: [] },
+  });
+  const withExclude = await excluded.call(DUP_DIR, {
+    service: 'alpha.Echo',
+    method: 'Send',
+    request: {},
+  });
+  assert.equal(withExclude.status, 'ok');
+  if (withExclude.status === 'ok') assert.equal((withExclude.data as { from: string }).from, 'alpha');
+});
+
 test('unknown method error lists available methods', async () => {
   const result = await client.call(FRONTEND_DIR, { service: 'Greeter', method: 'Nope', request: {} });
   assert.equal(result.status, 'error');
@@ -206,7 +283,7 @@ test('callUnary refuses client-streaming methods with a clear error', async () =
     request: {},
   });
   assert.equal(result.status, 'error');
-  if (result.status === 'error') assert.match(result.error, /客户端流方法/);
+  if (result.status === 'error') assert.match(result.error, /uses client streaming/);
 });
 
 test('callUnary refuses server-streaming methods and points at the stream API', async () => {
@@ -216,7 +293,7 @@ test('callUnary refuses server-streaming methods and points at the stream API', 
     request: {},
   });
   assert.equal(result.status, 'error');
-  if (result.status === 'error') assert.match(result.error, /服务端流方法/);
+  if (result.status === 'error') assert.match(result.error, /is a server-streaming method; use the streaming call/);
 });
 
 test('server-streaming delivers every chunk then onEnd with a duration', async () => {
@@ -244,7 +321,7 @@ test('callServerStream rejects unary methods', async () => {
     { onData: () => {}, onError: resolve, onEnd: () => resolve('unexpected end') },
   );
   const message = await promise;
-  assert.match(message, /不是服务端流方法/);
+  assert.match(message, /is not a server-streaming method/);
 });
 
 test('cancel stops a server stream and reports a normal end, not an error', async () => {
@@ -323,7 +400,7 @@ test('buildChannelCredentials:未启用 → insecure;证书只配一个 → 抛�
   assert.ok(insecure, 'insecure 凭据应非空');
   assert.throws(
     () => buildChannelCredentials({ enabled: true, rootCert: null, clientCert: 'client.pem', clientKey: null }),
-    /tlsClientCert 与 runner\.tlsClientKey 必须同时设置/,
+    /must be set together/,
   );
   const missing = path.join(FRONTEND_DIR, 'no-such-ca.pem');
   assert.throws(
@@ -334,6 +411,6 @@ test('buildChannelCredentials:未启用 → insecure;证书只配一个 → 抛�
         clientCert: null,
         clientKey: null,
       }),
-    new RegExp(`TLS 根证书文件读取失败:${missing.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+    new RegExp(`Failed to read TLS root certificate file: ${missing.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
   );
 });

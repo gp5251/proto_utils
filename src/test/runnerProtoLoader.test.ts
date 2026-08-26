@@ -7,9 +7,13 @@ import {
   findProtoFileForService,
 } from '../runner/core/protoLoader';
 import { serializeServicesForClient, ServiceRegistry } from '../runner/serviceRegistry';
+import type { ScanExcludes } from '../runner/config';
 
 const RUNNER_DIR = path.resolve('testdata/runner');
 const FRONTEND_DIR = path.resolve('testdata/frontend');
+const DUP_DIR = path.resolve('testdata/dupsvc');
+
+const EXCL_COPY: ScanExcludes = { names: new Set(['vendor_copy']), paths: [] };
 
 test('scanProtoFiles finds protos but skips dot dirs, generated/, __fixtures__/ and node_modules/', () => {
   const files = scanProtoFiles(RUNNER_DIR);
@@ -70,6 +74,35 @@ test('findProtoFileForService picks the file with most methods when service is d
   const file = findProtoFileForService(RUNNER_DIR, 'DupService');
   assert.ok(file);
   assert.ok(file.endsWith('dup_b.proto'), `expected dup_b.proto, got ${file}`);
+});
+
+test('findProtoFileForService 全限定名精确命中所属包(跨包同短名不串)', () => {
+  // 带 excludes 排掉 vendor_copy:同 fullName 的陈旧拷贝不参选,结果才确定
+  const alpha = findProtoFileForService(DUP_DIR, 'alpha.Echo', EXCL_COPY);
+  assert.ok(alpha, 'alpha.Echo 应命中');
+  assert.ok(alpha.endsWith('alpha.proto') && !alpha.includes('vendor_copy'), `expected src alpha.proto, got ${alpha}`);
+
+  const beta = findProtoFileForService(DUP_DIR, 'beta.Echo', EXCL_COPY);
+  assert.ok(beta, 'beta.Echo 应命中');
+  assert.ok(beta.endsWith('beta.proto'), `expected beta.proto, got ${beta}`);
+});
+
+test('findProtoFileForService 裸短名沿用「最多方法」启发式(Echo → beta)', () => {
+  const file = findProtoFileForService(DUP_DIR, 'Echo', EXCL_COPY);
+  assert.ok(file);
+  assert.ok(file.endsWith('beta.proto'), `expected beta.proto, got ${file}`);
+});
+
+test('findProtoFileForService 尊重 excludes:陈旧拷贝不参选', () => {
+  // 无排除:vendor_copy 与 src 同 fullName 但方法更多,被选中(Send 不在其中)
+  const withoutExcludes = findProtoFileForService(DUP_DIR, 'alpha.Echo');
+  assert.ok(withoutExcludes);
+  assert.ok(withoutExcludes.includes('vendor_copy'), `expected stale copy, got ${withoutExcludes}`);
+
+  // 有排除:只剩 src 的 alpha.proto
+  const withExcludes = findProtoFileForService(DUP_DIR, 'alpha.Echo', EXCL_COPY);
+  assert.ok(withExcludes);
+  assert.ok(withExcludes.endsWith('alpha.proto') && !withExcludes.includes('vendor_copy'), `expected src alpha.proto, got ${withExcludes}`);
 });
 
 test('cross-package same-name messages/enums resolve within the service package', () => {

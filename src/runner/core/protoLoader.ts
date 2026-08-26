@@ -75,11 +75,22 @@ export function loadProtoDefinitions(protoFiles: string[], protoDir: string): Pr
   return { services: Array.from(serviceMap.values()), errors };
 }
 
-export function findProtoFileForService(protoDir: string, serviceName: string): string | null {
-  const protoFiles = scanProtoFiles(protoDir);
+/**
+ * 按服务名找定义文件。serviceName 认两种写法:
+ * - 全限定名(pkg.Service,CodeLens/工作台身份):精确档,同fullName多拷贝按方法数竞选;
+ * - 裸短名(历史入口):宽松档,沿用「最多方法」启发式。
+ * 精确档恒优先于宽松档;excludes 与服务列表扫描同源(0.3.44),陈旧拷贝不参选。
+ */
+export function findProtoFileForService(
+  protoDir: string,
+  serviceName: string,
+  excludes: ScanExcludes = EMPTY_SCAN_EXCLUDES,
+): string | null {
+  const protoFiles = scanProtoFiles(protoDir, excludes);
 
   let bestFile: string | null = null;
   let bestMethodCount = -1;
+  let bestExact = false;
 
   for (const file of protoFiles) {
     let content: string;
@@ -89,10 +100,21 @@ export function findProtoFileForService(protoDir: string, serviceName: string): 
       continue;
     }
 
-    const methodCount = scanProto(content).services.find((s) => s.name === serviceName)?.methods.length ?? 0;
-    if (methodCount > bestMethodCount) {
-      bestFile = file;
-      bestMethodCount = methodCount;
+    const scanned = scanProto(content);
+    for (const svc of scanned.services) {
+      const fullName = scanned.packageName ? `${scanned.packageName}.${svc.name}` : svc.name;
+      const exact = fullName === serviceName;
+      if (!exact && svc.name !== serviceName) continue;
+
+      const better =
+        bestFile === null ||
+        (exact && !bestExact) ||
+        (exact === bestExact && svc.methods.length > bestMethodCount);
+      if (better) {
+        bestFile = file;
+        bestMethodCount = svc.methods.length;
+        bestExact = exact;
+      }
     }
   }
 

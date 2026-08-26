@@ -1,0 +1,16 @@
+syntax = "proto3";
+package beta;
+
+message EchoReq {
+  string name = 1;
+}
+
+message EchoResp {
+  string from = 1;
+}
+
+// 比 alpha.Echo 多一个方法:裸短名 "Echo" 的「最多方法」启发式应落到本文件
+service Echo {
+  rpc Send(EchoReq) returns (EchoResp);
+  rpc SendTwice(EchoReq) returns (EchoResp);
+}

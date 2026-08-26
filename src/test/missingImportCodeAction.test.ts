@@ -56,7 +56,7 @@ test('单个缺失 import:一条 preferred action,插在 import 块末尾', () =
   const diag = missingImportDiag('dep.proto');
   const actions = provide(WITH_IMPORTS, [diag]);
   assert.equal(actions.length, 1);
-  assert.equal(actions[0].title, 'Add import "{0}"'); // stub l10n identity 不插值
+  assert.equal(actions[0].title, 'Add import "dep.proto"'); // stub l10n 按真实语义插值 {0}
   assert.equal(actions[0].isPreferred, true);
   assert.deepEqual(actions[0].diagnostics, [diag]);
   assert.deepEqual(insertTexts(actions[0]), [{ line: 4, text: 'import "dep.proto";\n' }]);

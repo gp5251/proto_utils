@@ -59,6 +59,11 @@ export class ServiceRegistry {
 
   constructor(private readonly excludes: ScanExcludes = EMPTY_SCAN_EXCLUDES) {}
 
+  /** 服务文件扫描排除集;调用面(GrpcClient 找服务定义文件)与列表扫描共用同一份。 */
+  get scanExcludes(): ScanExcludes {
+    return this.excludes;
+  }
+
   async load(protoDir: string): Promise<ServicesLoadResult> {
     if (this.cached && this.cachedDir === protoDir) {
       return this.cached;

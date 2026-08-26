@@ -12,10 +12,15 @@ export const Uri = {
   file: (fsPath: string): StubUri => ({ fsPath, scheme: 'file', path: fsPath }),
 };
 
-// 测试环境恒为默认语言:identity 返回英文源串,{0} 占位符由调用方替换
+// 测试环境恒为默认语言:返回英文源串,{0} 占位符按真实 vscode.l10n.t 语义就地替换
 export const l10n = {
-  t: (message: string | { message: string }): string =>
-    typeof message === 'string' ? message : message.message,
+  t: (message: string | { message: string }, ...args: unknown[]): string => {
+    let text = typeof message === 'string' ? message : message.message;
+    args.forEach((arg, i) => {
+      text = text.replace(new RegExp(`\\{${i}\\}`, 'g'), String(arg));
+    });
+    return text;
+  },
 };
 
 export const env = { language: 'en' };

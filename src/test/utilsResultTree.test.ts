@@ -5,6 +5,8 @@ import {
   visibleRows,
   collectContainerPaths,
   formatChunkLabel,
+  pushBounded,
+  MAX_STREAM_CHUNKS,
   MAX_DEPTH,
   MAX_ROWS,
   MAX_VALUE_CHARS,
@@ -162,4 +164,36 @@ test('collectContainerPaths:全部容器路径含根行;叶与空容器不收', 
 
 test('collectContainerPaths:根标量只有根行且根行非容器 → 空集', () => {
   assert.deepEqual(collectContainerPaths(buildResultTree(42)), []);
+});
+
+test('pushBounded:未达上限时正常追加,不丢数据', () => {
+  const r1 = pushBounded([], 'a', 3);
+  assert.deepEqual(r1, { items: ['a'], dropped: 0 });
+  const r2 = pushBounded(r1.items, 'b', 3);
+  assert.deepEqual(r2, { items: ['a', 'b'], dropped: 0 });
+});
+
+test('pushBounded:达到上限后滑动窗口——挤掉最旧,dropped 记账', () => {
+  let items: string[] = [];
+  let dropped = 0;
+  for (const c of ['a', 'b', 'c']) {
+    const r = pushBounded(items, c, 3);
+    items = r.items;
+    dropped += r.dropped;
+  }
+  assert.deepEqual(items, ['a', 'b', 'c']);
+  // 第 4 条进来:'a' 被挤出
+  const r = pushBounded(items, 'd', 3);
+  assert.deepEqual(r.items, ['b', 'c', 'd']);
+  assert.equal(r.dropped, 1);
+});
+
+test('pushBounded:max<=0 视为不限量(防御分支)', () => {
+  const r = pushBounded(['x'], 'y', 0);
+  assert.deepEqual(r.items, ['x', 'y']);
+  assert.equal(r.dropped, 0);
+});
+
+test('MAX_STREAM_CHUNKS 是合理的小上限(>10,<=1000)', () => {
+  assert.ok(MAX_STREAM_CHUNKS > 10 && MAX_STREAM_CHUNKS <= 1000);
 });

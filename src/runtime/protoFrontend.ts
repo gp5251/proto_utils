@@ -126,7 +126,9 @@ export class ProtoFrontend {
     const results: string[] = [];
     const walk = (dir: string): void => {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const full = path.join(entry.parentPath, entry.name);
+        // 用已知的 dir 拼 fullPath,不取 Dirent.parentPath:后者 Node ≥20.1 才有,
+        // engines 声明的 VS Code 1.85(内建 Node 18.15)上不存在,会直接 TypeError
+        const full = path.join(dir, entry.name);
         if (entry.isDirectory()) {
           if (
             !entry.name.startsWith('.') &&

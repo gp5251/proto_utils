@@ -75,12 +75,16 @@ export function resolveScanExcludes(get: (key: string) => unknown, workspaceRoot
   return { names, paths };
 }
 
-/** 目录是否被排除:name 为当前路径段,fullPath 为该目录的绝对路径。 */
+/** 目录是否被排除:name 为当前路径段,fullPath 为该目录的绝对路径。
+ *  paths 条目就地规范化:调用方绕过 resolveScanExcludes 直接构造时同样可靠。 */
 export function isDirExcluded(name: string, fullPath: string, excludes: ScanExcludes): boolean {
   const key = process.platform === 'win32' ? name.toLowerCase() : name;
   if (excludes.names.has(key)) return true;
   const full = normalizeForCompare(fullPath);
-  return excludes.paths.some((p) => full === p || full.startsWith(p + path.sep));
+  return excludes.paths.some((p) => {
+    const target = normalizeForCompare(p);
+    return full === target || full.startsWith(target + path.sep);
+  });
 }
 
 /** 证书路径:空串/非字符串 → null;相对路径相对 workspace 根 join。 */

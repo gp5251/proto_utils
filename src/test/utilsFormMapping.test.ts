@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyJsonText, formValuesToJson, validateJsonText } from '../runner/utils/formMapping';
+import { applyJsonText, formValuesToJson, validateFormValues, validateJsonText } from '../runner/utils/formMapping';
 import { FieldInfo } from '../runner/core/types';
 
 /**
@@ -222,4 +222,42 @@ test('applyJsonText: 64 位整型 JSON 数字进表单为 string', () => {
   const r = applyJsonText(int64Fields, '{"bigId": 123}', {});
   assert.ok(r.ok);
   assert.deepEqual(r.values, { bigId: '123' });
+});
+
+// ---- validateFormValues(0.3.44):发送前表单值校验,问题清单为空 = 可发 ----
+
+test('validateFormValues:合法/空值不报问题', () => {
+  assert.deepEqual(validateFormValues(fields, { fileId: '42', note: 'x', ids: '[1,2]' }), []);
+  assert.deepEqual(validateFormValues(fields, {}), [], '全空 = 未填,不算问题');
+});
+
+test('validateFormValues:数字字段非数字文本报问题;int64 文本放行', () => {
+  const problems = validateFormValues(fields, { fileId: 'abc' });
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /fileId/);
+
+  const int64Fields: FieldInfo[] = [
+    { name: 'big', type: 'string', required: false, label: 'optional', protoType: 'TYPE_INT64' },
+  ];
+  assert.deepEqual(validateFormValues(int64Fields, { big: '99999999999999999999' }), []);
+});
+
+test('validateFormValues:repeated 槽位必须是可解析的 JSON 数组字符串', () => {
+  assert.match(validateFormValues(fields, { ids: '[1,' })[0], /ids/);
+  assert.match(validateFormValues(fields, { ids: '{"a":1}' })[0], /ids/);
+  assert.deepEqual(validateFormValues(fields, { tags: '["a"]' }), []);
+});
+
+test('validateFormValues:message textarea 必须是可解析 JSON(标量也算错);bytes 必须 base64', () => {
+  const extra: FieldInfo[] = [
+    ...fields,
+    { name: 'payload', type: 'message', required: false, label: 'optional', protoType: 'TYPE_MESSAGE', refType: 'Payload' },
+    { name: 'blob', type: 'bytes', required: false, label: 'optional', protoType: 'TYPE_BYTES' },
+  ];
+  assert.match(validateFormValues(extra, { payload: '{oops' })[0], /payload/);
+  assert.match(validateFormValues(extra, { payload: '42' })[0], /payload/);
+  assert.deepEqual(validateFormValues(extra, { payload: '{"k":1}' }), []);
+
+  assert.match(validateFormValues(extra, { blob: '!!not-base64!!' })[0], /blob/);
+  assert.deepEqual(validateFormValues(extra, { blob: 'AQID' }), []);
 });

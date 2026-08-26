@@ -1,4 +1,5 @@
 import * as grpc from '@grpc/grpc-js';
+import { l10n } from 'vscode';
 
 interface GrpcLikeError extends Error {
   code?: number;
@@ -7,9 +8,13 @@ interface GrpcLikeError extends Error {
   cause?: unknown;
 }
 
+/**
+ * gRPC 错误 → 多行人类可读文本(0.3.44 起全部走 l10n:文案随显示语言,
+ * 不再出现「界面英文 + 错误中文」的混排)。测试环境 vscode 替身恒等返回源串。
+ */
 export function formatGrpcError(err: unknown, server?: string): string {
   if (err === null || err === undefined) {
-    return '未知错误';
+    return l10n.t('Unknown error');
   }
 
   if (!(err instanceof Error)) {
@@ -21,30 +26,30 @@ export function formatGrpcError(err: unknown, server?: string): string {
 
   if (typeof serviceErr.code === 'number') {
     const codeName = grpc.status[serviceErr.code] ?? 'UNKNOWN';
-    lines.push(`状态码: ${codeName} (${serviceErr.code})`);
+    lines.push(l10n.t('Status code: {0} ({1})', codeName, String(serviceErr.code)));
   }
 
   if (serviceErr.details) {
-    lines.push(`详情: ${serviceErr.details}`);
+    lines.push(l10n.t('Details: {0}', serviceErr.details));
   }
 
   if (serviceErr.message && serviceErr.message !== serviceErr.details) {
-    lines.push(`消息: ${serviceErr.message}`);
+    lines.push(l10n.t('Message: {0}', serviceErr.message));
   }
 
   if (server) {
-    lines.push(`服务器: ${server}`);
+    lines.push(l10n.t('Server: {0}', server));
   }
 
   const hint = getHint(serviceErr.code, server);
   if (hint) {
-    lines.push(`提示: ${hint}`);
+    lines.push(l10n.t('Hint: {0}', hint));
   }
 
   if (serviceErr.metadata) {
     const metaLines = formatMetadata(serviceErr.metadata);
     if (metaLines.length > 0) {
-      lines.push('元数据:');
+      lines.push(l10n.t('Metadata:'));
       lines.push(...metaLines);
     }
   }
@@ -53,7 +58,7 @@ export function formatGrpcError(err: unknown, server?: string): string {
   if (cause) {
     const causeText = cause instanceof Error ? cause.message : String(cause);
     if (causeText && !lines.some(line => line.includes(causeText))) {
-      lines.push(`原因: ${causeText}`);
+      lines.push(l10n.t('Cause: {0}', causeText));
     }
   }
 
@@ -72,20 +77,20 @@ function getHint(code: number | undefined, server?: string): string | null {
   switch (code) {
     case grpc.status.UNAVAILABLE:
       return server
-        ? `请确认 gRPC 服务 ${server} 已启动且可访问`
-        : '请确认 gRPC 服务已启动且可访问';
+        ? l10n.t('Check that the gRPC server {0} is up and reachable', server)
+        : l10n.t('Check that the gRPC server is up and reachable');
     case grpc.status.DEADLINE_EXCEEDED:
-      return '请求超时，请检查网络或服务响应时间';
+      return l10n.t('Request timed out. Check network or server latency');
     case grpc.status.UNAUTHENTICATED:
-      return '未通过身份验证';
+      return l10n.t('Authentication failed');
     case grpc.status.PERMISSION_DENIED:
-      return '无权限执行此 RPC';
+      return l10n.t('Permission denied for this RPC');
     case grpc.status.NOT_FOUND:
-      return '服务或方法在服务端不存在';
+      return l10n.t('Service or method does not exist on the server');
     case grpc.status.INVALID_ARGUMENT:
-      return '请求参数无效，请检查表单字段';
+      return l10n.t('Invalid request arguments. Check the form fields');
     case grpc.status.INTERNAL:
-      return '服务端内部错误';
+      return l10n.t('Internal server error');
     default:
       return null;
   }

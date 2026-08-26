@@ -3,6 +3,7 @@ import * as path from 'path';
 import { scanProto } from './scanner';
 import { decodeProto } from '../runtime/protoEncoding';
 import { SCAN_EXCLUDED_DIRS } from '../runtime/protoFrontend';
+import { EMPTY_SCAN_EXCLUDES, isDirExcluded, ScanExcludes } from '../runner/config';
 import { SymbolEntry, ServicePoint, TypeRef } from './symbols';
 
 /**
@@ -22,6 +23,12 @@ export class SymbolIndex {
   private entries = new Map<string, FileEntry>(); // key: fsPath
   private watcher: vscode.FileSystemWatcher | undefined;
 
+  /**
+   * excludes:用户配置的 scan.excludeDirs(0.3.44 起生效)。此前只排除内建
+   * 构建产物目录,与调用面/语义前端的扫描口径不一致;现在三层同源。
+   */
+  constructor(private readonly excludes: ScanExcludes = EMPTY_SCAN_EXCLUDES) {}
+
   async build(): Promise<void> {
     const excludeGlob = `**/{${SCAN_EXCLUDED_DIRS.join(',')}}/**`;
     const files = await vscode.workspace.findFiles('**/*.proto', excludeGlob);
@@ -39,7 +46,19 @@ export class SymbolIndex {
     this.watcher?.dispose();
   }
 
+  /** 文件是否落在用户排除目录内:任一祖先目录命中即排除(与逐层扫描同语义)。 */
+  private isExcluded(fsPath: string): boolean {
+    let dir = path.dirname(fsPath);
+    for (;;) {
+      if (isDirExcluded(path.basename(dir), dir, this.excludes)) return true;
+      const parent = path.dirname(dir);
+      if (parent === dir) return false;
+      dir = parent;
+    }
+  }
+
   private async indexFile(uri: vscode.Uri): Promise<void> {
+    if (this.isExcluded(uri.fsPath)) return;
     try {
       const content = await vscode.workspace.fs.readFile(uri);
       const scanned = scanProto(decodeProto(content));

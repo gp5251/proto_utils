@@ -56,3 +56,50 @@ enum Mode
   assert.equal(fieldComments.get('test.v1.LDElemt_Info.sName'), '名称');
   assert.equal(enumValueComments.get('test.v1.Mode.MODE_A'), '模式A');
 });
+
+test('行尾注释缺失时取上方连续 // 前导注释;空行断链;行尾优先', () => {
+  const content = `
+syntax = "proto3";
+package lead.v1;
+
+message Req {
+  // 用户唯一标识
+  // 多行第二段
+  string user_id = 1;
+
+  string skipped = 2;
+  string name = 3; // 行尾优先
+}
+`;
+
+  const { fieldComments } = parseProtoFileComments(content);
+
+  assert.equal(fieldComments.get('lead.v1.Req.user_id'), '用户唯一标识 多行第二段');
+  assert.equal(fieldComments.has('lead.v1.Req.skipped'), false, '空行应打断前导注释链');
+  assert.equal(fieldComments.get('lead.v1.Req.name'), '行尾优先');
+});
+
+test('上方 /* */ 块注释作为前导注释提取(去装饰星号)', () => {
+  const content = `
+syntax = "proto3";
+package blk.v1;
+
+enum State {
+  /*
+   * 初始态
+   * 说明第二行
+   */
+  STATE_INIT = 0;
+}
+
+message Block {
+  /* 单行块注释 */
+  uint32 status = 1;
+}
+`;
+
+  const { fieldComments, enumValueComments } = parseProtoFileComments(content);
+
+  assert.equal(fieldComments.get('blk.v1.Block.status'), '单行块注释');
+  assert.equal(enumValueComments.get('blk.v1.State.STATE_INIT'), '初始态 说明第二行');
+});

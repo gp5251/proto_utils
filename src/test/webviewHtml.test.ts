@@ -58,7 +58,7 @@ test('双模式编辑器锚点:Tab 条/json-editor/sendFromEditor/formMapping �
   assert.ok(html.includes('class="json-editor"'));
   assert.ok(html.includes('class="json-error"'));
   assert.ok(html.includes('class="json-warning"'));
-  assert.ok(html.includes('sendFromEditor(svc.name, m.name, m)'));
+  assert.ok(html.includes('sendFromEditor(svcId(svc), m.name, m)'));
   // formMapping 必须先于 runner.js:runner.js 的状态机同步调用 window.FormMapping
   assert.ok(
     html.indexOf('formMapping.js') < html.indexOf('runner.js'),
@@ -74,9 +74,9 @@ test('双模式编辑器锚点:Tab 条/json-editor/sendFromEditor/formMapping �
 test('响应 metadata 折叠块锚点:一元/流式结果区各一份,标题与行标签串进 boot', () => {
   const html = render();
   assert.equal(html.match(/class="resp-meta"/g)?.length, 2);
-  assert.ok(html.includes('hasRespMeta(svc.name, m.name)'));
-  assert.ok(html.includes('toggleRespMeta(svc.name, m.name)'));
-  assert.ok(html.includes('respMetaEntries(svc.name, m.name)'));
+  assert.ok(html.includes('hasRespMeta(svcId(svc), m.name)'));
+  assert.ok(html.includes('toggleRespMeta(svcId(svc), m.name)'));
+  assert.ok(html.includes('respMetaEntries(svcId(svc), m.name)'));
   assert.ok(html.includes('Response metadata'));
   assert.ok(html.includes('respMetaHeader'));
   assert.ok(html.includes('respMetaTrailer'));
@@ -89,19 +89,19 @@ test('响应折叠树锚点:一元/流式各一份树 + 原始 pre 兜底;chunk 
   // 原始 <pre> 兜底仍在(错误/空流路径),一元与流式各 1
   assert.equal(html.match(/class="result-body"/g)?.length, 2);
   for (const anchor of [
-    'resultTreeAvailable(svc.name, m.name)',
-    'resultTreeRows(svc.name, m.name)',
-    'toggleTreeNode(svc.name, m.name, row.path)',
-    'streamIsTreeable(svc.name, m.name)',
-    'chunkSections(svc.name, m.name)',
-    'chunkTreeRows(svc.name, m.name, sec.idx)',
-    'toggleChunkTree(svc.name, m.name, sec.idx)',
+    'resultTreeAvailable(svcId(svc), m.name)',
+    'resultTreeRows(svcId(svc), m.name)',
+    'toggleTreeNode(svcId(svc), m.name, row.path)',
+    'streamIsTreeable(svcId(svc), m.name)',
+    'chunkSections(svcId(svc), m.name)',
+    'chunkTreeRows(svcId(svc), m.name, sec.idx)',
+    'toggleChunkTree(svcId(svc), m.name, sec.idx)',
     'tree-value-',
     // 0.3.42:全部展开/收起按钮(一元 + 流式各一对)
-    'expandAllResult(svc.name, m.name)',
-    'collapseAllResult(svc.name, m.name)',
-    'expandAllChunks(svc.name, m.name)',
-    'collapseAllChunks(svc.name, m.name)',
+    'expandAllResult(svcId(svc), m.name)',
+    'collapseAllResult(svcId(svc), m.name)',
+    'expandAllChunks(svcId(svc), m.name)',
+    'collapseAllChunks(svcId(svc), m.name)',
   ]) {
     assert.ok(html.includes(anchor), `缺少锚点: ${anchor}`);
   }
@@ -152,9 +152,9 @@ test('boot 数据内嵌 server 与 protoDir', () => {
 test('Headers 编辑器:行编辑锚点 + metadataDefault 注入 boot', () => {
   const html = render({ metadataDefault: [{ key: 'authorization', value: 'Bearer t' }] });
   assert.ok(html.includes('class="headers-editor"'));
-  assert.ok(html.includes('addHeaderRow(methodKey(svc.name, m.name))'));
-  assert.ok(html.includes('removeHeaderRow(methodKey(svc.name, m.name), hIdx)'));
-  assert.ok(html.includes('setHeaderField(methodKey(svc.name, m.name), hIdx'));
+  assert.ok(html.includes('addHeaderRow(methodKey(svcId(svc), m.name))'));
+  assert.ok(html.includes('removeHeaderRow(methodKey(svcId(svc), m.name), hIdx)'));
+  assert.ok(html.includes('setHeaderField(methodKey(svcId(svc), m.name), hIdx'));
   assert.ok(html.includes('"metadata":[{"key":"authorization","value":"Bearer t"}]'));
   // 缺省为空数组
   assert.ok(render().includes('"metadata":[]'));
@@ -193,9 +193,20 @@ test('交互结构:搜索、刷新按钮、流式徽标、取消按钮、prefill
   assert.ok(html.includes('@click="refresh()"'));
   assert.ok(html.includes("$store.workbench.refreshing"));
   assert.ok(html.includes('method-stream-badge'));
-  assert.ok(html.includes('copyServiceName(svc.name)'), '服务名旁复制 icon');
-  assert.ok(html.includes('isServiceCopied(svc.name)'), '服务名复制反馈');
-  assert.ok(html.includes('cancelStream(svc.name, m.name)'));
-  assert.ok(html.includes(":id=\"'method-' + svc.name + '-' + m.name\""));
+  assert.ok(html.includes('copyServiceName(svc)'), '服务名旁复制 icon');
+  assert.ok(html.includes('isServiceCopied(svc)'), '服务名复制反馈');
+  assert.ok(html.includes('cancelStream(svcId(svc), m.name)'));
+  assert.ok(html.includes(":id=\"'method-' + svcId(svc) + '-' + m.name\""));
   assert.ok(html.includes('requestStream'), 'client/bidi 方法禁用提示');
+});
+
+test('表单校验反馈锚点:发送前错误槽 + bytes 专用 base64 输入分支', () => {
+  const html = render();
+  assert.ok(
+    html.includes('getFormError(methodKey(svcId(svc), m.name))'),
+    '发送按钮区必须有表单问题清单展示槽',
+  );
+  assert.ok(html.includes("row.field.protoType === 'TYPE_BYTES'"), '缺 bytes 专用输入分支');
+  assert.ok(html.includes("row.field.protoType !== 'TYPE_BYTES'"), '通用文本分支必须排除 BYTES');
+  assert.ok(html.includes('Base64-encoded value'), 'bytes 提示文案(host 侧 l10n 源串)');
 });

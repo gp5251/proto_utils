@@ -7,14 +7,81 @@ import { CallResult, StreamHandlers } from '../runner/core/types';
 
 /**
  * callHandler 的 spec 契约测试:注入 fake GrpcClient 工厂,
- * 覆盖 成功载荷组装 / 调用错误 / 非法 JSON _raw 回退 / 流式委托与取消。
+ * 覆盖 成功载荷组装 / 调用错误 / 非法 JSON _raw 回退 / 流式委托与取消 /
+ * 配置每次调用现读(server/protoDir/TLS/超时改动即时生效)。
  */
 
 const RUNNER_DIR = path.resolve('testdata/runner');
 
-function makeRunner(transport: GrpcTransport): GrpcCallRunner {
-  return new GrpcCallRunner('fake:0', RUNNER_DIR, new ServiceRegistry(), () => transport);
+const NO_TLS = { enabled: false, rootCert: null, clientCert: null, clientKey: null };
+
+function staticConfig(protoDir: string = RUNNER_DIR) {
+  return { server: 'fake:0', protoDir, tls: NO_TLS, timeoutMs: 0 };
 }
+
+function makeRunner(transport: GrpcTransport): GrpcCallRunner {
+  return new GrpcCallRunner(() => staticConfig(), new ServiceRegistry(), () => transport);
+}
+
+test('callUnary: 每次调用现读配置——server/protoDir 改动即时生效', async () => {
+  const seen: Array<{ addr: string; dir: string }> = [];
+  let cfg = staticConfig();
+  const runner = new GrpcCallRunner(
+    () => cfg,
+    new ServiceRegistry(),
+    (c) => ({
+      call: async (dir) => {
+        seen.push({ addr: c.server, dir });
+        return { status: 'ok', data: {}, durationMs: 1 };
+      },
+      callServerStream: () => {
+        throw new Error('not used');
+      },
+    }),
+  );
+
+  await runner.callUnary('NoSuchService', 'Nope', {});
+  cfg = staticConfig(path.resolve('testdata'));
+  cfg = { ...cfg, server: 'b:2' };
+  await runner.callUnary('NoSuchService', 'Nope', {});
+
+  assert.deepEqual(seen, [
+    { addr: 'fake:0', dir: RUNNER_DIR },
+    { addr: 'b:2', dir: path.resolve('testdata') },
+  ]);
+});
+
+test('callServerStream: 同样现读配置,启动后改动不影响进行中的流(快照语义)', async () => {
+  const seen: Array<{ addr: string; dir: string }> = [];
+  let cfg = staticConfig();
+  const runner = new GrpcCallRunner(
+    () => cfg,
+    new ServiceRegistry(),
+    (c) => ({
+      call: () => Promise.reject(new Error('not used')),
+      callServerStream: (dir, _opts, handlers) => {
+        seen.push({ addr: c.server, dir });
+        handlers.onEnd(0);
+        return { cancel: () => undefined };
+      },
+    }),
+  );
+
+  const handle = runner.callServerStream('VarService', 'WatchVars', {}, {
+    onData: () => {},
+    onError: () => {},
+    onEnd: () => {},
+  });
+  // 启动即改配置:流必须沿用调用发起时的快照,findMethod 落地后不得重读
+  cfg = { ...cfg, server: 'b:2' };
+
+  // findMethod 是异步的,流在微任务后才真正发出
+  const { promise, resolve } = Promise.withResolvers<void>();
+  process.nextTick(resolve);
+  await promise;
+  assert.deepEqual(seen, [{ addr: 'fake:0', dir: RUNNER_DIR }]);
+  handle.cancel();
+});
 
 test('callUnary: metadata 透传进 CallOptions;callServerStream 同理', async () => {
   const seen: Array<unknown> = [];

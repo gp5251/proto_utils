@@ -8,6 +8,7 @@ import { MissingImportCodeActionProvider } from './providers/missingImportCodeAc
 import { SymbolIndex } from './index/symbolIndex';
 import { ProtoFrontend } from './runtime/protoFrontend';
 import { createLoadDiagnosticsTrigger } from './loadDiagnostics';
+import { RetryableLazy } from './retryableLazy';
 import { resolveRunnerConfig as resolveRunnerConfigPure, resolveScanExcludes, ScanExcludes } from './runner/config';
 import { registerCodeGenCommand } from './codegen/command';
 import type { WorkbenchPanelManager } from './runner/webviewPanel';
@@ -15,14 +16,15 @@ import type { WorkbenchPanelManager } from './runner/webviewPanel';
 const PROTO_SELECTOR: vscode.DocumentSelector = { language: 'proto3', scheme: 'file' };
 
 export async function activate(context: vscode.ExtensionContext) {
-  const index = new SymbolIndex();
-  context.subscriptions.push({ dispose: () => index.dispose() });
-
   const workspaceDirs = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [];
   const getSetting = (key: string): unknown => vscode.workspace.getConfiguration('protoUtils').get(key);
   const { protoDir, protoDirExplicit } = resolveRunnerConfigPure(getSetting, workspaceDirs[0]);
-  // 用户配置的扫描排除目录,runner 与 codegen 共用(0.3.13)
+  // 用户配置的扫描排除目录,runner/codegen/位置索引三层共用(0.3.13;索引层 0.3.44 起接入)
   const scanExcludes = resolveScanExcludes(getSetting, workspaceDirs[0]);
+
+  const index = new SymbolIndex(scanExcludes);
+  context.subscriptions.push({ dispose: () => index.dispose() });
+
   // codegen 扫描根:显式配置 runner.protoDir → 只扫 protoDir;留空 → 扫 workspace(0.3.14)
   const includeDirs = protoDirExplicit && protoDir ? [protoDir] : workspaceDirs;
   const frontend = new ProtoFrontend(includeDirs, scanExcludes);
@@ -86,7 +88,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
 /** 工作台单例的懒加载包装:首次使用时才 import ./runner/index,拖入 grpc 依赖 */
 class LazyWorkbench {
-  private managerPromise: Promise<WorkbenchPanelManager> | null = null;
+  // 失败即弃的懒单例(0.3.44):动态 import/依赖构建失败不再永久缓存 rejected
+  // promise 毒化后续打开——下次 reveal 自动重试。
+  private readonly manager = new RetryableLazy<WorkbenchPanelManager>(() => this.buildManager());
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -96,50 +100,53 @@ class LazyWorkbench {
   ) {}
 
   async reveal(prefill?: { service: string; method: string }): Promise<void> {
-    // 冷启动 reveal 触发懒加载(bundle import 拖入 grpc-js/protobufjs),可能数秒无反馈;
-    // 弹通知进度提示。仅首次弹:managerPromise 创建后,并发/后续 reveal 直接 await 同一 promise。
-    const manager = this.managerPromise
-      ? await this.managerPromise
-      : await vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: vscode.l10n.t('Proto Utils: Loading RPC Workbench…'),
-            cancellable: false,
-          },
-          () => this.getManager(),
-        );
-    manager.reveal(prefill);
-  }
-
-  async reload(): Promise<void> {
-    if (this.managerPromise) {
-      const manager = await this.managerPromise;
-      await manager.reload();
+    try {
+      // 冷启动 reveal 触发懒加载(bundle import 拖入 grpc-js/protobufjs),可能数秒无反馈;
+      // 弹通知进度提示。仅未启动时弹:已启动(含上次失败后的重试)直接复用同一 promise。
+      const manager = this.manager.started
+        ? await this.manager.get()
+        : await vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: vscode.l10n.t('Proto Utils: Loading RPC Workbench…'),
+              cancellable: false,
+            },
+            () => this.manager.get(),
+          );
+      manager.reveal(prefill);
+    } catch (err) {
+      // 构建失败必须可见(此前静默吞掉,表现为"点了没反应");重置已由 RetryableLazy 完成
+      vscode.window.showErrorMessage(
+        vscode.l10n.t('Proto Utils: Failed to open RPC Workbench: {0}', err instanceof Error ? err.message : String(err)),
+      );
     }
   }
 
-  private async getManager(): Promise<WorkbenchPanelManager> {
-    this.managerPromise ??= (async () => {
-      // 动态 import 是刻意的:静态 import 会让 grpc-js/protobufjs 进入编辑器激活路径
-      // (用户 spec 的懒加载约定);esbuild 对本路径 external,产物 out/runner/index.js 独立加载。
-      // 必须带 .js:CJS 里的动态 import 走 ESM 解析器,无扩展名解析失败。
-      const runner = await import('./runner/index.js');
-      const registry = new runner.ServiceRegistry(this.scanExcludes);
-      const config = runner.resolveRunnerConfig();
-      const deps = {
-        registry,
-        // TLS/超时在建 runner 时一次性注入;server/protoDir/metadata 在面板创建时注入。
-        // 改 protoUtils.runner.* 设置需重开面板生效(README 已写明)。
-        runner: new runner.GrpcCallRunner(config.server, config.protoDir, registry, undefined, {
-          tls: config.tls,
-          timeoutMs: config.timeoutMs,
-        }),
-        getConfig: () => runner.resolveRunnerConfig(),
-        onLoadSettled: this.onLoadSettled,
-      };
-      return new runner.WorkbenchPanelManager(deps, runner.createVscodePanelFactory(this.context.extensionUri, deps));
-    })();
-    return this.managerPromise;
+  async reload(): Promise<void> {
+    if (!this.manager.started) return;
+    try {
+      const manager = await this.manager.get();
+      await manager.reload();
+    } catch {
+      // 构建失败不打断 watcher 链路;下次 reveal 时会报错并可重试
+    }
+  }
+
+  private async buildManager(): Promise<WorkbenchPanelManager> {
+    // 动态 import 是刻意的:静态 import 会让 grpc-js/protobufjs 进入编辑器激活路径
+    // (用户 spec 的懒加载约定);esbuild 对本路径 external,产物 out/runner/index.js 独立加载。
+    // 必须带 .js:CJS 里的动态 import 走 ESM 解析器,无扩展名解析失败。
+    const runner = await import('./runner/index.js');
+    const registry = new runner.ServiceRegistry(this.scanExcludes);
+    const deps = {
+      registry,
+      // 配置经 getConfig 每次调用现读(0.3.44):server/protoDir/TLS/超时改动即时生效,
+      // 服务列表与实际调用两条路径读同一份配置,不再出现「列表新目录、调用旧目录」的劈叉。
+      runner: new runner.GrpcCallRunner(() => runner.resolveRunnerConfig(), registry),
+      getConfig: () => runner.resolveRunnerConfig(),
+      onLoadSettled: this.onLoadSettled,
+    };
+    return new runner.WorkbenchPanelManager(deps, runner.createVscodePanelFactory(this.context.extensionUri, deps));
   }
 }
 

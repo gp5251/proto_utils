@@ -1,0 +1,14 @@
+syntax = "proto3";
+package alpha;
+
+message EchoReq {
+  string name = 1;
+}
+
+message EchoResp {
+  string from = 1;
+}
+
+service Echo {
+  rpc Send(EchoReq) returns (EchoResp);
+}

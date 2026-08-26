@@ -73,6 +73,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     formTab: l10n.t('Form'),
     selectPlaceholder: l10n.t('-- Select --'),
     enumPlaceholder: l10n.t('Enum value'),
+    bytesHint: l10n.t('Base64-encoded value'),
     noParams: l10n.t('(no parameters)'),
     send: l10n.t('Send'),
     sending: l10n.t('Sending...'),
@@ -176,48 +177,48 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
       <p x-show="!$store.workbench.protoDir">${S.emptyNoDir}</p>
     </div>
 
-    <template x-for="svc in filteredServices()" :key="svc.name">
+    <template x-for="svc in filteredServices()" :key="svcId(svc)">
       <div class="card service-card">
-        <div class="card-title card-title-toggle" @click="toggleService(svc.name)">
+        <div class="card-title card-title-toggle" @click="toggleService(svcId(svc))">
           <span>
             <span x-text="svc.name"></span>
             <span
               class="copy-icon"
               role="button"
               :title="$store.str.copy"
-              x-show="!isServiceCopied(svc.name)"
-              @click.stop="copyServiceName(svc.name)"
+              x-show="!isServiceCopied(svc)"
+              @click.stop="copyServiceName(svc)"
             >${COPY_ICON_SVG}</span>
-            <span x-show="isServiceCopied(svc.name)" class="copy-badge">${S.copiedBadge}</span>
+            <span x-show="isServiceCopied(svc)" class="copy-badge">${S.copiedBadge}</span>
             <span style="font-weight:400;text-transform:none;color:var(--text-faint)">
               — <span x-text="filteredMethods(svc).length"></span>${S.methodCountSuffix}
             </span>
           </span>
-          <span class="collapse-icon" x-text="isServiceOpen(svc.name) ? '▼' : '▶'"></span>
+          <span class="collapse-icon" x-text="isServiceOpen(svcId(svc)) ? '▼' : '▶'"></span>
         </div>
-        <div x-show="isServiceOpen(svc.name)">
+        <div x-show="isServiceOpen(svcId(svc))">
           <template x-for="m in filteredMethods(svc)" :key="m.name">
             <div class="method-block">
               <div
                 class="method-row"
-                :id="'method-' + svc.name + '-' + m.name"
-                :class="{ 'method-row-active': isMethodOpen(svc.name, m.name) }"
+                :id="'method-' + svcId(svc) + '-' + m.name"
+                :class="{ 'method-row-active': isMethodOpen(svcId(svc), m.name) }"
               >
-                <span class="method-name" @click="toggleMethod(svc.name, m.name, m)">
+                <span class="method-name" @click="toggleMethod(svcId(svc), m.name, m)">
                   <span x-text="m.name"></span>
                   <span
                     class="copy-icon"
                     role="button"
                     :title="$store.str.copy"
-                    x-show="!isMethodCopied(svc.name, m.name)"
-                    @click.stop="copyMethodName(svc.name, m.name)"
+                    x-show="!isMethodCopied(svcId(svc), m.name)"
+                    @click.stop="copyMethodName(svcId(svc), m.name)"
                   >${COPY_ICON_SVG}</span>
-                  <span x-show="isMethodCopied(svc.name, m.name)" class="copy-badge">${S.copiedBadge}</span>
+                  <span x-show="isMethodCopied(svcId(svc), m.name)" class="copy-badge">${S.copiedBadge}</span>
                 </span>
                 <span x-show="m.responseStream" class="method-stream-badge">stream</span>
-                <span class="collapse-icon" x-text="isMethodOpen(svc.name, m.name) ? '▼' : '▶'"></span>
+                <span class="collapse-icon" x-text="isMethodOpen(svcId(svc), m.name) ? '▼' : '▶'"></span>
               </div>
-              <template x-if="isMethodOpen(svc.name, m.name)">
+              <template x-if="isMethodOpen(svcId(svc), m.name)">
                 <div class="method-panel" @click.stop>
                   <div class="headers-editor">
                     <div class="headers-editor-head">
@@ -225,16 +226,16 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                       <button
                         type="button"
                         class="btn btn-secondary btn-xs"
-                        @click="addHeaderRow(methodKey(svc.name, m.name))"
+                        @click="addHeaderRow(methodKey(svcId(svc), m.name))"
                       >${S.addHeader}</button>
                     </div>
-                    <template x-for="(h, hIdx) in getHeaders(methodKey(svc.name, m.name))" :key="hIdx">
+                    <template x-for="(h, hIdx) in getHeaders(methodKey(svcId(svc), m.name))" :key="hIdx">
                       <div class="header-row">
                         <input
                           type="text"
                           class="header-key"
                           :value="h.key"
-                          @input="setHeaderField(methodKey(svc.name, m.name), hIdx, 'key', $event.target.value)"
+                          @input="setHeaderField(methodKey(svcId(svc), m.name), hIdx, 'key', $event.target.value)"
                           placeholder="${S.headerKeyPlaceholder}"
                           autocomplete="off"
                         >
@@ -242,14 +243,14 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                           type="text"
                           class="header-value"
                           :value="h.value"
-                          @input="setHeaderField(methodKey(svc.name, m.name), hIdx, 'value', $event.target.value)"
+                          @input="setHeaderField(methodKey(svcId(svc), m.name), hIdx, 'value', $event.target.value)"
                           placeholder="${S.headerValuePlaceholder}"
                           autocomplete="off"
                         >
                         <button
                           type="button"
                           class="btn btn-secondary btn-xs header-remove"
-                          @click="removeHeaderRow(methodKey(svc.name, m.name), hIdx)"
+                          @click="removeHeaderRow(methodKey(svcId(svc), m.name), hIdx)"
                         >×</button>
                       </div>
                     </template>
@@ -261,13 +262,13 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                         <span class="method-type-name" x-text="m.responseType"></span>
                       </div>
                       <div x-show="!(m.responseSchemaRows && m.responseSchemaRows.length)" class="method-fields-empty">${S.noFields}</div>
-                      <template x-for="(row, rowIdx) in visibleSchemaRows(m.responseSchemaRows)" :key="m.name + '-res-' + rowIdx">
+                      <template x-for="(row, rowIdx) in visibleSchemaRows(m.responseSchemaRows, 'res')" :key="m.name + '-res-' + rowIdx">
                         <div>
                           <div
                             class="method-field-row"
                             :class="{ 'method-field-row-expandable': (row.children && row.children.length) || (row.enumValues && row.enumValues.length) }"
                             :style="'padding-left:' + (row.depth * 14 + 8) + 'px'"
-                            @click.stop="(row.children && row.children.length) || (row.enumValues && row.enumValues.length) ? toggleRow(row.path) : null"
+                            @click.stop="(row.children && row.children.length) || (row.enumValues && row.enumValues.length) ? toggleRow(rowKey('res', row.path)) : null"
                           >
                             <span class="method-field-name" x-text="row.name"></span>
                             <span class="method-field-meta">
@@ -277,12 +278,12 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                               <span
                                 x-show="(row.children && row.children.length) || (row.enumValues && row.enumValues.length)"
                                 class="collapse-icon"
-                                x-text="isRowOpen(row.path) ? '▼' : '▶'"
+                                x-text="isRowOpen(rowKey('res', row.path)) ? '▼' : '▶'"
                               ></span>
                             </span>
                           </div>
                           <div
-                            x-show="row.enumValues && row.enumValues.length && isRowOpen(row.path)"
+                            x-show="row.enumValues && row.enumValues.length && isRowOpen(rowKey('res', row.path))"
                             class="enum-values-list"
                             :style="'padding-left:' + (row.depth * 14 + 24) + 'px'"
                           >
@@ -294,22 +295,22 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                       </template>
                     </div>
                   </div>
-                  <form class="form-section" @submit.prevent="sendFromEditor(svc.name, m.name, m)">
+                  <form class="form-section" @submit.prevent="sendFromEditor(svcId(svc), m.name, m)">
                     <div class="editor-tabs" x-show="m.requestFields.length > 0">
                       <button
                         type="button"
                         class="editor-tab"
-                        :class="{ 'editor-tab-active': getEditorMode(methodKey(svc.name, m.name)) === 'form' }"
-                        @click="setEditorMode(methodKey(svc.name, m.name), 'form', m)"
+                        :class="{ 'editor-tab-active': getEditorMode(methodKey(svcId(svc), m.name)) === 'form' }"
+                        @click="setEditorMode(methodKey(svcId(svc), m.name), 'form', m)"
                       >${S.formTab}</button>
                       <button
                         type="button"
                         class="editor-tab"
-                        :class="{ 'editor-tab-active': getEditorMode(methodKey(svc.name, m.name)) === 'json' }"
-                        @click="setEditorMode(methodKey(svc.name, m.name), 'json', m)"
+                        :class="{ 'editor-tab-active': getEditorMode(methodKey(svcId(svc), m.name)) === 'json' }"
+                        @click="setEditorMode(methodKey(svcId(svc), m.name), 'json', m)"
                       >JSON</button>
                     </div>
-                    <div x-show="showFormPane(methodKey(svc.name, m.name), m)">
+                    <div x-show="showFormPane(methodKey(svcId(svc), m.name), m)">
                     <template x-for="(row, reqIdx) in flattenFormFields(m.requestFields)" :key="m.name + '-req-' + reqIdx">
                       <div>
                         <div
@@ -336,12 +337,12 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                             <span
                               x-show="(row.field.nestedFields && row.field.nestedFields.length) || (row.field.enumValues && row.field.enumValues.length)"
                               class="collapse-icon"
-                              @click.stop="toggleRow(row.path)"
-                              x-text="isRowOpen(row.path) ? '▼' : '▶'"
+                              @click.stop="toggleRow(rowKey('reqf', row.path))"
+                              x-text="isRowOpen(rowKey('reqf', row.path)) ? '▼' : '▶'"
                             ></span>
                           </label>
                           <div
-                            x-show="isRowOpen(row.path) && ((row.field.nestedFields && row.field.nestedFields.length) || (row.field.enumValues && row.field.enumValues.length))"
+                            x-show="isRowOpen(rowKey('reqf', row.path)) && ((row.field.nestedFields && row.field.nestedFields.length) || (row.field.enumValues && row.field.enumValues.length))"
                             class="method-schema-block"
                             :style="'margin-bottom: 10px; padding-left:' + (row.depth * 14 + 24) + 'px'"
                           >
@@ -354,13 +355,13 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                               </template>
                             </div>
                             <div x-show="row.field.protoType === 'TYPE_MESSAGE' && (row.field.nestedFields && row.field.nestedFields.length)">
-                              <template x-for="(sRow, sIdx) in visibleSchemaRows(fieldSchemaRows(row.field))" :key="m.name + '-reqs-' + sIdx">
+                              <template x-for="(sRow, sIdx) in visibleSchemaRows(fieldSchemaRows(row.field), 'reqs')" :key="m.name + '-reqs-' + sIdx">
                                 <div>
                                   <div
                                     class="method-field-row"
                                     :class="{ 'method-field-row-expandable': (sRow.children && sRow.children.length) || (sRow.enumValues && sRow.enumValues.length) }"
                                     :style="'padding-left:' + (sRow.depth * 14 + 8) + 'px'"
-                                    @click.stop="(sRow.children && sRow.children.length) || (sRow.enumValues && sRow.enumValues.length) ? toggleRow(sRow.path) : null"
+                                    @click.stop="(sRow.children && sRow.children.length) || (sRow.enumValues && sRow.enumValues.length) ? toggleRow(rowKey('reqs', sRow.path)) : null"
                                   >
                                     <span class="method-field-name" x-text="sRow.name"></span>
                                     <span class="method-field-meta">
@@ -370,12 +371,12 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                                       <span
                                         x-show="(sRow.children && sRow.children.length) || (sRow.enumValues && sRow.enumValues.length)"
                                         class="collapse-icon"
-                                        x-text="isRowOpen(sRow.path) ? '▼' : '▶'"
+                                        x-text="isRowOpen(rowKey('reqs', sRow.path)) ? '▼' : '▶'"
                                       ></span>
                                     </span>
                                   </div>
                                   <div
-                                    x-show="sRow.enumValues && sRow.enumValues.length && isRowOpen(sRow.path)"
+                                    x-show="sRow.enumValues && sRow.enumValues.length && isRowOpen(rowKey('reqs', sRow.path))"
                                     class="enum-values-list"
                                     :style="'padding-left:' + (sRow.depth * 14 + 24) + 'px'"
                                   >
@@ -390,15 +391,15 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                           <template x-if="row.field.protoType === 'TYPE_BOOL'">
                             <input
                               type="checkbox"
-                              :checked="getFieldValue(methodKey(svc.name, m.name), row.path)"
-                              @change="setFieldValue(methodKey(svc.name, m.name), row.path, $event.target.checked)"
+                              :checked="getFieldValue(methodKey(svcId(svc), m.name), row.path)"
+                              @change="setFieldValue(methodKey(svcId(svc), m.name), row.path, $event.target.checked)"
                             >
                           </template>
                           <template x-if="row.field.protoType === 'TYPE_ENUM' && row.field.enumValues && row.field.enumValues.length > 0">
                             <select
                               class="enum-select"
-                              :value="getFieldValue(methodKey(svc.name, m.name), row.path)"
-                              @change="setFieldValue(methodKey(svc.name, m.name), row.path, $event.target.value)"
+                              :value="getFieldValue(methodKey(svcId(svc), m.name), row.path)"
+                              @change="setFieldValue(methodKey(svcId(svc), m.name), row.path, $event.target.value)"
                             >
                               <option value="">${S.selectPlaceholder}</option>
                               <template x-for="ev in row.field.enumValues" :key="ev.name">
@@ -409,30 +410,39 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                           <template x-if="row.field.protoType === 'TYPE_ENUM' && (!row.field.enumValues || row.field.enumValues.length === 0)">
                             <input
                               type="text"
-                              :value="getFieldValue(methodKey(svc.name, m.name), row.path)"
-                              @input="setFieldValue(methodKey(svc.name, m.name), row.path, $event.target.value)"
+                              :value="getFieldValue(methodKey(svcId(svc), m.name), row.path)"
+                              @input="setFieldValue(methodKey(svcId(svc), m.name), row.path, $event.target.value)"
                               placeholder="${S.enumPlaceholder}"
                             >
                           </template>
                           <template x-if="row.field.protoType === 'TYPE_MESSAGE'">
                             <textarea
-                              :value="getFieldValue(methodKey(svc.name, m.name), row.path)"
-                              @input="setFieldValue(methodKey(svc.name, m.name), row.path, $event.target.value)"
+                              :value="getFieldValue(methodKey(svcId(svc), m.name), row.path)"
+                              @input="setFieldValue(methodKey(svcId(svc), m.name), row.path, $event.target.value)"
                               placeholder='{ "key": "value" }'
                             ></textarea>
                           </template>
-                          <template x-if="row.field.protoType !== 'TYPE_BOOL' && row.field.protoType !== 'TYPE_ENUM' && row.field.protoType !== 'TYPE_MESSAGE' && row.field.type === 'number'">
-                            <input
-                              type="number"
-                              :value="getFieldValue(methodKey(svc.name, m.name), row.path)"
-                              @input="setFieldValue(methodKey(svc.name, m.name), row.path, $event.target.value)"
-                            >
-                          </template>
-                          <template x-if="row.field.protoType !== 'TYPE_BOOL' && row.field.protoType !== 'TYPE_ENUM' && row.field.protoType !== 'TYPE_MESSAGE' && row.field.type !== 'number'">
+                          <template x-if="row.field.protoType === 'TYPE_BYTES'">
                             <input
                               type="text"
-                              :value="getFieldValue(methodKey(svc.name, m.name), row.path)"
-                              @input="setFieldValue(methodKey(svc.name, m.name), row.path, $event.target.value)"
+                              :value="getFieldValue(methodKey(svcId(svc), m.name), row.path)"
+                              @input="setFieldValue(methodKey(svcId(svc), m.name), row.path, $event.target.value)"
+                              placeholder="${S.bytesHint}"
+                              title="${S.bytesHint}"
+                            >
+                          </template>
+                          <template x-if="row.field.protoType !== 'TYPE_BOOL' && row.field.protoType !== 'TYPE_ENUM' && row.field.protoType !== 'TYPE_MESSAGE' && row.field.protoType !== 'TYPE_BYTES' && row.field.type === 'number'">
+                            <input
+                              type="number"
+                              :value="getFieldValue(methodKey(svcId(svc), m.name), row.path)"
+                              @input="setFieldValue(methodKey(svcId(svc), m.name), row.path, $event.target.value)"
+                            >
+                          </template>
+                          <template x-if="row.field.protoType !== 'TYPE_BOOL' && row.field.protoType !== 'TYPE_ENUM' && row.field.protoType !== 'TYPE_MESSAGE' && row.field.protoType !== 'TYPE_BYTES' && row.field.type !== 'number'">
+                            <input
+                              type="text"
+                              :value="getFieldValue(methodKey(svcId(svc), m.name), row.path)"
+                              @input="setFieldValue(methodKey(svcId(svc), m.name), row.path, $event.target.value)"
                             >
                           </template>
                         </div>
@@ -440,35 +450,41 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                     </template>
                     </div>
                     <div x-show="m.requestFields.length === 0" class="method-fields-empty">${S.noParams}</div>
-                    <div x-show="showJsonPane(methodKey(svc.name, m.name), m)">
+                    <div x-show="showJsonPane(methodKey(svcId(svc), m.name), m)">
                       <textarea
                         class="json-editor"
                         spellcheck="false"
                         placeholder='{ "fileId": 1 }'
-                        :value="getJsonText(methodKey(svc.name, m.name))"
-                        @input="onJsonInput(methodKey(svc.name, m.name), $event.target.value)"
+                        :value="getJsonText(methodKey(svcId(svc), m.name))"
+                        @input="onJsonInput(methodKey(svcId(svc), m.name), $event.target.value)"
                       ></textarea>
                       <div
-                        x-show="getJsonError(methodKey(svc.name, m.name))"
+                        x-show="getJsonError(methodKey(svcId(svc), m.name))"
                         class="json-error"
-                        x-text="getJsonError(methodKey(svc.name, m.name))"
+                        x-text="getJsonError(methodKey(svcId(svc), m.name))"
                       ></div>
                     </div>
                     <div
-                      x-show="hasJsonWarnings(methodKey(svc.name, m.name))"
+                      x-show="hasJsonWarnings(methodKey(svcId(svc), m.name))"
                       class="json-warning"
-                      x-text="jsonWarningText(methodKey(svc.name, m.name))"
+                      x-text="jsonWarningText(methodKey(svcId(svc), m.name))"
+                    ></div>
+                    <!-- 0.3.44:表单模式发送前校验的问题清单;两个页签共用同一展示槽 -->
+                    <div
+                      x-show="getFormError(methodKey(svcId(svc), m.name))"
+                      class="json-error"
+                      x-text="getFormError(methodKey(svcId(svc), m.name))"
                     ></div>
 
                     <div>
                       <button
                         type="button"
                         class="btn"
-                        :disabled="isLoading(svc.name, m.name) || m.requestStream"
-                        @click="sendFromEditor(svc.name, m.name, m)"
+                        :disabled="isLoading(svcId(svc), m.name) || m.requestStream"
+                        @click="sendFromEditor(svcId(svc), m.name, m)"
                       >
-                        <span x-show="!isLoading(svc.name, m.name)">${S.send}</span>
-                        <span x-show="isLoading(svc.name, m.name)">${S.sending}</span>
+                        <span x-show="!isLoading(svcId(svc), m.name)">${S.send}</span>
+                        <span x-show="isLoading(svcId(svc), m.name)">${S.sending}</span>
                       </button>
                       <p x-show="m.requestStream" class="unsupported-hint">${S.unsupportedStream}</p>
                     </div>
@@ -476,48 +492,48 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
 
                   <template x-if="!m.responseStream">
                     <div
-                      x-show="getResult(svc.name, m.name)"
+                      x-show="getResult(svcId(svc), m.name)"
                       class="result-section"
                     >
                       <div class="result-header">
                         <div class="result-meta">
                           <span
-                            x-show="resultStatusIs(svc.name, m.name, 'ok')"
+                            x-show="resultStatusIs(svcId(svc), m.name, 'ok')"
                             class="result-ok"
                           >${S.success}</span>
                           <span
-                            x-show="resultStatusIsNot(svc.name, m.name, 'ok')"
+                            x-show="resultStatusIsNot(svcId(svc), m.name, 'ok')"
                             class="result-err"
                           >${S.failed}</span>
-                          <span class="result-time" x-text="resultDurationText(svc.name, m.name)"></span>
+                          <span class="result-time" x-text="resultDurationText(svcId(svc), m.name)"></span>
                         </div>
                         <button
                           type="button"
                           class="btn btn-secondary"
-                          x-show="resultTreeAvailable(svc.name, m.name)"
-                          @click="expandAllResult(svc.name, m.name)"
+                          x-show="resultTreeAvailable(svcId(svc), m.name)"
+                          @click="expandAllResult(svcId(svc), m.name)"
                         >${S.expandAll}</button>
                         <button
                           type="button"
                           class="btn btn-secondary"
-                          x-show="resultTreeAvailable(svc.name, m.name)"
-                          @click="collapseAllResult(svc.name, m.name)"
+                          x-show="resultTreeAvailable(svcId(svc), m.name)"
+                          @click="collapseAllResult(svcId(svc), m.name)"
                         >${S.collapseAll}</button>
                         <button
                           type="button"
                           class="btn btn-secondary"
-                          @click="copyResult(svc.name, m.name)"
-                          x-text="isCopied(svc.name, m.name) ? $store.str.copied : $store.str.copy"
+                          @click="copyResult(svcId(svc), m.name)"
+                          x-text="isCopied(svcId(svc), m.name) ? $store.str.copied : $store.str.copy"
                         ></button>
                       </div>
-                      <div class="resp-meta" x-show="hasRespMeta(svc.name, m.name)">
-                        <div class="resp-meta-toggle" @click="toggleRespMeta(svc.name, m.name)">
-                          <span class="collapse-icon" x-text="isRespMetaOpen(svc.name, m.name) ? '▼' : '▶'"></span>
+                      <div class="resp-meta" x-show="hasRespMeta(svcId(svc), m.name)">
+                        <div class="resp-meta-toggle" @click="toggleRespMeta(svcId(svc), m.name)">
+                          <span class="collapse-icon" x-text="isRespMetaOpen(svcId(svc), m.name) ? '▼' : '▶'"></span>
                           <span>${S.respMetaTitle}</span>
-                          <span class="resp-meta-count" x-text="respMetaCountText(svc.name, m.name)"></span>
+                          <span class="resp-meta-count" x-text="respMetaCountText(svcId(svc), m.name)"></span>
                         </div>
-                        <div x-show="isRespMetaOpen(svc.name, m.name)" class="resp-meta-body">
-                          <template x-for="(entry, eIdx) in respMetaEntries(svc.name, m.name)" :key="eIdx">
+                        <div x-show="isRespMetaOpen(svcId(svc), m.name)" class="resp-meta-body">
+                          <template x-for="(entry, eIdx) in respMetaEntries(svcId(svc), m.name)" :key="eIdx">
                             <div class="resp-meta-row">
                               <span class="resp-meta-source" x-text="entry.source"></span>
                               <span class="resp-meta-key" x-text="entry.key"></span>
@@ -527,15 +543,15 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                         </div>
                       </div>
                       <!-- 0.3.41:响应数据 DevTools 风格折叠树;错误/缺 data 退化为原始 <pre> -->
-                      <div x-show="resultTreeAvailable(svc.name, m.name)" class="result-body result-tree">
-                        <template x-for="row in resultTreeRows(svc.name, m.name)" :key="row.path">
+                      <div x-show="resultTreeAvailable(svcId(svc), m.name)" class="result-body result-tree">
+                        <template x-for="row in resultTreeRows(svcId(svc), m.name)" :key="row.path">
                           <div
                             class="tree-row"
                             :class="{ 'tree-row-container': row.children && row.children.length }"
                             :style="'padding-left:' + (row.depth * 14 + 8) + 'px'"
-                            @click.stop="row.children && row.children.length ? toggleTreeNode(svc.name, m.name, row.path) : null"
+                            @click.stop="row.children && row.children.length ? toggleTreeNode(svcId(svc), m.name, row.path) : null"
                           >
-                            <span x-show="row.children && row.children.length" class="collapse-icon" x-text="isTreeNodeOpen(svc.name, m.name, row.path) ? '▼' : '▶'"></span>
+                            <span x-show="row.children && row.children.length" class="collapse-icon" x-text="isTreeNodeOpen(svcId(svc), m.name, row.path) ? '▼' : '▶'"></span>
                             <span x-show="!(row.children && row.children.length)" class="tree-spacer"></span>
                             <span x-show="row.key" class="tree-key" x-text="row.key"></span>
                             <span x-show="row.key" class="tree-colon">:</span>
@@ -544,65 +560,65 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                           </div>
                         </template>
                       </div>
-                      <pre x-show="!resultTreeAvailable(svc.name, m.name)" class="result-body" x-text="resultBodyText(svc.name, m.name)"></pre>
+                      <pre x-show="!resultTreeAvailable(svcId(svc), m.name)" class="result-body" x-text="resultBodyText(svcId(svc), m.name)"></pre>
                     </div>
                   </template>
 
                   <template x-if="m.responseStream">
                     <div
-                      x-show="getStream(svc.name, m.name) || getResult(svc.name, m.name)"
+                      x-show="getStream(svcId(svc), m.name) || getResult(svcId(svc), m.name)"
                       class="result-section"
                     >
                       <div class="result-header">
                         <div class="result-meta">
-                          <template x-if="resultStatusIs(svc.name, m.name, 'error')">
+                          <template x-if="resultStatusIs(svcId(svc), m.name, 'error')">
                             <span class="result-err">${S.failed}</span>
                           </template>
-                          <template x-if="resultStatusIsNot(svc.name, m.name, 'error')">
+                          <template x-if="resultStatusIsNot(svcId(svc), m.name, 'error')">
                             <span>
-                              <span x-show="streamIsLive(svc.name, m.name)" class="result-ok"><span class="stream-live-dot"></span> ${S.receiving}</span>
-                              <span x-show="streamIsCancelled(svc.name, m.name)" class="result-err">${S.cancelled}</span>
-                              <span x-show="streamIsDone(svc.name, m.name) && !streamIsCancelled(svc.name, m.name)" class="result-ok">${S.done}</span>
+                              <span x-show="streamIsLive(svcId(svc), m.name)" class="result-ok"><span class="stream-live-dot"></span> ${S.receiving}</span>
+                              <span x-show="streamIsCancelled(svcId(svc), m.name)" class="result-err">${S.cancelled}</span>
+                              <span x-show="streamIsDone(svcId(svc), m.name) && !streamIsCancelled(svcId(svc), m.name)" class="result-ok">${S.done}</span>
                             </span>
                           </template>
-                          <span x-show="streamIsDone(svc.name, m.name)" class="result-time" x-text="streamDurationText(svc.name, m.name)"></span>
-                          <span x-show="getStream(svc.name, m.name)" class="result-time" x-text="streamChunkCountText(svc.name, m.name)"></span>
+                          <span x-show="streamIsDone(svcId(svc), m.name)" class="result-time" x-text="streamDurationText(svcId(svc), m.name)"></span>
+                          <span x-show="getStream(svcId(svc), m.name)" class="result-time" x-text="streamChunkCountText(svcId(svc), m.name)"></span>
                         </div>
                         <div class="result-actions">
                           <button
                             type="button"
                             class="btn btn-secondary"
-                            x-show="streamIsLive(svc.name, m.name)"
-                            @click="cancelStream(svc.name, m.name)"
+                            x-show="streamIsLive(svcId(svc), m.name)"
+                            @click="cancelStream(svcId(svc), m.name)"
                           >${S.cancel}</button>
                           <button
                             type="button"
                             class="btn btn-secondary"
-                            x-show="streamIsTreeable(svc.name, m.name)"
-                            @click="expandAllChunks(svc.name, m.name)"
+                            x-show="streamIsTreeable(svcId(svc), m.name)"
+                            @click="expandAllChunks(svcId(svc), m.name)"
                           >${S.expandAll}</button>
                           <button
                             type="button"
                             class="btn btn-secondary"
-                            x-show="streamIsTreeable(svc.name, m.name)"
-                            @click="collapseAllChunks(svc.name, m.name)"
+                            x-show="streamIsTreeable(svcId(svc), m.name)"
+                            @click="collapseAllChunks(svcId(svc), m.name)"
                           >${S.collapseAll}</button>
                           <button
                             type="button"
                             class="btn btn-secondary"
-                            @click="copyStreamResult(svc.name, m.name)"
-                            x-text="isCopied(svc.name, m.name) ? $store.str.copied : $store.str.copy"
+                            @click="copyStreamResult(svcId(svc), m.name)"
+                            x-text="isCopied(svcId(svc), m.name) ? $store.str.copied : $store.str.copy"
                           ></button>
                         </div>
                       </div>
-                      <div class="resp-meta" x-show="hasRespMeta(svc.name, m.name)">
-                        <div class="resp-meta-toggle" @click="toggleRespMeta(svc.name, m.name)">
-                          <span class="collapse-icon" x-text="isRespMetaOpen(svc.name, m.name) ? '▼' : '▶'"></span>
+                      <div class="resp-meta" x-show="hasRespMeta(svcId(svc), m.name)">
+                        <div class="resp-meta-toggle" @click="toggleRespMeta(svcId(svc), m.name)">
+                          <span class="collapse-icon" x-text="isRespMetaOpen(svcId(svc), m.name) ? '▼' : '▶'"></span>
                           <span>${S.respMetaTitle}</span>
-                          <span class="resp-meta-count" x-text="respMetaCountText(svc.name, m.name)"></span>
+                          <span class="resp-meta-count" x-text="respMetaCountText(svcId(svc), m.name)"></span>
                         </div>
-                        <div x-show="isRespMetaOpen(svc.name, m.name)" class="resp-meta-body">
-                          <template x-for="(entry, eIdx) in respMetaEntries(svc.name, m.name)" :key="eIdx">
+                        <div x-show="isRespMetaOpen(svcId(svc), m.name)" class="resp-meta-body">
+                          <template x-for="(entry, eIdx) in respMetaEntries(svcId(svc), m.name)" :key="eIdx">
                             <div class="resp-meta-row">
                               <span class="resp-meta-source" x-text="entry.source"></span>
                               <span class="resp-meta-key" x-text="entry.key"></span>
@@ -612,22 +628,22 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                         </div>
                       </div>
                       <!-- 0.3.41:每 chunk 一条折叠条,条内同款折叠树;空/错误流退化为原始 <pre> -->
-                      <div x-show="streamIsTreeable(svc.name, m.name)" class="stream-tree">
-                        <template x-for="sec in chunkSections(svc.name, m.name)" :key="sec.idx">
+                      <div x-show="streamIsTreeable(svcId(svc), m.name)" class="stream-tree">
+                        <template x-for="sec in chunkSections(svcId(svc), m.name)" :key="sec.idx">
                           <div class="chunk-section">
-                            <div class="chunk-toggle" @click="toggleChunkTree(svc.name, m.name, sec.idx)">
-                              <span class="collapse-icon" x-text="isChunkTreeOpen(svc.name, m.name, sec.idx) ? '▼' : '▶'"></span>
+                            <div class="chunk-toggle" @click="toggleChunkTree(svcId(svc), m.name, sec.idx)">
+                              <span class="collapse-icon" x-text="isChunkTreeOpen(svcId(svc), m.name, sec.idx) ? '▼' : '▶'"></span>
                               <span class="chunk-label" x-text="sec.label"></span>
                             </div>
-                            <div x-show="isChunkTreeOpen(svc.name, m.name, sec.idx)" class="chunk-tree">
-                              <template x-for="row in chunkTreeRows(svc.name, m.name, sec.idx)" :key="row.path">
+                            <div x-show="isChunkTreeOpen(svcId(svc), m.name, sec.idx)" class="chunk-tree">
+                              <template x-for="row in chunkTreeRows(svcId(svc), m.name, sec.idx)" :key="row.path">
                                 <div
                                   class="tree-row"
                                   :class="{ 'tree-row-container': row.children && row.children.length }"
                                   :style="'padding-left:' + (row.depth * 14 + 8) + 'px'"
-                                  @click.stop="row.children && row.children.length ? toggleTreeNode(svc.name, m.name, row.path) : null"
+                                  @click.stop="row.children && row.children.length ? toggleTreeNode(svcId(svc), m.name, row.path) : null"
                                 >
-                                  <span x-show="row.children && row.children.length" class="collapse-icon" x-text="isTreeNodeOpen(svc.name, m.name, row.path) ? '▼' : '▶'"></span>
+                                  <span x-show="row.children && row.children.length" class="collapse-icon" x-text="isTreeNodeOpen(svcId(svc), m.name, row.path) ? '▼' : '▶'"></span>
                                   <span x-show="!(row.children && row.children.length)" class="tree-spacer"></span>
                                   <span x-show="row.key" class="tree-key" x-text="row.key"></span>
                                   <span x-show="row.key" class="tree-colon">:</span>
@@ -639,7 +655,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                           </div>
                         </template>
                       </div>
-                      <pre x-show="!streamIsTreeable(svc.name, m.name)" class="result-body" x-text="getStreamBody(svc.name, m.name)"></pre>
+                      <pre x-show="!streamIsTreeable(svcId(svc), m.name)" class="result-body" x-text="getStreamBody(svcId(svc), m.name)"></pre>
                     </div>
                   </template>
                 </div>

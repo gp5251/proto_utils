@@ -179,3 +179,19 @@ export function formatChunkLabel(index: number, byteLength: number): string {
         : `${(byteLength / (1024 * 1024)).toFixed(1)} MB`;
   return `#${index + 1} · ${size}`;
 }
+
+// ---- 流式窗口(0.3.44)----
+
+/** 流式折叠条保留上限:只保留最近 N 条的原始数据/树行,长流不再无限吃内存与 DOM。 */
+export const MAX_STREAM_CHUNKS = 200;
+
+/**
+ * 有界追加:把 item 追加进窗口;超出 max 时挤掉最旧的条目。
+ * 返回新窗口与本次被挤掉的条数(dropped 记账供绝对序号偏移)。max<=0 视为不限量。
+ */
+export function pushBounded<T>(window_: readonly T[], item: T, max: number): { items: T[]; dropped: number } {
+  if (max > 0 && window_.length >= max) {
+    return { items: [...window_.slice(window_.length - max + 1), item], dropped: window_.length - (max - 1) };
+  }
+  return { items: [...window_, item], dropped: 0 };
+}

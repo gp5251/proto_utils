@@ -195,6 +195,7 @@
       jsonText: {},
       jsonError: {},
       jsonWarnings: {},
+      formErrors: {},
       headers: {},
       respMeta: {},
 
@@ -268,6 +269,12 @@
 
       methodKey: function (svcName, methodName) {
         return svcName + '.' + methodName;
+      },
+
+      // 服务身份:fullName 恒唯一——跨包同短名服务(v1.UserService / v2.UserService)
+      // 的卡片 key、状态字典与消息路由互不串线;显示名仍是短名 svc.name。
+      svcId: function (svc) {
+        return (svc && svc.fullName) || svc.name;
       },
 
       isLoading: function (svcName, methodName) {
@@ -379,11 +386,15 @@
         });
       },
 
-      // 流式:每 chunk 一条折叠条(#N · 大小);字节数 append 时已缓存,渲染零 stringify
+      // 流式:每 chunk 一条折叠条(#绝对序号 · 大小);字节数 append 时已缓存,渲染零 stringify。
+      // 序号带 dropped 偏移:窗口滑出最旧块后,展开态(treeOpen.chunks)按绝对序号仍稳定。
       chunkSections: function (svcName, methodName) {
-        var sizes = this.chunkSizes[this.methodKey(svcName, methodName)] || [];
-        return sizes.map(function (size, idx) {
-          return { idx: idx, label: window.ResultTree.formatChunkLabel(idx, size) };
+        var key = this.methodKey(svcName, methodName);
+        var sizes = this.chunkSizes[key] || [];
+        var dropped = (this.streams[key] && this.streams[key].dropped) || 0;
+        return sizes.map(function (size, i) {
+          var abs = dropped + i;
+          return { idx: abs, label: window.ResultTree.formatChunkLabel(abs, size) };
         });
       },
 
@@ -392,7 +403,9 @@
         var key = this.methodKey(svcName, methodName);
         var t = this.treeOpen[key];
         if (!t || t.chunks[idx] !== true) return [];
-        var rows = (this.streamTrees[key] || [])[idx] || [];
+        var dropped = (this.streams[key] && this.streams[key].dropped) || 0;
+        var rows = (this.streamTrees[key] || [])[idx - dropped] || [];
+        if (rows.length === 0) return []; // 已被窗口挤出的早期块
         return window.ResultTree.visibleRows(rows, function (path) {
           return t.nodes[path] === true;
         });
@@ -434,6 +447,7 @@
       // 流式:折叠条与条内节点一并展开/收起(全部展开 = 所见即全部数据)
       expandAllChunks: function (svcName, methodName) {
         var key = this.methodKey(svcName, methodName);
+        var dropped = (this.streams[key] && this.streams[key].dropped) || 0;
         var nodes = {};
         (this.streamTrees[key] || []).forEach(function (rows) {
           window.ResultTree.collectContainerPaths(rows).forEach(function (p) {
@@ -441,8 +455,8 @@
           });
         });
         var chunks = {};
-        (this.chunkSizes[key] || []).forEach(function (_size, idx) {
-          chunks[idx] = true;
+        (this.chunkSizes[key] || []).forEach(function (_size, i) {
+          chunks[dropped + i] = true;
         });
         this.treeOpen = Object.assign({}, this.treeOpen, {
           [key]: { nodes: nodes, chunks: chunks },
@@ -500,7 +514,9 @@
 
       streamChunkCountText: function (svcName, methodName) {
         var s = this.getStream(svcName, methodName);
-        return str('chunkCount', { count: (s && s.chunks && s.chunks.length) || 0 });
+        // 计数含已被窗口挤出的早期块:总量真实
+        var total = s ? (s.chunks ? s.chunks.length : 0) + (s.dropped || 0) : 0;
+        return str('chunkCount', { count: total });
       },
 
       setLoading: function (key, value) {
@@ -517,6 +533,16 @@
 
       setJsonWarnings: function (key, value) {
         this.jsonWarnings = Object.assign({}, this.jsonWarnings, { [key]: value });
+      },
+
+      // ---- 表单模式发送前校验(0.3.44):问题清单展示在发送按钮上方 ----
+
+      getFormError: function (key) {
+        return this.formErrors[key] || '';
+      },
+
+      setFormError: function (key, value) {
+        this.formErrors = Object.assign({}, this.formErrors, { [key]: value });
       },
 
       setResult: function (key, value) {
@@ -642,6 +668,8 @@
           obj = obj[parts[i]];
         }
         obj[parts[parts.length - 1]] = value;
+        // 用户改动即清除旧的表单校验问题(重新发送时会再算)
+        if (this.formErrors[key]) this.setFormError(key, '');
         this.formValues = Object.assign({}, this.formValues, { [key]: this.formValues[key] });
       },
 
@@ -718,9 +746,19 @@
 
       sendFromEditor: function (svcName, methodName, method) {
         var key = this.methodKey(svcName, methodName);
+        this.setFormError(key, '');
         // 仅 JSON 页签下需要先合并再发;无参方法直发 {}
-        if (this.showJsonPane(key, method) && !this.applyJsonToForm(key, method)) {
-          return;
+        if (this.showJsonPane(key, method)) {
+          if (!this.applyJsonToForm(key, method)) {
+            return;
+          }
+        } else if (method.requestFields.length > 0) {
+          // 表单页签:发送前逐字段校验(数字/base64/JSON 数组/嵌套 message),问题清单就地展示
+          var problems = window.FormMapping.validateFormValues(method.requestFields, this.formValues[key] || {});
+          if (problems.length) {
+            this.setFormError(key, problems.join('；'));
+            return;
+          }
         }
         this.submitCall(svcName, methodName, method);
       },
@@ -787,12 +825,13 @@
           }
         }
         if (!method) return false;
-        this.expandedServices = Object.assign({}, this.expandedServices, { [svc.name]: true });
-        var key = this.methodKey(svc.name, method.name);
+        var id = this.svcId(svc);
+        this.expandedServices = Object.assign({}, this.expandedServices, { [id]: true });
+        var key = this.methodKey(id, method.name);
         this.ensureFormValues(key, method);
         this.expandedMethod = key;
         this.$nextTick(function () {
-          var el = document.getElementById('method-' + svc.name + '-' + method.name);
+          var el = document.getElementById('method-' + id + '-' + method.name);
           if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
         return true;
@@ -823,14 +862,21 @@
         return this.expandedRows[path] === true;
       },
 
-      visibleSchemaRows: function (rows) {
+      // 展开态键 = 作用域前缀 + 行路径:响应区(res)/请求嵌套 schema(reqs)/请求表单(reqf)
+      // 三处同路径互不串扰(此前共享一个 expandedRows 字典,同名嵌套字段会联动开合)
+      rowKey: function (scope, path) {
+        return scope + ':' + path;
+      },
+
+      visibleSchemaRows: function (rows, scope) {
         var result = [];
         var self = this;
+        var prefix = scope ? scope + ':' : '';
         for (var i = 0; i < (rows || []).length; i++) {
           var row = rows[i];
           result.push(row);
-          if (self.isRowOpen(row.path) && row.children && row.children.length) {
-            result.push.apply(result, self.visibleSchemaRows(row.children));
+          if (self.isRowOpen(prefix + row.path) && row.children && row.children.length) {
+            result.push.apply(result, self.visibleSchemaRows(row.children, scope));
           }
         }
         return result;
@@ -868,7 +914,7 @@
         this.treeOpen = Object.assign({}, this.treeOpen, { [key]: { nodes: {}, chunks: {} } });
         this.setRespMeta(key, { headers: [], trailers: [], open: false });
         this.streams = Object.assign({}, this.streams, {
-          [key]: { chunks: [], done: false, cancelled: false, durationMs: 0 },
+          [key]: { chunks: [], done: false, cancelled: false, durationMs: 0, dropped: 0 },
         });
         sendMessage({
           type: 'callStream',
@@ -936,19 +982,27 @@
         var key = this.methodKey(msg.service, msg.method);
         var stream = this.streams[key];
         if (!stream) {
-          stream = { chunks: [], done: false, cancelled: false, durationMs: 0 };
+          stream = { chunks: [], done: false, cancelled: false, durationMs: 0, dropped: 0 };
         }
+        // 有界窗口(0.3.44):只保留最近 MAX_STREAM_CHUNKS 条的原始数据/树行/字节数,
+        // 长流不再无限吃内存与 DOM;dropped 记账供绝对序号偏移
+        var max = window.ResultTree.MAX_STREAM_CHUNKS;
+        var rc = window.ResultTree.pushBounded(stream.chunks, msg.data, max);
+        var rt = window.ResultTree.pushBounded(
+          this.streamTrees[key] || [],
+          window.ResultTree.buildResultTree(msg.data),
+          max,
+        );
+        var rs = window.ResultTree.pushBounded(
+          this.chunkSizes[key] || [],
+          new TextEncoder().encode(JSON.stringify(msg.data)).length,
+          max,
+        );
         this.streams = Object.assign({}, this.streams, {
-          [key]: Object.assign({}, stream, { chunks: stream.chunks.concat([msg.data]) }),
+          [key]: Object.assign({}, stream, { chunks: rc.items, done: false, dropped: (stream.dropped || 0) + rc.dropped }),
         });
-        // 0.3.41:只建新 chunk 的行与字节缓存;旧列引用不变,Alpine keyed diff 不重渲染旧块
-        this.streamTrees = Object.assign({}, this.streamTrees, {
-          [key]: (this.streamTrees[key] || []).concat([window.ResultTree.buildResultTree(msg.data)]),
-        });
-        this.chunkSizes = Object.assign({}, this.chunkSizes, {
-          // UTF-8 字节数而非字符串长度:标签单位是 B/KB/MB,中文等多字节字符不低估
-          [key]: (this.chunkSizes[key] || []).concat([new TextEncoder().encode(JSON.stringify(msg.data)).length]),
-        });
+        this.streamTrees = Object.assign({}, this.streamTrees, { [key]: rt.items });
+        this.chunkSizes = Object.assign({}, this.chunkSizes, { [key]: rs.items });
       },
 
       applyStreamEnd: function (msg) {
@@ -1017,17 +1071,18 @@
         return this.copiedMethodKey === this.methodKey(svcName, methodName);
       },
 
-      copyServiceName: function (svcName) {
-        navigator.clipboard.writeText(svcName);
-        this.copiedServiceName = svcName;
+      copyServiceName: function (svc) {
+        // 徽标态按身份记;剪贴板复制显示短名
+        navigator.clipboard.writeText(svc.name);
+        this.copiedServiceName = this.svcId(svc);
         var self = this;
         setTimeout(function () {
           self.copiedServiceName = null;
         }, 2000);
       },
 
-      isServiceCopied: function (svcName) {
-        return this.copiedServiceName === svcName;
+      isServiceCopied: function (svc) {
+        return this.copiedServiceName === this.svcId(svc);
       },
     };
     });

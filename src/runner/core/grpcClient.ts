@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { l10n } from 'vscode';
 import { CallOptions, CallResult, StreamHandlers, StreamHandle } from './types';
 import type { MetadataEntry, TlsSettings } from '../config';
+import type { ScanExcludes } from '../config';
 import { findProtoFileForService } from './protoLoader';
 import { getPackageDefinition } from './protoCache';
 import { formatGrpcError } from '../utils/formatGrpcError';
@@ -18,19 +19,23 @@ export function buildChannelCredentials(tls: TlsSettings): grpc.ChannelCredentia
   }
   const { clientCert, clientKey } = tls;
   if ((clientCert === null) !== (clientKey === null)) {
-    throw new Error('TLS 配置不完整:runner.tlsClientCert 与 runner.tlsClientKey 必须同时设置(当前只配置了一个)');
+    throw new Error(
+      l10n.t(
+        'Incomplete TLS configuration: runner.tlsClientCert and runner.tlsClientKey must be set together (only one is set)',
+      ),
+    );
   }
   const readPem = (file: string, label: string): Buffer => {
     try {
       return fs.readFileSync(file);
     } catch {
-      throw new Error(`TLS ${label}文件读取失败:${file}(检查 runner.tls* 路径配置)`);
+      throw new Error(l10n.t('Failed to read TLS {0} file: {1} (check runner.tls* path settings)', label, file));
     }
   };
   return grpc.credentials.createSsl(
-    tls.rootCert ? readPem(tls.rootCert, '根证书') : null,
-    clientKey ? readPem(clientKey, '客户端私钥') : null,
-    clientCert ? readPem(clientCert, '客户端证书') : null,
+    tls.rootCert ? readPem(tls.rootCert, l10n.t('root certificate')) : null,
+    clientKey ? readPem(clientKey, l10n.t('client private key')) : null,
+    clientCert ? readPem(clientCert, l10n.t('client certificate')) : null,
   );
 }
 
@@ -85,13 +90,16 @@ export class GrpcClient {
   private readonly credentials: grpc.ChannelCredentials | undefined;
   /** 一元调用超时毫秒数;0/未配置 = 不限(不设 grpc deadline) */
   private readonly timeoutMs: number;
+  /** 服务文件扫描排除集;与服务列表扫描同源(0.3.44),缺省不排除 */
+  private readonly scanExcludes: ScanExcludes;
 
   constructor(
     private address: string,
-    options?: { credentials?: grpc.ChannelCredentials; timeoutMs?: number },
+    options?: { credentials?: grpc.ChannelCredentials; timeoutMs?: number; scanExcludes?: ScanExcludes },
   ) {
     this.credentials = options?.credentials;
     this.timeoutMs = options?.timeoutMs ?? 0;
+    this.scanExcludes = options?.scanExcludes ?? { names: new Set(), paths: [] };
   }
 
   async call(protoDir: string, options: CallOptions): Promise<CallResult> {
@@ -117,7 +125,7 @@ export class GrpcClient {
         this.safeClose(client);
         return {
           status: 'error',
-          error: `Method "${options.method}" 是客户端流方法,调用面仅支持一元与服务端流`,
+          error: l10n.t('Method "{0}" uses client streaming; only unary and server-streaming calls are supported', options.method),
           durationMs: Date.now() - start,
         };
       }
@@ -125,7 +133,7 @@ export class GrpcClient {
         this.safeClose(client);
         return {
           status: 'error',
-          error: `Method "${options.method}" 是服务端流方法,请改用流式调用`,
+          error: l10n.t('Method "{0}" is a server-streaming method; use the streaming call instead', options.method),
           durationMs: Date.now() - start,
         };
       }
@@ -205,12 +213,12 @@ export class GrpcClient {
 
     if (streamFlags?.requestStream) {
       this.safeClose(client);
-      handlers.onError(`Method "${options.method}" 是客户端/双向流方法,调用面仅支持一元与服务端流`);
+      handlers.onError(l10n.t('Method "{0}" uses client/bidi streaming; only unary and server-streaming calls are supported', options.method));
       return NOOP_STREAM_HANDLE;
     }
     if (!streamFlags?.responseStream) {
       this.safeClose(client);
-      handlers.onError(`Method "${options.method}" 不是服务端流方法`);
+      handlers.onError(l10n.t('Method "{0}" is not a server-streaming method', options.method));
       return NOOP_STREAM_HANDLE;
     }
 
@@ -275,7 +283,7 @@ export class GrpcClient {
    * resolveMethod 的公共链;一元与服务端流共用。解析失败不抛,返回 { error }。
    */
   private resolveCall(protoDir: string, serviceName: string, methodName: string): ResolveOutcome {
-    const protoFile = findProtoFileForService(protoDir, serviceName);
+    const protoFile = findProtoFileForService(protoDir, serviceName, this.scanExcludes);
     if (!protoFile) {
       return { error: l10n.t('Service "{0}" not found in proto definitions', serviceName) };
     }
@@ -309,7 +317,47 @@ export class GrpcClient {
     };
   }
 
+  /**
+   * 服务类定位:serviceName 按点分段逐级导航(大小写不敏感),全限定名
+   * pkg.Service 精确落到所属包——跨包同短名服务不再靠首个命中瞎撞(0.3.44)。
+   * 单段(裸短名)分段导航失败时退回旧的任意深度递归,兼容历史入口。
+   */
   private findServiceClass(
+    obj: Record<string, unknown>,
+    serviceName: string
+  ): (new (...args: unknown[]) => unknown) | null {
+    const segmented = this.locateServiceClass(obj, serviceName.split('.'));
+    if (segmented || serviceName.includes('.')) return segmented;
+    return this.findServiceClassDeep(obj, serviceName);
+  }
+
+  private locateServiceClass(
+    obj: Record<string, unknown>,
+    segments: string[]
+  ): (new (...args: unknown[]) => unknown) | null {
+    const [head, ...rest] = segments;
+    for (const [key, value] of Object.entries(obj)) {
+      if (typeof value !== 'object' && typeof value !== 'function') continue;
+      if (value === null) continue;
+      const candidate = value as Record<string, unknown>;
+      if (key !== head && key.toLowerCase() !== head.toLowerCase()) continue;
+
+      if (rest.length === 0) {
+        if (typeof value === 'function' && 'service' in candidate) {
+          return value as unknown as (new (...args: unknown[]) => unknown);
+        }
+        continue;
+      }
+      if (typeof value === 'object') {
+        const found = this.locateServiceClass(candidate, rest);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  /** 旧路径:裸短名在任意命名空间深度上的首个命中(历史行为兜底)。 */
+  private findServiceClassDeep(
     obj: Record<string, unknown>,
     serviceName: string
   ): (new (...args: unknown[]) => unknown) | null {
@@ -329,7 +377,7 @@ export class GrpcClient {
       }
 
       if (typeof value === 'object' && !Array.isArray(value)) {
-        const found = this.findServiceClass(value as Record<string, unknown>, serviceName);
+        const found = this.findServiceClassDeep(value as Record<string, unknown>, serviceName);
         if (found) return found;
       }
     }

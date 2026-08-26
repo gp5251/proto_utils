@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import * as vscode from 'vscode';
 import { SymbolIndex, FileEntry } from '../index/symbolIndex';
+import type { ScanExcludes } from '../runner/config';
 
 const ROOT = path.resolve('testdata/symbolIndex');
 const BASE = path.join(ROOT, 'base.proto');
@@ -13,9 +14,9 @@ const BROKEN = path.join(ROOT, 'broken.proto');
 const USER = path.join(ROOT, 'sub', 'user.proto');
 
 // 每个测试独立索引;stub 的 findFiles 在调用时读环境变量(见 scripts/vscodeStub.ts)
-async function buildIndex(root: string = ROOT): Promise<SymbolIndex> {
+async function buildIndex(root: string = ROOT, excludes?: ScanExcludes): Promise<SymbolIndex> {
   process.env.PROTO_UTILS_STUB_ROOT = root;
-  const index = new SymbolIndex();
+  const index = excludes ? new SymbolIndex(excludes) : new SymbolIndex();
   await index.build();
   return index;
 }
@@ -212,6 +213,27 @@ test('build 排除构建产物目录(out 等)的 proto 拷贝', async () => {
   const index = await buildIndex(dir);
   assert.ok(index.getFile(vscode.Uri.file(srcFile)), 'src 下的 proto 应被索引');
   assert.equal(index.getFile(vscode.Uri.file(outFile)), undefined, 'out 下的拷贝不应被索引');
+});
+
+test('build 应用用户排除目录:names 命中任意层级,绝对路径命中前缀', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'symbol-index-user-excl-'));
+  fs.mkdirSync(path.join(dir, 'vendored', 'deep'), { recursive: true });
+  const content = 'syntax = "proto3"; message Q { string id = 1; }\n';
+  const keep = path.join(dir, 'keep.proto');
+  const vendored = path.join(dir, 'vendored', 'v.proto');
+  const deep = path.join(dir, 'vendored', 'deep', 'd.proto');
+  for (const f of [keep, vendored, deep]) fs.writeFileSync(f, content);
+
+  // names:任一层级目录段命中即整棵排除(与调用面扫描同语义)
+  const byName = await buildIndex(dir, { names: new Set(['vendored']), paths: [] });
+  assert.ok(byName.getFile(vscode.Uri.file(keep)), '未排除文件应被索引');
+  assert.equal(byName.getFile(vscode.Uri.file(vendored)), undefined, 'names 排除的文件不应被索引');
+  assert.equal(byName.getFile(vscode.Uri.file(deep)), undefined, 'names 排除的嵌套文件不应被索引');
+
+  // 绝对路径:命中该目录自身及子目录(win32 不分大小写)
+  const byPath = await buildIndex(dir, { names: new Set(), paths: [path.join(dir, 'vendored', 'deep')] });
+  assert.ok(byPath.getFile(vscode.Uri.file(vendored)), '路径排除只作用于其子树');
+  assert.equal(byPath.getFile(vscode.Uri.file(deep)), undefined, '路径排除的子树文件不应被索引');
 });
 
 test('indexes GBK-encoded proto files', async () => {

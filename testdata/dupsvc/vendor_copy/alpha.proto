@@ -1,0 +1,18 @@
+syntax = "proto3";
+package alpha;
+
+// 陈旧拷贝场景:与 src 的 alpha.Echo 同全限定名但方法集不同且没有 Send。
+// 目录名刻意避开内建排除清单(SCAN_EXCLUDED_DIRS):不带 excludes 时
+// 「同 fullName 中方法更多者胜」会选中它,Send 命中失败;
+// 传入 excludes(names 含 vendor_copy)时它不得参选。
+service Echo {
+  rpc M1(AlphaDummy) returns (AlphaDummy);
+  rpc M2(AlphaDummy) returns (AlphaDummy);
+  rpc M3(AlphaDummy) returns (AlphaDummy);
+  rpc M4(AlphaDummy) returns (AlphaDummy);
+}
+
+message AlphaDummy {
+  string id = 1;
+}
+

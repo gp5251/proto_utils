@@ -36,10 +36,36 @@ export function parseProtoFileComments(content: string): ProtoCommentIndex {
   let pendingDepth = 0;
   let pkg = '';
   let depth = 0;
+  // 前导注释链(0.3.44):声明行上方的连续 // 行与 /* */ 块;行尾注释优先,空行/代码行断链
+  let pendingComment: string[] = [];
+  let inBlockComment = false;
 
   for (const line of content.split('\n')) {
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('//')) {
+
+    if (inBlockComment) {
+      const endIdx = trimmed.indexOf('*/');
+      const seg = endIdx === -1 ? trimmed : trimmed.slice(0, endIdx);
+      const cleaned = seg.replace(/^\*+\s?/, '').trim();
+      if (cleaned) pendingComment.push(cleaned);
+      if (endIdx !== -1) inBlockComment = false;
+      continue;
+    }
+    if (!trimmed) {
+      pendingComment = [];
+      continue;
+    }
+    if (trimmed.startsWith('//')) {
+      const text = trimmed.slice(2).trim();
+      if (text) pendingComment.push(text);
+      continue;
+    }
+    if (trimmed.startsWith('/*')) {
+      const endIdx = trimmed.indexOf('*/', 2);
+      const inner = endIdx === -1 ? trimmed.slice(2) : trimmed.slice(2, endIdx);
+      const cleaned = inner.replace(/^\*+\s?/, '').trim();
+      if (cleaned) pendingComment.push(cleaned);
+      if (endIdx === -1) inBlockComment = true;
       continue;
     }
 
@@ -87,16 +113,24 @@ export function parseProtoFileComments(content: string): ProtoCommentIndex {
         const fieldMatch = trimmed.match(
           /^(?:(?:optional|repeated)\s+)?(?:[\w.]+\s+)?(\w+)\s*=\s*-?\d+\s*;\s*(?:\/\/\s*(.+))?$/
         );
-        if (fieldMatch?.[2]) {
-          storeFieldComment(fieldComments, fqn, fieldMatch[1], fieldMatch[2]);
+        if (fieldMatch) {
+          // 行尾注释优先;缺失时取上方前导注释链(多行以空格连接,webview 单行展示)
+          const text = fieldMatch[2] ? fieldMatch[2].trim() : pendingComment.join(' ').trim();
+          storeFieldComment(fieldComments, fqn, fieldMatch[1], text);
         }
       } else if (ctx.kind === 'enum') {
         const enumMatch = trimmed.match(/^(\w+)\s*=\s*-?\d+\s*;\s*(?:\/\/\s*(.+))?$/);
-        if (enumMatch?.[2]) {
-          enumValueComments.set(`${fqn}.${enumMatch[1]}`, enumMatch[2].trim());
+        if (enumMatch) {
+          const text = enumMatch[2] ? enumMatch[2].trim() : pendingComment.join(' ').trim();
+          if (text) {
+            enumValueComments.set(`${fqn}.${enumMatch[1]}`, text);
+          }
         }
       }
     }
+
+    // 任何代码行都消费/打断前导注释链(声明行无论是否命中也已用掉)
+    pendingComment = [];
 
     const opens = (line.match(/\{/g) || []).length;
     const closes = (line.match(/\}/g) || []).length;
