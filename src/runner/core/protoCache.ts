@@ -1,7 +1,14 @@
 import path from 'path';
+import fs from 'fs';
 import * as protoLoader from '@grpc/proto-loader';
 
-const cache = new Map<string, protoLoader.PackageDefinition>();
+interface CacheEntry {
+  def: protoLoader.PackageDefinition;
+  /** mtimeMs:size 指纹(0.3.45):命中后 stat 校验,变更自动重析,不再依赖全清缓存。 */
+  stamp: string;
+}
+
+const cache = new Map<string, CacheEntry>();
 
 /**
  * 调用面契约(keepCase:false/longs:String/enums:Number/defaults:true/oneofs:true),
@@ -14,9 +21,12 @@ export function getPackageDefinition(
   protoDir: string,
 ): protoLoader.PackageDefinition {
   const absPath = path.resolve(protoFile);
+  // stat 先行:文件缺失时与 loadSync 同样抛错,由调用方按 per-file 收集
+  const st = fs.statSync(absPath);
+  const stamp = `${st.mtimeMs}:${st.size}`;
   const cached = cache.get(absPath);
-  if (cached) {
-    return cached;
+  if (cached && cached.stamp === stamp) {
+    return cached.def;
   }
 
   const def = protoLoader.loadSync(absPath, {
@@ -27,7 +37,7 @@ export function getPackageDefinition(
     oneofs: true,
     includeDirs: [path.resolve(protoDir)],
   });
-  cache.set(absPath, def);
+  cache.set(absPath, { def, stamp });
   return def;
 }
 

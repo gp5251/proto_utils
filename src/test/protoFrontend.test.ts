@@ -43,6 +43,35 @@ test('memoizes the schema until invalidate()', () => {
   assert.notEqual(frontend.load(), first);
 });
 
+test('load():文件内容变化后无需 invalidate 即反映新内容(mtime 指纹门)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'frontend-stamp-'));
+  const file = path.join(dir, 'a.proto');
+  fs.writeFileSync(file, 'syntax = "proto3";\nmessage A { string id = 1; }\n');
+  const frontend = makeFrontend(dir);
+  assert.ok(frontend.load().root.lookupType('A'), '初始应解析出 A');
+
+  // 直接改盘再 load(工作台 onLoadSettled 的真实路径:没有 invalidate)
+  // 第二次写入尺寸不同,size 进指纹,规避同毫秒 mtime 粒度问题
+  fs.writeFileSync(file, 'syntax = "proto3";\nmessage A { string id = 1; }\nmessage B { string id = 1; }\n');
+  const schema = frontend.load();
+  assert.ok(schema.root.lookupType('B'), '指纹失配必须重析,不得返回陈旧 schema');
+
+  // 未变化的再次调用回到缓存恒等
+  assert.equal(frontend.load(), schema);
+});
+
+test('load():错误缓存同样受指纹门管辖——修复文件后无需 invalidate 即恢复', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'frontend-stamp-err-'));
+  const file = path.join(dir, 'bad.proto');
+  fs.writeFileSync(file, 'syntax = "proto3";\nmessage X { string id = 1\n');
+  const frontend = makeFrontend(dir);
+  assert.throws(() => frontend.load(), ProtoLoadError);
+
+  fs.writeFileSync(file, 'syntax = "proto3";\nmessage Fixed { string id = 1; }\n');
+  const schema = frontend.load();
+  assert.ok(schema.root.lookupType('Fixed'), '修复后应重析成功');
+});
+
 test('load failure throws ProtoLoadError with file and line', () => {
   const frontend = makeFrontend(path.resolve('testdata/frontend-broken'));
   assert.throws(() => frontend.load(), (err: unknown) => {
@@ -138,7 +167,7 @@ test('includeDirs 优先于导入文件目录(protoc -I 语义不变)', () => {
   assert.equal(schema.declarations.get('p.B'), path.join(dir, 'b.proto'));
 });
 
-test('memoizes the error; a fixed file only loads after invalidate()', () => {
+test('memoizes the error; a fixed file loads without invalidate() (0.3.45 指纹门)', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proto-frontend-'));
   const file = path.join(dir, 'flip.proto');
   fs.writeFileSync(file, 'syntax = "proto3"; message Broken { string }\n');
@@ -146,10 +175,9 @@ test('memoizes the error; a fixed file only loads after invalidate()', () => {
   const frontend = makeFrontend(dir);
   assert.throws(() => frontend.load(), ProtoLoadError);
 
+  // 0.3.45 语义升级:错误缓存同样受指纹门管辖,修好文件即自动恢复,
+  // 不再要求显式 invalidate(旧行为会让工作台外目录的修复永远不被感知)
   fs.writeFileSync(file, 'syntax = "proto3"; message Fixed { string ok = 1; }\n');
-  assert.throws(() => frontend.load(), ProtoLoadError);
-
-  frontend.invalidate();
   assert.ok(frontend.load().root.lookupType('Fixed'));
 });
 

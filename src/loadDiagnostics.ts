@@ -58,7 +58,10 @@ export function clearLoadErrorState(diagnostics: vscode.DiagnosticCollection): v
 /**
  * 保存与工作台两个触发源共用的防抖重诊断(0.3.40)。
  * 300ms 内多次触发只全量解析一次(load 是同步全量解析,会短暂阻塞宿主);
- * dispose 取消挂起计时。触发体即原保存处理器:失效→load→清/报。
+ * dispose 取消挂起计时。触发体即原保存处理器:load→清/报。
+ * 0.3.45:不再盲 invalidate——frontend 的 mtime 指纹门按 stat 判定变更,
+ * 未变更树直接复用缓存(此前每次开工作台都强制全量重析,宿主被卡数秒到数分钟,
+ * 编辑器 CodeLens 请求饿死);指纹门同时覆盖 watcher 盲区(protoDir 在工作区外)。
  */
 export function createLoadDiagnosticsTrigger(
   diagnostics: vscode.DiagnosticCollection,
@@ -66,16 +69,26 @@ export function createLoadDiagnosticsTrigger(
   delayMs = 300,
 ): { trigger(): void; dispose(): void } {
   let timer: NodeJS.Timeout | undefined;
+  // 上次 settle 产物引用(0.3.45):指纹门命中时 load 返回同一缓存实例,
+  // 据此跳过重复诊断——reportMissingImports/reportLoadError 都会全树重扫,
+  // 不加这道门的话,每次开工作台仍是一次隐形全量扫描。
+  let lastSchema: ProtoSchema | null = null;
+  let lastError: unknown = null;
   return {
     trigger() {
       clearTimeout(timer);
       timer = setTimeout(() => {
-        frontend.invalidate();
         try {
           const schema = frontend.load();
+          if (schema === lastSchema) return; // 树未变更:诊断保持原样
+          lastSchema = schema;
+          lastError = null;
           clearLoadErrorState(diagnostics);
           reportMissingImports(diagnostics, frontend, schema);
         } catch (err) {
+          if (err === lastError) return; // 同一错误实例:不重复飘红
+          lastError = err;
+          lastSchema = null;
           reportLoadError(diagnostics, frontend, err);
         }
       }, delayMs);

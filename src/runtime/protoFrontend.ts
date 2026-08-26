@@ -110,6 +110,13 @@ export function walkReflection(
 /** 扫描结果不做缓存——load() 每次都重新发现文件,靠 invalidate() 触发。 */
 export class ProtoFrontend {
   private cached: { schema: ProtoSchema } | { error: ProtoLoadError } | null = null;
+  /**
+   * 上次构建时的文件指纹(mtimeMs:size,0.3.45):load() 先 stat 比对,
+   * 未变更直接复用缓存——工作台 onLoadSettled 每次都会走到这里,
+   * 此前配合触发器的盲 invalidate 造成「每次开面板都全量重析」的风暴。
+   * stat 同时覆盖 watcher 盲区(protoDir 在工作区之外)的变更。
+   */
+  private stamps: ReadonlyMap<string, string> | null = null;
   private readonly importResolver: (target: string, origin?: string) => string | null;
 
   constructor(
@@ -151,7 +158,7 @@ export class ProtoFrontend {
   }
 
   load(): ProtoSchema {
-    if (!this.cached) {
+    if (!this.cached || !this.stampsMatch()) {
       try {
         this.cached = { schema: this.buildSchema() };
       } catch (err) {
@@ -164,6 +171,37 @@ export class ProtoFrontend {
 
   invalidate(): void {
     this.cached = null;
+    this.stamps = null;
+  }
+
+  /** 指纹比对:文件集与逐文件 mtime:size 全等才算未变更;scan 失败视为失配(重建时抛真实错误)。 */
+  private stampsMatch(): boolean {
+    if (!this.stamps) return false;
+    let files: string[];
+    try {
+      files = this.scan();
+    } catch {
+      return false;
+    }
+    if (files.length !== this.stamps.size) return false;
+    try {
+      for (const file of files) {
+        const st = fs.statSync(file);
+        if (this.stamps.get(file) !== `${st.mtimeMs}:${st.size}`) return false;
+      }
+    } catch {
+      return false;
+    }
+    return true;
+  }
+
+  private recordStamps(files: string[]): void {
+    const stamps = new Map<string, string>();
+    for (const file of files) {
+      const st = fs.statSync(file);
+      stamps.set(file, `${st.mtimeMs}:${st.size}`);
+    }
+    this.stamps = stamps;
   }
 
   private buildSchema(): ProtoSchema {
@@ -171,6 +209,7 @@ export class ProtoFrontend {
     const files = this.scan();
     const loaded = new Set<string>();
     for (const file of files) this.loadInto(root, file, false, loaded);
+    this.recordStamps(files);
 
     // resolveAll 遇首个未解析类型即抛(级联报错)——逐 Field/Method 单独 resolve
     // 收集全部失败一次报齐,诊断平面才能把每一处坏引用都飘红。
