@@ -118,6 +118,25 @@ export class DocumentSymbol {
   ) {}
 }
 
+// semanticTokens 测试最小实现:形状对齐 vscode(builder 记录 push 序列,build 出 data)
+export class SemanticTokensLegend {
+  constructor(
+    public readonly tokenTypes: readonly string[],
+    public readonly tokenModifiers: readonly string[] = [],
+  ) {}
+}
+
+export class SemanticTokensBuilder {
+  private readonly data: number[] = [];
+  constructor(_legend?: unknown) {}
+  push(line: number, char: number, length: number, tokenType: number, tokenModifier = 0): void {
+    this.data.push(line, char, length, tokenType, tokenModifier);
+  }
+  build(): { data: Uint32Array } {
+    return { data: new Uint32Array(this.data) };
+  }
+}
+
 export const ViewColumn = { Active: -1, Beside: -2, One: 1, Two: 2, Three: 3 } as const;
 
 // missingImportCodeAction 测试最小实现:字段形状对齐 vscode(只读语义够用)

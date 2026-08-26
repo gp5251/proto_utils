@@ -92,6 +92,13 @@ class LazyWorkbench {
   // promise 毒化后续打开——下次 reveal 自动重试。
   private readonly manager = new RetryableLazy<WorkbenchPanelManager>(() => this.buildManager());
 
+  /**
+   * runner 侧缓存的失效钩子(buildManager 装配时注册):watcher 触发 reload 时,
+   * 面板尚未打开/已销毁也必须失效——否则关闭期间改动 proto,重开面板或下一次
+   * RPC 会命中 ServiceRegistry/protoCache/服务文件缓存 的陈旧数据(0.3.44 补)。
+   */
+  private invalidateRunnerCaches: (() => void) | null = null;
+
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly scanExcludes: ScanExcludes,
@@ -123,6 +130,9 @@ class LazyWorkbench {
   }
 
   async reload(): Promise<void> {
+    // 先无条件失效缓存(钩子在首次构建后可用):此前的早退会让面板关闭期间的
+    // proto 改动绕过 invalidate,重开即见过期服务列表
+    this.invalidateRunnerCaches?.();
     if (!this.manager.started) return;
     try {
       const manager = await this.manager.get();
@@ -146,6 +156,7 @@ class LazyWorkbench {
       getConfig: () => runner.resolveRunnerConfig(),
       onLoadSettled: this.onLoadSettled,
     };
+    this.invalidateRunnerCaches = () => registry.invalidate();
     return new runner.WorkbenchPanelManager(deps, runner.createVscodePanelFactory(this.context.extensionUri, deps));
   }
 }

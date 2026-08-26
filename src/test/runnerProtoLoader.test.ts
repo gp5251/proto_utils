@@ -1,10 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {
   scanProtoFiles,
   loadProtoDefinitions,
   findProtoFileForService,
+  clearServiceFileCache,
+  resetProtoLoaderCache,
 } from '../runner/core/protoLoader';
 import { serializeServicesForClient, ServiceRegistry } from '../runner/serviceRegistry';
 import type { ScanExcludes } from '../runner/config';
@@ -146,4 +150,56 @@ test('serializeServicesForClient keeps frozen field names plus stream flags', ()
     'responseType',
   ]);
   assert.equal(subscribe?.responseStream, true);
+});
+
+// ---- 服务→定义文件 解析缓存(#12 性能,0.3.44)----
+
+test('findProtoFileForService 结果缓存:重复查询命中缓存,失效后重算', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'svc-file-cache-'));
+  fs.writeFileSync(
+    path.join(dir, 'a.proto'),
+    'syntax = "proto3"; service Svc { rpc M1(A) returns (A); } message A { string id = 1; }\n',
+  );
+  assert.ok(findProtoFileForService(dir, 'Svc')?.endsWith('a.proto'));
+
+  // 写入方法更多的 b.proto:新扫描会赢;但未失效前必须命中缓存(钉住「有缓存」行为)
+  fs.writeFileSync(
+    path.join(dir, 'b.proto'),
+    'syntax = "proto3"; service Svc { rpc M1(A) returns (A); rpc M2(A) returns (A); } message A { string id = 1; }\n',
+  );
+  assert.ok(
+    findProtoFileForService(dir, 'Svc')?.endsWith('a.proto'),
+    '未失效前必须命中缓存,不得重扫',
+  );
+
+  clearServiceFileCache();
+  assert.ok(findProtoFileForService(dir, 'Svc')?.endsWith('b.proto'), '失效后重算,最多方法者胜');
+
+  // registry.invalidate 的既有钩子(resetProtoLoaderCache)必须连带清本缓存:
+  // b 删掉 M2 后与 a 打平,目录序 a 先 → 重算回 a
+  fs.writeFileSync(
+    path.join(dir, 'b.proto'),
+    'syntax = "proto3"; service Svc { rpc M1(A) returns (A); } message A { string id = 1; }\n',
+  );
+  resetProtoLoaderCache();
+  assert.ok(findProtoFileForService(dir, 'Svc')?.endsWith('a.proto'), 'resetProtoLoaderCache 必须连带清服务文件缓存');
+});
+
+test('findProtoFileForService 缓存按 excludes 对象引用区分,不串线', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'svc-file-cache-excl-'));
+  fs.mkdirSync(path.join(dir, 'stale'));
+  fs.writeFileSync(
+    path.join(dir, 'main.proto'),
+    'syntax = "proto3"; package m; service Duo { rpc M1(D) returns (D); } message D { string id = 1; }\n',
+  );
+  fs.writeFileSync(
+    path.join(dir, 'stale', 'duo.proto'),
+    'syntax = "proto3"; package m; service Duo { rpc M1(D) returns (D); rpc M2(D) returns (D); rpc M3(D) returns (D); } message D { string id = 1; }\n',
+  );
+
+  const noExcludes = findProtoFileForService(dir, 'm.Duo');
+  assert.ok(noExcludes?.includes('stale'), '无排除时 stale(3 方法)胜');
+  const excl: ScanExcludes = { names: new Set(['stale']), paths: [] };
+  assert.ok(findProtoFileForService(dir, 'm.Duo', excl)?.endsWith('main.proto'), '不同 excludes 各自解析');
+  assert.ok(findProtoFileForService(dir, 'm.Duo')?.includes('stale'), '原键的缓存不受另一键污染');
 });

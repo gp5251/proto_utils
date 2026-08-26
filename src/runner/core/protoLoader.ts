@@ -76,15 +76,55 @@ export function loadProtoDefinitions(protoFiles: string[], protoDir: string): Pr
 }
 
 /**
+ * 服务→定义文件 解析缓存(#12 性能,0.3.44):同一 (protoDir, serviceName, excludes)
+ * 的全树同步扫描只做一次——此前每次 RPC 前都重扫整棵 proto 目录。
+ * 失效两条路:resetProtoLoaderCache(watcher → registry.invalidate 的既有链路连带调用),
+ * 以及 excludes 对象引用变化(会话内该引用恒定,仅多客户端/测试构造时出现)。
+ */
+interface ServiceFileCacheEntry {
+  file: string | null;
+  excludes: ScanExcludes;
+}
+
+const serviceFileCache = new Map<string, ServiceFileCacheEntry>();
+
+function serviceFileCacheKey(protoDir: string, serviceName: string): string {
+  const normalized = path.normalize(protoDir);
+  const key = process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+  return `${key}\u0000${serviceName}`;
+}
+
+export function clearServiceFileCache(): void {
+  serviceFileCache.clear();
+}
+
+/**
  * 按服务名找定义文件。serviceName 认两种写法:
  * - 全限定名(pkg.Service,CodeLens/工作台身份):精确档,同fullName多拷贝按方法数竞选;
  * - 裸短名(历史入口):宽松档,沿用「最多方法」启发式。
  * 精确档恒优先于宽松档;excludes 与服务列表扫描同源(0.3.44),陈旧拷贝不参选。
+ * 结果经服务文件缓存(见上),proto 变更由 resetProtoLoaderCache 统一失效。
  */
 export function findProtoFileForService(
   protoDir: string,
   serviceName: string,
   excludes: ScanExcludes = EMPTY_SCAN_EXCLUDES,
+): string | null {
+  const key = serviceFileCacheKey(protoDir, serviceName);
+  const cached = serviceFileCache.get(key);
+  if (cached && cached.excludes === excludes) {
+    return cached.file;
+  }
+
+  const file = computeProtoFileForService(protoDir, serviceName, excludes);
+  serviceFileCache.set(key, { file, excludes });
+  return file;
+}
+
+function computeProtoFileForService(
+  protoDir: string,
+  serviceName: string,
+  excludes: ScanExcludes,
 ): string | null {
   const protoFiles = scanProtoFiles(protoDir, excludes);
 
@@ -123,6 +163,7 @@ export function findProtoFileForService(
 
 export function resetProtoLoaderCache(): void {
   clearPackageDefinitionCache();
+  clearServiceFileCache();
 }
 
 function isMethodDef(value: unknown): boolean {
