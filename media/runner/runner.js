@@ -18,6 +18,7 @@
     refreshedErrors: 'Refreshed · {count} services · {errors} parse errors',
     chunkCount: '{count} messages',
     ignored: 'Ignored: {fields}',
+    prefillMiss: 'Call target not found: {service} · {method}. The service list may be outdated — click Refresh.',
   };
 
   function str(key, vars) {
@@ -100,6 +101,7 @@
     store.services = Array.isArray(payload) ? payload : [];
     store.errors = [];
     store.errorSegs = [];
+    store.prefillNotice = '';
     store.state = 'ready';
     endRefresh(store, str('refreshed', { count: store.services.length }));
     tryApplyPrefill();
@@ -143,8 +145,15 @@
       // 面板 retainContextWhenHidden,旧查询会跨次存活;openMethod 查的是未过滤的
       // store.services,过滤态下能"开"成功但目标行被搜索隐藏,必须清。
       Alpine.store('search').query = '';
+      workbenchStore().prefillNotice = '';
       pendingPrefill = null;
+      return;
     }
+    // miss(0.3.45):服务列表里查不到目标——典型为改名未保存/列表未就绪。
+    // 必须可见并丢弃滞留:零反馈会让用户以为按钮坏了;滞留则下次刷新会突然跳旧目标。
+    var missed = pendingPrefill;
+    pendingPrefill = null;
+    workbenchStore().prefillNotice = str('prefillMiss', { service: missed.service, method: missed.method });
   }
 
   document.addEventListener('alpine:init', function () {
@@ -155,6 +164,7 @@
       services: Array.isArray(boot.services) ? boot.services : [],
       errors: [],
       errorSegs: [],
+      prefillNotice: '',
       server: typeof boot.server === 'string' ? boot.server : '',
       protoDir: typeof boot.protoDir === 'string' ? boot.protoDir : '',
       refreshing: false,

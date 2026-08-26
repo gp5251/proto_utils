@@ -101,6 +101,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     ignored: l10n.t('Ignored: {fields}'),
     respMetaHeader: l10n.t('header'),
     respMetaTrailer: l10n.t('trailer'),
+    prefillMiss: l10n.t('Call target not found: {service} · {method}. The service list may be outdated — click Refresh.'),
   };
   const boot = {
     server: options.server,
@@ -164,6 +165,11 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
         <!-- 0.3.40:出错点分段渲染,spot 段红色波浪线(仿编辑器飘红);x-text 结构化转义,无注入面 -->
         <p class="error-line"><template x-for="(seg, sIdx) in $store.workbench.errorSegs[eIdx]" :key="sIdx"><span x-text="seg.text" :class="{ 'error-spot': seg.spot }"></span></template></p>
       </template>
+    </div>
+
+    <!-- 0.3.45:CodeLens prefill 落空的可见反馈(改名未保存/列表未就绪),替代此前的零反馈 -->
+    <div class="card error-card" id="prefill-miss-card" x-show="$store.workbench.prefillNotice">
+      <p class="error-line" x-text="$store.workbench.prefillNotice"></p>
     </div>
 
     <div x-show="$store.workbench.state === 'ready' && filteredServices().length === 0 && query.trim()" class="empty-state">

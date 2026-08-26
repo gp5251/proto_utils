@@ -92,3 +92,16 @@ test('sendFromEditor 发送前跑 validateFormValues,问题清单进 formErrors 
   assert.ok(head.includes('formErrors: {}'), '缺 formErrors 状态字典');
   assert.ok(head.includes('getFormError: function') || body.includes('getFormError'), '缺 getFormError');
 });
+
+test('prefill miss 必须可见:置 prefillNotice 并丢弃滞留,不得零反馈', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const start = src.indexOf('tryApplyPrefill');
+  const end = src.indexOf("document.addEventListener('alpine:init'", start);
+  const body = src.slice(start, end);
+  assert.ok(body.includes('openMethod(pendingPrefill.service'), '仍走 openMethod 尝试');
+  assert.ok(body.includes("str('prefillMiss'"), 'miss 必须经 str(prefillMiss) 写可见通知');
+  // miss 后清空滞留:否则下次 services 到达会突然跳到旧目标(H4 错位)
+  assert.ok(body.indexOf('pendingPrefill = null', body.indexOf('openMethod')) > -1, 'miss 分支必须清 pendingPrefill');
+
+  assert.ok(src.includes('prefillMiss:'), '缺 miss 文案默认串');
+});

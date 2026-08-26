@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { escapeInlineJson, generateNonce, renderWorkbenchHtml } from '../runner/webviewHtml';
 import type { ServicesPayload } from '../runner/serviceRegistry';
 
@@ -209,4 +211,12 @@ test('表单校验反馈锚点:发送前错误槽 + bytes 专用 base64 输入�
   assert.ok(html.includes("row.field.protoType === 'TYPE_BYTES'"), '缺 bytes 专用输入分支');
   assert.ok(html.includes("row.field.protoType !== 'TYPE_BYTES'"), '通用文本分支必须排除 BYTES');
   assert.ok(html.includes('Base64-encoded value'), 'bytes 提示文案(host 侧 l10n 源串)');
+});
+
+test('prefill miss 反馈锚点:通知卡片 + host 文案 + services 到达即清', () => {
+  const html = render();
+  assert.ok(html.includes('$store.workbench.prefillNotice'), '缺 miss 通知展示槽');
+  // host 文案在 TS 源里(boot.strings 下发),渲染产物只含译文值
+  const tsSrc = fs.readFileSync(path.resolve('src/runner/webviewHtml.ts'), 'utf8');
+  assert.ok(tsSrc.includes('prefillMiss: l10n.t('), 'host 侧必须下发 prefillMiss 文案');
 });
