@@ -220,3 +220,14 @@ test('prefill miss 反馈锚点:通知卡片 + host 文案 + services 到达即�
   const tsSrc = fs.readFileSync(path.resolve('src/runner/webviewHtml.ts'), 'utf8');
   assert.ok(tsSrc.includes('prefillMiss: l10n.t('), 'host 侧必须下发 prefillMiss 文案');
 });
+
+test('x-show 与 :style 不得同元素:services 重推后 :style 字符串重赋值会抹掉 x-show 的 display:none(空白行回归守卫)', () => {
+  const html = render();
+  // 抓所有开标签(含跨行),任何元素同时带 x-show 与 :style 即违规
+  const tags = html.match(/<[a-z]+[^>]*>/gs) ?? [];
+  const violations = tags.filter((t) => /x-show=/.test(t) && /:style=/.test(t));
+  assert.deepStrictEqual(violations, [], `以下元素同时携带 x-show 与 :style:\n${violations.join('\n')}`);
+  // 修复后的可见性门控:display:none 由 :style 三元式 false 分支给出
+  assert.ok(html.includes(`? 'padding-left:' + (row.depth * 14) + 'px' : 'display: none'`), 'field-group 的 kind 门控应折进 :style');
+  assert.ok(html.includes(`? 'margin-bottom: 10px; padding-left:' + (row.depth * 14 + 24) + 'px' : 'display: none'`), '请求嵌套 schema-block 的展开门控应折进 :style');
+});

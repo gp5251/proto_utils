@@ -288,10 +288,12 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                               ></span>
                             </span>
                           </div>
+                          <!-- 可见性折进 :style 三元式而非 x-show:二者同元素时,:style 字符串重赋值
+                               会整体替换 inline style,抹掉 x-show 写入的 display:none(services
+                               重推后 x-for 重建行即触发,残留空白行,0.3.47 修复) -->
                           <div
-                            x-show="row.enumValues && row.enumValues.length && isRowOpen(rowKey('res', row.path))"
                             class="enum-values-list"
-                            :style="'padding-left:' + (row.depth * 14 + 24) + 'px'"
+                            :style="(row.enumValues && row.enumValues.length && isRowOpen(rowKey('res', row.path))) ? 'padding-left:' + (row.depth * 14 + 24) + 'px' : 'display: none'"
                           >
                             <template x-for="ev in row.enumValues" :key="ev.name">
                               <div class="enum-value-item" x-text="enumOptionLabel(ev, row.enumValues)"></div>
@@ -319,18 +321,17 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                     <div x-show="showFormPane(methodKey(svcId(svc), m.name), m)">
                     <template x-for="(row, reqIdx) in flattenFormFields(m.requestFields)" :key="m.name + '-req-' + reqIdx">
                       <div>
+                        <!-- 同上:kind 门控折进 :style,避免 x-show 与 :style 同元素的 display 抹除 -->
                         <div
-                          x-show="row.kind === 'group'"
                           class="field-group"
-                          :style="'padding-left:' + (row.depth * 14) + 'px'"
+                          :style="row.kind === 'group' ? 'padding-left:' + (row.depth * 14) + 'px' : 'display: none'"
                         >
                           <span class="field-group-name" x-text="row.field.name"></span>
                           <span class="field-type-badge" x-text="row.field.refType || 'message'"></span>
                         </div>
                         <div
-                          x-show="row.kind === 'input'"
                           class="field"
-                          :style="'padding-left:' + (row.depth * 14 + 8) + 'px'"
+                          :style="row.kind === 'input' ? 'padding-left:' + (row.depth * 14 + 8) + 'px' : 'display: none'"
                         >
                           <label class="field-label">
                             <span x-text="row.field.name"></span>
@@ -348,9 +349,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                             ></span>
                           </label>
                           <div
-                            x-show="isRowOpen(rowKey('reqf', row.path)) && ((row.field.nestedFields && row.field.nestedFields.length) || (row.field.enumValues && row.field.enumValues.length))"
                             class="method-schema-block"
-                            :style="'margin-bottom: 10px; padding-left:' + (row.depth * 14 + 24) + 'px'"
+                            :style="(isRowOpen(rowKey('reqf', row.path)) && ((row.field.nestedFields && row.field.nestedFields.length) || (row.field.enumValues && row.field.enumValues.length))) ? 'margin-bottom: 10px; padding-left:' + (row.depth * 14 + 24) + 'px' : 'display: none'"
                           >
                             <div
                               x-show="row.field.protoType === 'TYPE_ENUM' && (row.field.enumValues && row.field.enumValues.length)"
@@ -382,9 +382,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                                     </span>
                                   </div>
                                   <div
-                                    x-show="sRow.enumValues && sRow.enumValues.length && isRowOpen(rowKey('reqs', sRow.path))"
                                     class="enum-values-list"
-                                    :style="'padding-left:' + (sRow.depth * 14 + 24) + 'px'"
+                                    :style="(sRow.enumValues && sRow.enumValues.length && isRowOpen(rowKey('reqs', sRow.path))) ? 'padding-left:' + (sRow.depth * 14 + 24) + 'px' : 'display: none'"
                                   >
                                     <template x-for="ev in sRow.enumValues" :key="ev.name">
                                       <div class="enum-value-item" x-text="enumOptionLabel(ev, sRow.enumValues)"></div>
