@@ -11,6 +11,8 @@ CONTEXT.md
 .gitignore
 pnpm-workspace.yaml
 out/**/*.map
+out/bundle/**
+out/repro-payload.cjs
 media/gen_icon.ps1
 media/**/*.map
 media/runner/repro-*
