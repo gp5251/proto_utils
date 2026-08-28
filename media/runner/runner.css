@@ -450,8 +450,9 @@ input[type="checkbox"] {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 10px;
+  flex-wrap: wrap;
 }
-.result-actions { display: flex; align-items: center; gap: 8px; }
+.result-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .result-meta {
   display: flex;
   align-items: center;
