@@ -1,6 +1,54 @@
 # Proto Utils
 
-面向 VS Code 的 Proto3 插件,提供语法高亮、跳转到定义、TypeScript 类型生成,以及直接在编辑器里发起 gRPC 调用的 RPC 工作台。无需安装 `protoc`、`buf` 或其他命令行工具。
+<p align="center">
+  <img src="media/icon.png" width="96" alt="Proto Utils">
+</p>
+
+面向 VS Code 的 Proto3 一体化插件:**语法高亮 · 跳转定义 · 悬停文档 · TypeScript 类型生成 · 编辑器内 gRPC 调用**。
+零外部依赖——无需安装 `protoc`、`buf` 或任何命令行工具。
+
+## 功能总览
+
+| 能力 | 说明 |
+| --- | --- |
+| 🖋 **语言服务** | Proto3 语法高亮,内置标量与自定义类型着色区分 |
+| 🔍 **跳转与悬停** | 同文件 / import / package 命名空间的类型跳转;悬停显示类型摘要与前导注释 |
+| 🧭 **大纲导航** | `message` / `enum` / `service` / rpc 方法全部进入大纲与符号搜索 |
+| 🏗 **TS 类型生成** | `message` / `enum` / `repeated` / `map` / `oneof` → TypeScript;`service` → `<Name>Client` 调用接口(四种流式方向) |
+| 📞 **RPC 工作台** | 按 schema 自动生成请求表单,直接调用一元 / 服务端流 gRPC 方法,响应折叠树展示 |
+| 🩺 **实时诊断** | 语法错就地飘红、缺失类型与重名在引用处标红,支持一键补 import |
+
+## 界面速览
+
+### RPC 工作台
+
+按 proto schema 自动生成的请求表单:每个字段带类型徽标、可选/必填标记与 proto 注释;嵌套 message 与枚举就地展开;Headers 编辑器随调用携带 metadata。
+
+![RPC 工作台](docs/images/rpc-workbench.png)
+
+### 一元调用 · 响应折叠树
+
+响应数据以 DevTools 风格折叠树逐级展示,长字符串截断、int64 以字符串往返保持精度;「Response metadata」折叠块展示服务器返回的 headers/trailers。
+
+![响应折叠树](docs/images/rpc-result.png)
+
+### 服务端流 · 分 chunk 折叠
+
+服务端流按 chunk 折叠展示,可单独展开某条消息,随时取消;长流只保留最近 200 条,计数仍为真实总量。
+
+![服务端流](docs/images/rpc-stream.png)
+
+### 亮色主题
+
+工作台配色自动跟随 VS Code 明/暗主题切换(暗色 GitHub Dark、亮色 GitHub Light)。
+
+![亮色主题](docs/images/rpc-workbench-light.png)
+
+## 快速上手
+
+1. 打开包含 `.proto` 文件的工作区,插件自动索引。
+2. **生成类型**:右键 `.proto` 文件 → *Generate TypeScript Types*,或 `Ctrl+Shift+P` 运行全量生成。
+3. **调用 gRPC**:rpc 方法上方点击「▶ 调用」,在工作台填表发送——只需在设置里把 `protoUtils.runner.server` 指向你的 gRPC 服务地址,`protoUtils.runner.protoDir` 指向 proto 目录。
 
 ## 功能
 

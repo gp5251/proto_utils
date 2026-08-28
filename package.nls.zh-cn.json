@@ -1,5 +1,5 @@
 {
-  "extension.description": "Proto3 语法高亮、跳转定义与 TypeScript 代码生成",
+  "extension.description": "Proto3 语法高亮、跳转定义、TypeScript 代码生成,以及可在编辑器内直接调用 gRPC 服务的 RPC 工作台",
   "command.generateTypes": "Proto Utils: 生成 TypeScript 类型",
   "command.generateAllTypes": "Proto Utils: 生成 TypeScript 类型(全部 proto)",
   "command.openRpcRunner": "Proto Utils: 打开 RPC 工作台",

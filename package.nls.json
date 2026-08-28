@@ -1,5 +1,5 @@
 {
-  "extension.description": "Proto3 syntax highlighting, go-to-definition, and TypeScript code generation",
+  "extension.description": "Proto3 syntax highlighting, go-to-definition, TypeScript code generation, and an RPC workbench to call gRPC services straight from the editor",
   "command.generateTypes": "Proto Utils: Generate TypeScript Types",
   "command.generateAllTypes": "Proto Utils: Generate TypeScript Types (All Protos)",
   "command.openRpcRunner": "Proto Utils: Open RPC Runner",
