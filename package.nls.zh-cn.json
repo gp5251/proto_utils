@@ -2,6 +2,7 @@
   "extension.description": "Proto3 语法高亮、跳转定义、TypeScript 代码生成,以及可在编辑器内直接调用 gRPC 服务的 RPC 工作台",
   "command.generateTypes": "Proto Utils: 生成 TypeScript 类型",
   "command.generateAllTypes": "Proto Utils: 生成 TypeScript 类型(全部 proto)",
+  "view.rpcRunner": "RPC 工作台",
   "command.openRpcRunner": "Proto Utils: 打开 RPC 工作台",
   "config.runner.server": "RPC Runner 调用的 gRPC 服务器地址(host:port)",
   "config.runner.protoDir": "指向 .proto 文件所在目录本身(import 相对它解析;指到父目录会导致跨文件类型解析失败)。留空 = 工作区根;相对路径相对 workspace folder 解析。显式配置后,代码生成也只扫描该目录(不再扫工作区)。改动需 reload 窗口生效",

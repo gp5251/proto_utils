@@ -1,15 +1,18 @@
 import { test } from 'node:test';
+import * as vscode from 'vscode';
 import assert from 'node:assert/strict';
 import {
   WorkbenchSession,
   WorkbenchHost,
   WorkbenchToWebview,
-  WorkbenchPanelManager,
+  WorkbenchViewManager,
 } from '../runner/webviewPanel';
 import { CallRunner, CallResultPayload } from '../runner/callHandler';
 import { ServicesPayload } from '../runner/serviceRegistry';
 import { StreamHandlers } from '../runner/core/types';
 
+// vscodeStub 运行时在 commands 上额外挂 executed 记录数组;@types/vscode 类型不含该字段
+const stubCommands = vscode.commands as unknown as { executed: string[] };
 /** 记录出站消息、可模拟入站消息与销毁事件的 fake host */
 function makeHost() {
   const posted: WorkbenchToWebview[] = [];
@@ -333,48 +336,84 @@ test('refresh → invalidate 后重载并推 services', async () => {
   );
 });
 
-test('面板单例:两次 reveal 只建一次,销毁后重建', () => {
-  let created = 0;
-  let revealed = 0;
-  const disposers: Array<() => void> = [];
+/** 最小 WebviewView 替身:记录 html/出站消息,可手动触发入站消息与销毁 */
+function makeView() {
+  const messageListeners: Array<(m: unknown) => void> = [];
+  const disposeListeners: Array<() => void> = [];
+  const posted: WorkbenchToWebview[] = [];
+  const view = {
+    webview: {
+      html: '',
+      cspSource: 'stub-csp',
+      asWebviewUri: (uri: unknown) => `stub:${String(uri)}`,
+      postMessage: async (m: unknown) => {
+        posted.push(m as WorkbenchToWebview);
+      },
+      onDidReceiveMessage: (l: (m: unknown) => void) => {
+        messageListeners.push(l);
+      },
+    },
+    onDidDispose: (l: () => void) => {
+      disposeListeners.push(l);
+    },
+  } as unknown as vscode.WebviewView;
+  return {
+    view,
+    posted,
+    emit: (m: unknown) => {
+      for (const l of messageListeners) void l(m);
+    },
+    dispose: () => {
+      for (const l of disposeListeners) l();
+    },
+  };
+}
+
+test('视图解析挂会话:ready → loading 后推 services;视图销毁弃会话', async () => {
   const { deps } = makeDeps();
-  const manager = new WorkbenchPanelManager(deps, () => {
-    created++;
-    const { host, dispose } = makeHost();
-    disposers.push(dispose);
-    return { host, reveal: () => revealed++ };
-  });
-
-  manager.reveal();
-  manager.reveal();
-  assert.equal(created, 1);
-  // 每次 manager.reveal 都聚焦现有面板
-  assert.equal(revealed, 2);
-
-  // 面板销毁后下次 reveal 重建
-  disposers[0]();
-  manager.reveal();
-  assert.equal(created, 2);
-
-  // prefill 委托给当前会话
-  manager.reveal({ service: 'c.Greeter', method: 'SayHello' });
+  const manager = new WorkbenchViewManager(vscode.Uri.file('D:/ext'), deps);
+  const v = makeView();
+  manager.resolveWebviewView(v.view);
   assert.ok(manager.currentSession);
+
+  v.emit({ type: 'ready' });
+  await nextTick();
+  assert.deepEqual(v.posted.map((m) => m.type), ['loading', 'services']);
+
+  v.dispose();
+  assert.equal(manager.currentSession, null);
 });
 
-test('面板关闭后 reload 仍清缓存,重开不渲染过期服务列表', async () => {
-  const disposers: Array<() => void> = [];
+test('reveal 聚焦视图;视图未解析时 prefill 排队,就绪后冲出;就绪后直发', async () => {
+  const { deps } = makeDeps();
+  const manager = new WorkbenchViewManager(vscode.Uri.file('D:/ext'), deps);
+
+  manager.reveal({ service: 'c.Greeter', method: 'SayHello' });
+  assert.deepEqual(stubCommands.executed, ['protoUtils.rpcRunner.focus']);
+
+  const v = makeView();
+  manager.resolveWebviewView(v.view);
+  v.emit({ type: 'ready' });
+  await nextTick();
+  assert.deepEqual(v.posted.map((m) => m.type), ['loading', 'services', 'prefill']);
+
+  manager.reveal({ service: 'c.Greeter', method: 'SayHello' });
+  assert.equal(v.posted[v.posted.length - 1]?.type, 'prefill');
+});
+
+test('reload:会话在挂时失效缓存并重推 services;视图关闭后空转不抛', async () => {
   const { deps, state } = makeDeps();
-  const manager = new WorkbenchPanelManager(deps, () => {
-    const { host, dispose } = makeHost();
-    disposers.push(dispose);
-    return { host, reveal: () => {} };
-  });
+  const manager = new WorkbenchViewManager(vscode.Uri.file('D:/ext'), deps);
+  const v = makeView();
+  manager.resolveWebviewView(v.view);
+  v.emit({ type: 'ready' });
+  await nextTick();
 
-  manager.reveal();
-  disposers[0](); // 关闭面板 → active = null
-  assert.equal(manager.currentSession, null);
+  await manager.reload();
+  assert.equal(state.invalidated, 1);
+  assert.deepEqual(v.posted.slice(-2).map((m) => m.type), ['loading', 'services']);
 
-  // watcher 在面板关闭期间触发:缓存必须失效,否则重开吃到旧 services
+  v.dispose();
   await manager.reload();
   assert.equal(state.invalidated, 1);
 });

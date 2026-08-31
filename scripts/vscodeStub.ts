@@ -10,6 +10,19 @@ export interface StubUri {
 
 export const Uri = {
   file: (fsPath: string): StubUri => ({ fsPath, scheme: 'file', path: fsPath }),
+  joinPath: (base: StubUri, ...segments: string[]): StubUri => {
+    const joined = `${base.fsPath.replace(/\/+$/, '')}/${segments.join('/')}`;
+    return { fsPath: joined, scheme: base.scheme, path: joined };
+  },
+};
+
+// workbench 视图管理器测试用:记录 executeCommand 调用,不执行任何真实命令
+export const commands = {
+  executed: [] as string[],
+  executeCommand: (id: string): Promise<undefined> => {
+    commands.executed.push(id);
+    return Promise.resolve(undefined);
+  },
 };
 
 // 测试环境恒为默认语言:返回英文源串,{0} 占位符按真实 vscode.l10n.t 语义就地替换

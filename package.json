@@ -3,7 +3,7 @@
   "displayName": "Proto Utils",
   "l10n": "./l10n",
   "description": "%extension.description%",
-  "version": "0.3.47",
+  "version": "0.3.48",
   "publisher": "paulgui",
   "license": "MIT",
   "repository": {
@@ -19,7 +19,8 @@
   "icon": "media/icon.png",
   "activationEvents": [
     "onLanguage:proto3",
-    "onCommand:protoUtils.openRpcRunner"
+    "onCommand:protoUtils.openRpcRunner",
+    "onView:protoUtils.rpcRunner"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -85,6 +86,25 @@
           "when": "resourceLangId == proto3",
           "command": "protoUtils.generateAllTypes",
           "group": "protoUtils"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "proto-utils",
+          "title": "Proto Utils",
+          "icon": "media/activitybar-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "proto-utils": [
+        {
+          "type": "webview",
+          "id": "protoUtils.rpcRunner",
+          "name": "%view.rpcRunner%",
+          "contextualTitle": "Proto Utils"
         }
       ]
     },

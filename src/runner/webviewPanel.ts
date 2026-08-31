@@ -3,7 +3,7 @@ import type { ServiceRegistry, ServicesPayload } from './serviceRegistry';
 import type { CallResultPayload, CallRunner } from './callHandler';
 import type { MetadataEntry, TlsSettings } from './config';
 import { resolveRunnerConfig as resolveRunnerConfigPure } from './config';
-import { generateNonce, renderWorkbenchHtml } from './webviewHtml';
+import { generateNonce, renderWorkbenchHtml, renderWorkbenchLoadingHtml } from './webviewHtml';
 import { parseProtoError, type ErrorSegment } from '../protoErrorMessage';
 
 // ---- 消息协议(字段名冻结,只增不改;0.3.40 loadError 增 segments) ----
@@ -330,7 +330,6 @@ export class WorkbenchSession {
 
 // ---- vscode 粘合层(以下只在扩展宿主内运行,测试不触达) ----
 
-export type WorkbenchPanelDeps = WorkbenchSessionDeps;
 
 /** 读取 protoUtils.runner.* 全量配置;protoDir 为空 = 工作区根,相对路径相对 workspace folder。 */
 export function resolveRunnerConfig(): {
@@ -352,99 +351,88 @@ export function resolveRunnerConfig(): {
   };
 }
 
-/** 工厂产出:已创建面板的最小面。host 供 session 挂载;reveal 聚焦。 */
-export interface ManagedWorkbenchPanel {
-  host: WorkbenchHost;
-  reveal(): void;
+/** 活动栏视图容器 / WebviewView 标识,与 package.json contributes 声明一致。 */
+export const WORKBENCH_VIEW_ID = 'protoUtils.rpcRunner';
+
+/** 视图首次解析的同步打底:设置 options 并渲染 loading 壳,grpc bundle 懒加载完成前视图不空白。 */
+export function primeWorkbenchView(view: vscode.WebviewView, extensionUri: vscode.Uri): void {
+  const mediaRoot = vscode.Uri.joinPath(extensionUri, 'media', 'runner');
+  view.webview.options = { enableScripts: true, localResourceRoots: [mediaRoot] };
+  view.webview.html = renderWorkbenchLoadingHtml({
+    stylesUri: view.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'runner.css')).toString(),
+  });
 }
 
-/** 面板创建交给工厂:扩展宿主传 createVscodePanelFactory,测试传 fake。 */
-export type WorkbenchPanelFactory = () => ManagedWorkbenchPanel;
-
-/** 面板单例:未开则创建,已开则聚焦;面板销毁后下次 reveal 重建。 */
-export class WorkbenchPanelManager {
-  private active: { panel: ManagedWorkbenchPanel; session: WorkbenchSession } | null = null;
+/** 侧边栏 WebviewView 粘合层:一个 view 解析对应一个会话。视图隐藏不销毁
+ *  (retainContextWhenHidden 由注册侧声明),销毁即弃会话,下次解析重建。 */
+export class WorkbenchViewManager implements vscode.WebviewViewProvider {
+  private session: WorkbenchSession | null = null;
+  private pendingPrefill: CallTarget | null = null;
 
   constructor(
-    private readonly deps: WorkbenchPanelDeps,
-    private readonly factory: WorkbenchPanelFactory,
+    private readonly extensionUri: vscode.Uri,
+    private readonly deps: WorkbenchSessionDeps,
   ) {}
 
-  /** 当前会话(面板未开时为 null);供 CodeLens 命令层与测试触达。 */
+  /** 当前会话(视图未解析/已销毁时为 null);供测试触达。 */
   get currentSession(): WorkbenchSession | null {
-    return this.active?.session ?? null;
+    return this.session;
   }
 
-  /** extension.ts 的入口:打开/聚焦面板;带 prefill 则排队到 webview 就绪后预选方法。 */
-  reveal(prefill?: { service: string; method: string }): void {
-    if (!this.active) {
-      const panel = this.factory();
-      const session = new WorkbenchSession(this.deps);
-      session.attach(panel.host);
-      panel.host.onDispose(() => {
-        this.active = null;
-      });
-      this.active = { panel, session };
-    }
-    this.active.panel.reveal();
+  /** 打开/聚焦侧边栏视图;会话未建立时 prefill 排队到首次解析。 */
+  reveal(prefill?: CallTarget): void {
     if (prefill) {
-      this.active.session.prefill(prefill.service, prefill.method);
+      if (this.session) {
+        this.session.prefill(prefill.service, prefill.method);
+      } else {
+        this.pendingPrefill = prefill;
+      }
     }
+    void vscode.commands.executeCommand(`${WORKBENCH_VIEW_ID}.focus`);
   }
 
-  /** proto watcher 的热更新入口(替代旧 SSE proto-reload)。面板关闭时也要清缓存——否则关闭期间改了 proto,重开会渲染过期服务列表。 */
+  /** proto watcher 的热更新入口。缓存失效由 LazyWorkbench 无条件先行,此处仅重推在挂会话。 */
   async reload(): Promise<void> {
-    this.deps.registry.invalidate();
-    if (this.active) {
-      await this.active.session.reload();
+    await this.session?.reload();
+  }
+
+  resolveWebviewView(view: vscode.WebviewView): void {
+    const mediaRoot = vscode.Uri.joinPath(this.extensionUri, 'media', 'runner');
+    view.webview.options = { enableScripts: true, localResourceRoots: [mediaRoot] };
+    view.webview.html = renderWorkbenchHtml({
+      cspSource: view.webview.cspSource,
+      nonce: generateNonce(),
+      stylesUri: view.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'runner.css')).toString(),
+      runnerScriptUri: view.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'runner.js')).toString(),
+      formMappingScriptUri: view.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'formMapping.js')).toString(),
+      resultTreeScriptUri: view.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'resultTree.js')).toString(),
+      alpineScriptUri: view.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'alpine.min.js')).toString(),
+      server: this.deps.getConfig().server,
+      protoDir: this.deps.getConfig().protoDir,
+      metadataDefault: this.deps.getConfig().metadata,
+    });
+    const session = new WorkbenchSession(this.deps);
+    this.session = session;
+    session.attach({
+      postMessage: (message) => {
+        void view.webview.postMessage(message);
+      },
+      onMessage: (listener) => {
+        view.webview.onDidReceiveMessage(listener);
+      },
+      onDispose: (listener) => {
+        view.onDidDispose(listener);
+      },
+    });
+    view.onDidDispose(() => {
+      if (this.session === session) {
+        this.session = null;
+      }
+    });
+    const prefill = this.pendingPrefill;
+    this.pendingPrefill = null;
+    if (prefill) {
+      session.prefill(prefill.service, prefill.method);
     }
   }
-}
-
-/** 真实 Webview 面板工厂:retainContextWhenHidden 保住表单与结果状态,CSP nonce 每面板随机。 */
-export function createVscodePanelFactory(
-  extensionUri: vscode.Uri,
-  deps: WorkbenchPanelDeps,
-): WorkbenchPanelFactory {
-  return () => {
-    const mediaRoot = vscode.Uri.joinPath(extensionUri, 'media', 'runner');
-    const panel = vscode.window.createWebviewPanel(
-      'protoUtils.rpcRunner',
-      vscode.l10n.t('RPC Workbench'),
-      vscode.ViewColumn.Active,
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [mediaRoot],
-      },
-    );
-    panel.webview.html = renderWorkbenchHtml({
-      cspSource: panel.webview.cspSource,
-      nonce: generateNonce(),
-      stylesUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'runner.css')).toString(),
-      runnerScriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'runner.js')).toString(),
-      formMappingScriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'formMapping.js')).toString(),
-      resultTreeScriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'resultTree.js')).toString(),
-      alpineScriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'alpine.min.js')).toString(),
-      server: deps.getConfig().server,
-      protoDir: deps.getConfig().protoDir,
-      metadataDefault: deps.getConfig().metadata,
-    });
-    return {
-      host: {
-        postMessage: (message: WorkbenchToWebview) => {
-          void panel.webview.postMessage(message);
-        },
-        onMessage: (listener: (message: unknown) => void) => {
-          panel.webview.onDidReceiveMessage(listener);
-        },
-        onDispose: (listener: () => void) => {
-          panel.onDidDispose(listener);
-        },
-      },
-      reveal: () => {
-        panel.reveal();
-      },
-    };
-  };
 }

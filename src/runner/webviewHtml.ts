@@ -28,6 +28,30 @@ export interface WorkbenchHtmlOptions {
   initialServices?: ServicesPayload;
 }
 
+export interface WorkbenchLoadingHtmlOptions {
+  /** webview.cspSource 对应的 runner.css asWebviewUri */
+  stylesUri: string;
+}
+
+/** 视图首次解析的打底壳:grpc bundle 懒加载完成前先渲染,避免空白视图。
+ *  无脚本无状态,复用 runner.css 的 spinner 样式;文案复用既有 l10n 串。 */
+export function renderWorkbenchLoadingHtml(options: WorkbenchLoadingHtmlOptions): string {
+  return `<!DOCTYPE html>
+<html lang="${env.language}">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="${options.stylesUri}">
+  <title>${l10n.t('RPC Workbench')}</title>
+</head>
+<body>
+  <div class="card">
+    <div class="card-title"><span><span class="proto-loading-spinner"></span>${l10n.t('RPC Workbench')}</span></div>
+    <p class="proto-loading-detail">${l10n.t('Proto Utils: Loading RPC Workbench…')}</p>
+  </div>
+</body>
+</html>`;
+}
+
 export function generateNonce(): string {
   return randomBytes(16).toString('base64');
 }

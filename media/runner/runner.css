@@ -669,3 +669,14 @@ input[type="checkbox"] {
   font-size: 13px;
   line-height: 1.6;
 }
+
+/* ---- 侧边栏视图窄宽自适应(0.3.48:工作台迁入活动栏视图容器) ----
+   布局本身为单列纵向流,无需重排;只收窄留白并让页头在窄容器下换行堆叠。 */
+@media (max-width: 520px) {
+  .topbar { height: 44px; padding: 0 12px; }
+  .container { padding: 16px 12px 40px; }
+  .page-header { flex-direction: column; align-items: flex-start; gap: 8px; margin-bottom: 14px; }
+  .page-meta { justify-content: flex-start; flex-wrap: wrap; }
+  .page-title { font-size: 17px; }
+  textarea { min-height: 56px; }
+}
