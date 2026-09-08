@@ -378,3 +378,34 @@ test('面板关闭后 reload 仍清缓存,重开不渲染过期服务列表', as
   await manager.reload();
   assert.equal(state.invalidated, 1);
 });
+
+test('loadAndSend 并发合并:in-flight 期间第二次请求塌缩为一次补跑(0.3.48)', async () => {
+  const { host, emit } = makeHost();
+  const { deps } = makeDeps();
+  const settle = () => new Promise<void>((r) => setTimeout(r, 0));
+  let loadCalls = 0;
+  const gates: Array<() => void> = [];
+  // 可控 gate:每次 load 卡到手动放行,制造 in-flight 窗口
+  deps.registry.load = () => {
+    loadCalls++;
+    return new Promise<{ services: ServicesPayload; errors: string[] }>((resolve) => {
+      gates.push(() => resolve({ services: SERVICES, errors: [] }));
+    });
+  };
+  const session = new WorkbenchSession(deps);
+  session.attach(host);
+
+  emit({ type: 'ready' }); // 首次 load,卡在 gates[0]
+  await settle();
+  emit({ type: 'refresh' }); // in-flight 期间第二次:合并为 reloadQueued,不并发发起
+  await settle();
+  assert.equal(loadCalls, 1, 'in-flight 期间不得并发第二次 load');
+
+  gates[0](); // 放行首次 → 收尾后补跑一次,卡在 gates[1]
+  await settle();
+  assert.equal(loadCalls, 2, '当前 load 收尾后补跑恰好一次(多次请求塌缩)');
+
+  gates[1](); // 放行补跑 → 无排队,不再 load
+  await settle();
+  assert.equal(loadCalls, 2, '无排队请求时不再重复 load');
+});

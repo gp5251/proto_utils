@@ -66,16 +66,23 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
   );
 
-  // proto 变更:语义前端失效 + 工作台热更新(ADR-0004 的 SSE 替代)
+  // proto 变更 → 工作台热更新(ADR-0004 的 SSE 替代)。
+  // 防抖 + 批量合并(0.3.48 性能):git 切分支/codegen 批量写入会让 **/*.proto
+  // watcher 成百上千次触发;此前每次都 frontend.invalidate()(盲清摧毁 0.3.45
+  // 的 mtime 指纹门)+ workbench.reload()(全量同步重解析),扩展宿主主线程被连续
+  // 同步块占死数分钟,CodeLens/hover 请求饿死。现在 500ms 内多次触发只重载一次;
+  // 且不再盲 invalidate——frontend.load / protoCache 各自的 mtime 指纹门按 stat
+  // 判定变更,未变的文件直接复用,只有真正改动的才重解析。
   const watcher = vscode.workspace.createFileSystemWatcher('**/*.proto');
+  let reloadTimer: NodeJS.Timeout | undefined;
   const onProtoChanged = (): void => {
-    frontend.invalidate();
-    void workbench.reload();
+    clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(() => void workbench.reload(), 500);
   };
   watcher.onDidCreate(onProtoChanged);
   watcher.onDidChange(onProtoChanged);
   watcher.onDidDelete(onProtoChanged);
-  context.subscriptions.push(watcher);
+  context.subscriptions.push(watcher, { dispose: () => clearTimeout(reloadTimer) });
 
   // 保存时诊断走共享触发器(防抖在触发器内,0.3.40)。
   context.subscriptions.push(

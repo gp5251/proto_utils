@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { l10n } from 'vscode';
 import { FieldInfo, ServiceInfo } from './core/types';
-import { loadProtoDefinitions, resetProtoLoaderCache, scanProtoFiles } from './core/protoLoader';
+import { clearServiceFileCache, loadProtoDefinitions, scanProtoFiles } from './core/protoLoader';
 import { EMPTY_SCAN_EXCLUDES, ScanExcludes } from './config';
 import { flattenSchemaRows, SchemaRow } from './utils/schemaRows';
 
@@ -92,6 +92,11 @@ export class ServiceRegistry {
   invalidate(): void {
     this.cached = null;
     this.cachedDir = null;
-    resetProtoLoaderCache();
+    // 只清服务文件缓存(无指纹门,必须显式失效);protoCache 保留——它自带
+    // mtime:size 指纹门(0.3.45),load 时逐文件 stat 比对,未变的复用、改动的
+    // 自动重析。此前经 resetProtoLoaderCache 盲清 protoCache,让每次 proto 变更后
+    // 的 reload 都全量 loadSync 整棵树(扩展宿主被同步解析块占死);保留指纹门后
+    // reload 变为增量(0.3.48 性能)。彻底重置(含 protoCache)仍可用 resetProtoLoaderCache。
+    clearServiceFileCache();
   }
 }

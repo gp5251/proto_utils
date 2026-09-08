@@ -22,6 +22,13 @@ export interface FileEntry {
 export class SymbolIndex {
   private entries = new Map<string, FileEntry>(); // key: fsPath
   private watcher: vscode.FileSystemWatcher | undefined;
+  /**
+   * tier-3 全局档的 fqn/qualifiedName → 定义点索引(0.3.48 性能):此前 resolve
+   * 全局档每次 O(entries×symbols) 线性扫,而 semanticTokens 对每个唯一类型名
+   * resolve 一次,大仓下高亮重算退化为 O(refs×symbols)。惰性建一次 Map 后查询
+   * O(1);entries 任何增删改即失效,下次 resolve 重建(与就地索引同源)。
+   */
+  private globalIndex: Map<string, { uri: vscode.Uri; symbol: SymbolEntry }> | null = null;
 
   /**
    * excludes:用户配置的 scan.excludeDirs(0.3.44 起生效)。此前只排除内建
@@ -39,6 +46,7 @@ export class SymbolIndex {
     this.watcher.onDidChange(uri => this.indexFile(uri));
     this.watcher.onDidDelete(uri => {
       this.entries.delete(uri.fsPath);
+      this.globalIndex = null;
     });
   }
 
@@ -70,6 +78,7 @@ export class SymbolIndex {
         services: scanned.services,
         typeRefs: scanned.typeRefs,
       });
+      this.globalIndex = null;
     } catch {
       // file may have been deleted between discovery and read
     }
@@ -91,6 +100,7 @@ export class SymbolIndex {
       services: scanned.services,
       typeRefs: scanned.typeRefs,
     });
+    this.globalIndex = null;
   }
 
   /**
@@ -121,18 +131,29 @@ export class SymbolIndex {
       }
     }
 
-    // 3. Global: match by qualified name (package.TypeName)
+    // 3. Global: match by qualified name (package.TypeName) — 惰性 Map,O(1) 查(0.3.48)
+    return this.ensureGlobalIndex().get(typeName) ?? null;
+  }
+
+  /**
+   * 全局档索引:fqn(package.qualifiedName)与裸 qualifiedName 都作 key 指向定义点。
+   * 遍历序 = entries 插入序 × symbols 数组序,每 key 首个插入者胜出——精确复刻
+   * 原线性扫描「返回第一个 fqn 或 qualifiedName 匹配的 symbol」语义。
+   */
+  private ensureGlobalIndex(): Map<string, { uri: vscode.Uri; symbol: SymbolEntry }> {
+    if (this.globalIndex) return this.globalIndex;
+    const idx = new Map<string, { uri: vscode.Uri; symbol: SymbolEntry }>();
     for (const [, entry] of this.entries) {
       const pkg = entry.packageName ?? '';
       for (const sym of entry.symbols) {
+        const point = { uri: entry.uri, symbol: sym };
         const fqn = pkg ? `${pkg}.${sym.qualifiedName}` : sym.qualifiedName;
-        if (fqn === typeName || sym.qualifiedName === typeName) {
-          return { uri: entry.uri, symbol: sym };
-        }
+        if (!idx.has(fqn)) idx.set(fqn, point);
+        if (!idx.has(sym.qualifiedName)) idx.set(sym.qualifiedName, point);
       }
     }
-
-    return null;
+    this.globalIndex = idx;
+    return idx;
   }
 
   private matchSymbol(symbols: SymbolEntry[], typeName: string): SymbolEntry | null {

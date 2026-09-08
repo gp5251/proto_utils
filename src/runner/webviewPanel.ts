@@ -122,6 +122,8 @@ export class WorkbenchSession {
   private host: WorkbenchHost | null = null;
   private webviewReady = false;
   private loadInFlight = false;
+  /** loadInFlight 期间到来的重载请求塌缩为此标志,当前 load 收尾后补跑一次(0.3.48)。 */
+  private reloadQueued = false;
   private pendingPrefill: CallTarget | null = null;
   private readonly streams = new Map<string, ActiveStream>();
 
@@ -219,6 +221,13 @@ export class WorkbenchSession {
   }
 
   private async loadAndSend(): Promise<void> {
+    // 并发合并(0.3.48 性能):一次 load 进行中时,新的 ready/refresh/reload 请求
+    // 不再并发发起第二次全量解析,只置 reloadQueued;当前 load 收尾后补跑一次
+    // (多次请求塌缩为「当前 + 至多一次补跑」),避免批量 proto 变更时反复重解析。
+    if (this.loadInFlight) {
+      this.reloadQueued = true;
+      return;
+    }
     this.loadInFlight = true;
     this.send({ type: 'loading' });
     try {
@@ -235,6 +244,10 @@ export class WorkbenchSession {
       // 诊断平面补充触发:runner 只发信号不解释错误串(ADR-0002 单语义解析器),
       // activation 侧重跑 ProtoFrontend 得出与保存路径一致的飘红
       this.deps.onLoadSettled?.();
+      if (this.reloadQueued) {
+        this.reloadQueued = false;
+        void this.loadAndSend();
+      }
     }
   }
 

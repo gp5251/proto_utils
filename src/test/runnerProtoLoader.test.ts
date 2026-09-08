@@ -11,6 +11,7 @@ import {
   resetProtoLoaderCache,
 } from '../runner/core/protoLoader';
 import { serializeServicesForClient, ServiceRegistry } from '../runner/serviceRegistry';
+import { getPackageDefinition } from '../runner/core/protoCache';
 import type { ScanExcludes } from '../runner/config';
 
 const RUNNER_DIR = path.resolve('testdata/runner');
@@ -202,4 +203,25 @@ test('findProtoFileForService 缓存按 excludes 对象引用区分,不串线', 
   const excl: ScanExcludes = { names: new Set(['stale']), paths: [] };
   assert.ok(findProtoFileForService(dir, 'm.Duo', excl)?.endsWith('main.proto'), '不同 excludes 各自解析');
   assert.ok(findProtoFileForService(dir, 'm.Duo')?.includes('stale'), '原键的缓存不受另一键污染');
+});
+
+test('registry.invalidate 保留 protoCache 指纹门:未变文件不重 loadSync(0.3.48 增量重载)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'registry-proto-cache-'));
+  const file = path.join(dir, 'a.proto');
+  fs.writeFileSync(
+    file,
+    'syntax = "proto3";\npackage p;\nservice Svc { rpc M(A) returns (A); }\nmessage A { string id = 1; }\n',
+  );
+
+  const registry = new ServiceRegistry();
+  await registry.load(dir); // 填充 protoCache
+  const defBefore = getPackageDefinition(file, dir); // 命中缓存
+
+  registry.invalidate(); // 清 cached + serviceFileCache,保留 protoCache
+  const defAfter = getPackageDefinition(file, dir); // 仍命中缓存(未被盲清)
+  assert.equal(defBefore, defAfter, 'invalidate 不得盲清 protoCache(其 mtime 指纹门自理增量)');
+
+  // 功能不回归:invalidate 后 load 仍产出正确服务
+  const { services } = await registry.load(dir);
+  assert.ok(services.some((s) => s.fullName === 'p.Svc'), 'invalidate 后仍能加载服务');
 });
