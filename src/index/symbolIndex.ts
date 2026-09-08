@@ -39,7 +39,15 @@ export class SymbolIndex {
   async build(): Promise<void> {
     const excludeGlob = `**/{${SCAN_EXCLUDED_DIRS.join(',')}}/**`;
     const files = await vscode.workspace.findFiles('**/*.proto', excludeGlob);
-    await Promise.all(files.map(uri => this.indexFile(uri)));
+    // 分批索引 + 批间让出事件循环(0.3.49 性能):此前 Promise.all 并发全部
+    // indexFile,上千 proto 的 scanProto 同步块密集排满主线程,饿死
+    // provideCodeLenses/hover(调用按钮延迟很久才出现,autoshop 大仓现场)。
+    // 批间 setImmediate 让出后编辑器请求可插队;watcher 增量仍走 indexFile 单文件。
+    const BATCH = 16;
+    for (let i = 0; i < files.length; i += BATCH) {
+      await Promise.all(files.slice(i, i + BATCH).map(uri => this.indexFile(uri)));
+      await new Promise<void>(resolve => setImmediate(resolve));
+    }
 
     this.watcher = vscode.workspace.createFileSystemWatcher('**/*.proto');
     this.watcher.onDidCreate(uri => this.indexFile(uri));

@@ -10,3 +10,4 @@ tmp/
 media/runner/repro-*
 .codegraph/
 .cursor/
+.qoder/
