@@ -74,6 +74,16 @@ test('流式发送态:startStream 置 loading,applyStreamEnd/applyCallResult 复
   // 出错路径:host onError 发 callResult,复位已在 applyCallResult 守卫覆盖
 });
 
+test('submitCall 入口 isLoading 早退:Enter 表单提交不得绕过发送中禁用', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const start = src.indexOf('submitCall: function');
+  const end = src.indexOf('startStream: function', start);
+  const body = src.slice(start, end);
+  assert.ok(start >= 0 && end > start, '缺 submitCall');
+  assert.ok(body.includes('this.isLoading(svcName, methodName)'), 'submitCall 必须 isLoading 早退');
+  assert.ok(body.indexOf('this.isLoading') < body.indexOf('sendMessage'), '早退必须在发 call 消息之前');
+});
+
 test('applyStreamChunk 走有界窗口(pushBounded + dropped 偏移),长流不吃内存', () => {
   const src = fs.readFileSync(RUNNER_JS, 'utf8');
   const start = src.indexOf('applyStreamChunk: function');

@@ -895,6 +895,11 @@
       // ---- 调用:postMessage 替代 fetch /api/call ----
 
       submitCall: function (svcName, methodName, method) {
+        // 发送中早退:Enter 表单提交经 @submit.prevent 直连这里,绕过按钮 disabled,
+        // 在唯一 choke point 拦下(一元/流式共用),与按钮禁用态契约一致
+        if (this.isLoading(svcName, methodName)) {
+          return;
+        }
         if (method && method.requestStream) {
           return; // client/bidi 流不支持(ADR-0007),按钮已禁用,双保险
         }
