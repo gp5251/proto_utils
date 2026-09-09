@@ -58,6 +58,22 @@ test('服务身份用 svcId(fullName):跨包同短名服务的状态与消息路
   assert.ok(!htmlSrc.includes('toggleService(svc.name'), '模板身份调用点不得再传短名 svc.name');
 });
 
+test('流式发送态:startStream 置 loading,applyStreamEnd/applyCallResult 复位', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const sStart = src.indexOf('startStream: function');
+  const sEnd = src.indexOf('cancelStream: function', sStart);
+  const sBody = src.slice(sStart, sEnd);
+  assert.ok(sStart >= 0 && sEnd > sStart, '缺 startStream');
+  assert.ok(sBody.includes('this.setLoading(key, true)'), 'startStream 必须置 loading(按钮发送中态)');
+
+  const eStart = src.indexOf('applyStreamEnd: function');
+  const eEnd = src.indexOf('getStreamBody: function', eStart);
+  const eBody = src.slice(eStart, eEnd);
+  assert.ok(eStart >= 0 && eEnd > eStart, '缺 applyStreamEnd');
+  assert.ok(eBody.includes('this.setLoading(key, false)'), 'applyStreamEnd 必须复位 loading(流结束/取消)');
+  // 出错路径:host onError 发 callResult,复位已在 applyCallResult 守卫覆盖
+});
+
 test('applyStreamChunk 走有界窗口(pushBounded + dropped 偏移),长流不吃内存', () => {
   const src = fs.readFileSync(RUNNER_JS, 'utf8');
   const start = src.indexOf('applyStreamChunk: function');

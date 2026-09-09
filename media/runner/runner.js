@@ -916,6 +916,8 @@
 
       startStream: function (svcName, methodName) {
         var key = this.methodKey(svcName, methodName);
+        // 流式发送态:按钮变「发送中...」并禁用,流结束/取消/出错经 applyStreamEnd/applyCallResult 复位
+        this.setLoading(key, true);
         this.setResult(key, null);
         this.setCopied(key, false);
         // 折叠树态随流重置:旧 chunk 行/字节缓存与展开态一并清零(0.3.41)
@@ -1021,6 +1023,7 @@
         if (!stream) {
           return;
         }
+        this.setLoading(key, false);
         this.streams = Object.assign({}, this.streams, {
           [key]: Object.assign({}, stream, { done: true, durationMs: msg.durationMs || 0 }),
         });
