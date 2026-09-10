@@ -264,10 +264,19 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                   </div>
                   <div class="method-schema">
                     <div class="method-schema-block">
-                      <div class="method-type-row">
+                      <!-- 0.3.53:返回类型默认折叠,点标题行展开(resblk 作用域键,expandedRows 缺省即折叠) -->
+                      <div
+                        class="method-type-row method-type-row-toggle"
+                        @click.stop="toggleRow(rowKey('resblk', methodKey(svcId(svc), m.name)))"
+                      >
+                        <span
+                          class="collapse-icon"
+                          x-text="isRowOpen(rowKey('resblk', methodKey(svcId(svc), m.name))) ? '▼' : '▶'"
+                        ></span>
                         <span class="method-type-label">${S.responseTypeLabel}</span>
                         <span class="method-type-name" x-text="m.responseType"></span>
                       </div>
+                      <div x-show="isRowOpen(rowKey('resblk', methodKey(svcId(svc), m.name)))">
                       <div x-show="!(m.responseSchemaRows && m.responseSchemaRows.length)" class="method-fields-empty">${S.noFields}</div>
                       <template x-for="(row, rowIdx) in visibleSchemaRows(m.responseSchemaRows, 'res')" :key="m.name + '-res-' + rowIdx">
                         <div>
@@ -302,6 +311,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                           </div>
                         </div>
                       </template>
+                      </div>
                     </div>
                   </div>
                   <form class="form-section" @submit.prevent="sendFromEditor(svcId(svc), m.name, m)">

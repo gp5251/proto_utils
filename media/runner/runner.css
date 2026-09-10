@@ -264,6 +264,8 @@ body {
   color: var(--text);
   word-break: break-all;
 }
+.method-type-row-toggle { cursor: pointer; user-select: none; }
+.method-type-row-toggle:hover { background: var(--surface-hover); }
 .method-field-row {
   display: flex;
   align-items: baseline;
