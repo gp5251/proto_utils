@@ -99,6 +99,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     refreshedErrors: l10n.t('Refreshed · {count} services · {errors} parse errors'),
     chunkCount: l10n.t('{count} messages'),
     ignored: l10n.t('Ignored: {fields}'),
+    emptyLoadError: l10n.t('Unknown load error (empty message)'),
     respMetaHeader: l10n.t('header'),
     respMetaTrailer: l10n.t('trailer'),
     prefillMiss: l10n.t('Call target not found: {service} · {method}. The service list may be outdated — click Refresh.'),

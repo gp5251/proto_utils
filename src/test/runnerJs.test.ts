@@ -74,6 +74,17 @@ test('流式发送态:startStream 置 loading,applyStreamEnd/applyCallResult 复
   // 出错路径:host onError 发 callResult,复位已在 applyCallResult 守卫覆盖
 });
 
+test('applyLoadError 空消息守卫:空串错误/空文本 segments 不得渲染空白红卡', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const start = src.indexOf('function applyLoadError');
+  const end = src.indexOf('var noticeTimer', start);
+  const body = src.slice(start, end);
+  assert.ok(start >= 0 && end > start, '缺 applyLoadError');
+  assert.ok(body.includes('segText.trim()'), '必须检测 segments 拼接文本为空');
+  assert.ok(body.includes("str('emptyLoadError')"), '空消息必须兜底为可见文案');
+  assert.ok(src.includes('emptyLoadError:'), '缺 emptyLoadError 默认串');
+});
+
 test('submitCall 入口 isLoading 早退:Enter 表单提交不得绕过发送中禁用', () => {
   const src = fs.readFileSync(RUNNER_JS, 'utf8');
   const start = src.indexOf('submitCall: function');

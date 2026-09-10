@@ -18,6 +18,7 @@
     refreshedErrors: 'Refreshed · {count} services · {errors} parse errors',
     chunkCount: '{count} messages',
     ignored: 'Ignored: {fields}',
+    emptyLoadError: 'Unknown load error (empty message)',
     prefillMiss: 'Call target not found: {service} · {method}. The service list may be outdated — click Refresh.',
   };
 
@@ -110,10 +111,19 @@
   function applyLoadError(errors, segments) {
     var store = workbenchStore();
     store.errors = Array.isArray(errors) ? errors : [String(errors)];
-    // 0.3.40:出错点分段由扩展侧 parseProtoError 预解析;旧协议缺 segments 退化为整行纯文本段
-    store.errorSegs = Array.isArray(segments) && segments.length === store.errors.length
-      ? segments
-      : store.errors.map(function (e) { return [{ text: e }]; });
+    // 0.3.40:出错点分段由扩展侧 parseProtoError 预解析;旧协议缺 segments 退化为整行纯文本段。
+    // 空消息守卫:空串错误/空文本 segments 会渲染出空白红卡(「报错但看不到原因」),
+    // 逐行兜底为可见文本。
+    var segsArr = Array.isArray(segments) && segments.length === store.errors.length ? segments : null;
+    store.errorSegs = store.errors.map(function (e, i) {
+      var segs = segsArr ? segsArr[i] : null;
+      var segText = Array.isArray(segs) ? segs.map(function (s) { return (s && s.text) || ''; }).join('') : '';
+      if (segText.trim()) {
+        return segs;
+      }
+      var text = e == null ? '' : String(e);
+      return [{ text: text.trim() ? text : str('emptyLoadError') }];
+    });
     endRefresh(store, str('refreshedErrors', { count: store.services.length, errors: store.errors.length }));
     // 致命错误时 services 不会再来,停掉 loading 让错误卡片 + 空态可见
     if (store.services.length === 0) {
