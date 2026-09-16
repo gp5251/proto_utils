@@ -21,6 +21,7 @@
     emptyLoadError: 'Unknown load error (empty message)',
     prefillMiss: 'Call target not found: {service} · {method}. The service list may be outdated — click Refresh.',
     connUnreachable: 'Server unreachable',
+    svcUnavailable: 'Service unavailable — click Refresh to retry',
   };
 
   function str(key, vars) {
@@ -912,6 +913,11 @@
       // ---- 调用:postMessage 替代 fetch /api/call ----
 
       submitCall: function (svcName, methodName, method) {
+        // 探测不可达禁发(0.3.54):与按钮 disabled 契约一致,在唯一 choke point 拦下
+        // Enter 提交/脚本直调的绕过(一元/流式共用,同 isLoading 早退的教训)
+        if (workbenchStore().connState === 'fail') {
+          return;
+        }
         // 发送中早退:Enter 表单提交经 @submit.prevent 直连这里,绕过按钮 disabled,
         // 在唯一 choke point 拦下(一元/流式共用),与按钮禁用态契约一致
         if (this.isLoading(svcName, methodName)) {

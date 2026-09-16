@@ -104,6 +104,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     respMetaTrailer: l10n.t('trailer'),
     prefillMiss: l10n.t('Call target not found: {service} · {method}. The service list may be outdated — click Refresh.'),
     connUnreachable: l10n.t('Server unreachable'),
+    svcUnavailable: l10n.t('Service unavailable — click Refresh to retry'),
   };
   const boot = {
     server: options.server,
@@ -498,13 +499,15 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                       <button
                         type="button"
                         class="btn"
-                        :disabled="isLoading(svcId(svc), m.name) || m.requestStream"
+                        :disabled="isLoading(svcId(svc), m.name) || m.requestStream || $store.workbench.connState === 'fail'"
                         @click="sendFromEditor(svcId(svc), m.name, m)"
                       >
                         <span x-show="!isLoading(svcId(svc), m.name)">${S.send}</span>
                         <span x-show="isLoading(svcId(svc), m.name)">${S.sending}</span>
                       </button>
                       <p x-show="m.requestStream" class="unsupported-hint">${S.unsupportedStream}</p>
+                      <!-- 0.3.54:探测不可达时禁发并就地提示;unknown(探测中)不拦,可达服务不吃 1.5s 探测闪断 -->
+                      <p x-show="$store.workbench.connState === 'fail'" class="unsupported-hint" x-text="$store.str.svcUnavailable"></p>
                     </div>
                   </form>
 

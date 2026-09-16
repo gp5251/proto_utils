@@ -95,6 +95,19 @@ test('submitCall 入口 isLoading 早退:Enter 表单提交不得绕过发送中
   assert.ok(body.indexOf('this.isLoading') < body.indexOf('sendMessage'), '早退必须在发 call 消息之前');
 });
 
+test('submitCall 不可达早退(0.3.54):connState fail 在发消息前拦下(与按钮 disabled 同契约)', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const start = src.indexOf('submitCall: function');
+  const end = src.indexOf('startStream: function', start);
+  const body = src.slice(start, end);
+  assert.ok(body.includes("connState === 'fail'"), 'submitCall 缺不可达早退');
+  assert.ok(
+    body.indexOf("connState === 'fail'") < body.indexOf('sendMessage'),
+    '不可达早退必须在发 call 消息之前',
+  );
+  assert.ok(src.includes('svcUnavailable:'), '缺 svcUnavailable 默认串');
+});
+
 test('applyStreamChunk 走有界窗口(pushBounded + dropped 偏移),长流不吃内存', () => {
   const src = fs.readFileSync(RUNNER_JS, 'utf8');
   const start = src.indexOf('applyStreamChunk: function');

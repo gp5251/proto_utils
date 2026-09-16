@@ -230,6 +230,20 @@ test('顶栏连接状态点(0.3.54):绑定 connState 三态,不可达提示文�
   assert.ok(html.includes('Server unreachable'), 'boot.strings 缺不可达文案值');
 });
 
+test('不可达禁发(0.3.54):发送按钮 disabled 含 connState fail,就地提示复用 unsupported-hint', () => {
+  const html = render();
+  assert.ok(
+    html.includes(":disabled=\"isLoading(svcId(svc), m.name) || m.requestStream || $store.workbench.connState === 'fail'\""),
+    '发送按钮 disabled 必须含 connState fail 条件',
+  );
+  // 提示与按钮同容器,复用 unsupported-hint 样式(CSS 零改动)
+  assert.ok(
+    html.includes('x-show="$store.workbench.connState === \'fail\'" class="unsupported-hint" x-text="$store.str.svcUnavailable"'),
+    '缺不可达就地提示槽',
+  );
+  assert.ok(html.includes('Service unavailable'), 'boot.strings 缺禁发提示文案值');
+});
+
 test('x-show 与 :style 不得同元素:services 重推后 :style 字符串重赋值会抹掉 x-show 的 display:none(空白行回归守卫)', () => {
   const html = render();
   // 抓所有开标签(含跨行),任何元素同时带 x-show 与 :style 即违规
