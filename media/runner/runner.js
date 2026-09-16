@@ -22,6 +22,8 @@
     prefillMiss: 'Call target not found: {service} · {method}. The service list may be outdated — click Refresh.',
     connUnreachable: 'Server unreachable',
     svcUnavailable: 'Service unavailable — click Refresh to retry',
+    connRestored: 'Connection restored',
+    connLost: 'Connection lost',
   };
 
   function str(key, vars) {
@@ -92,10 +94,17 @@
         pendingPrefill = { service: msg.service, method: msg.method };
         tryApplyPrefill();
         break;
-      case 'connState':
+      case 'connState': {
         // host 侧连通性探测结果(0.3.54):顶栏状态点 unknown=灰/ok=绿/fail=红
-        workbenchStore().connState = msg.state === 'ok' ? 'ok' : 'fail';
+        var connStore = workbenchStore();
+        var prevConn = connStore.connState;
+        var nextConn = msg.state === 'ok' ? 'ok' : 'fail';
+        connStore.connState = nextConn;
+        // 0.3.57:跃迁瞬时提醒——fail→ok 恢复,ok→fail 断开;unknown 首探不打扰
+        if (prevConn === 'fail' && nextConn === 'ok') showNotice(connStore, str('connRestored'));
+        if (prevConn === 'ok' && nextConn === 'fail') showNotice(connStore, str('connLost'));
         break;
+      }
     }
   }
 
@@ -137,19 +146,24 @@
     }
   }
 
-  // 刷新反馈:完成提示短暂显示后自动消失;后到的提示覆盖先到的
+  // 瞬时通知:refreshNotice 显示 2.5s 后自动消失;后到的提示覆盖先到的
   var noticeTimer = 0;
-  function endRefresh(store, notice) {
-    if (!store.refreshing) {
-      return; // 非刷新触发(初次加载/watcher 自动刷新)不打扰
-    }
-    store.refreshing = false;
+  function showNotice(store, notice) {
     store.refreshNotice = notice;
     clearTimeout(noticeTimer);
     noticeTimer = setTimeout(function () {
       store.refreshNotice = '';
       noticeTimer = 0;
     }, 2500);
+  }
+
+  // 刷新反馈:完成提示短暂显示后自动消失;后到的提示覆盖先到的
+  function endRefresh(store, notice) {
+    if (!store.refreshing) {
+      return; // 非刷新触发(初次加载/watcher 自动刷新)不打扰
+    }
+    store.refreshing = false;
+    showNotice(store, notice);
   }
 
   function tryApplyPrefill() {

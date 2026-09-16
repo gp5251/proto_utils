@@ -162,3 +162,25 @@ test('connState 消息路由(0.3.54):状态点 unknown 默认,host 推送后转 
   assert.ok(src.includes("connState: 'unknown'"), 'store 缺 connState 默认态');
   assert.ok(src.includes('connUnreachable:'), '缺 connUnreachable 默认串');
 });
+
+test('connState 跃迁提醒(0.3.57):fail→ok 提示恢复,ok→fail 提示断开,unknown 首探不提醒', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const start = src.indexOf("case 'connState':");
+  assert.ok(start >= 0, '缺 connState 消息路由');
+  const body = src.slice(start, src.indexOf('break;', start));
+  // 先存旧态再赋新态,两个方向各一条提醒
+  assert.ok(body.includes('prevConn'), '必须先存跃迁前状态');
+  assert.ok(
+    body.includes("prevConn === 'fail' && nextConn === 'ok'") && body.includes("str('connRestored')"),
+    'fail→ok 必须提示连接已恢复',
+  );
+  assert.ok(
+    body.includes("prevConn === 'ok' && nextConn === 'fail'") && body.includes("str('connLost')"),
+    'ok→fail 必须提示连接已断开',
+  );
+  // unknown 不出现在任何提醒条件里(首探不打扰)
+  assert.ok(!body.includes("prevConn === 'unknown'"), 'unknown 首探不得提醒');
+  assert.ok(src.includes('connRestored:') && src.includes('connLost:'), '缺跃迁文案默认串');
+  // 提醒走 showNotice 瞬时通道(2.5s 自动消失),不得常驻 refreshNotice
+  assert.ok(body.includes('showNotice('), '跃迁提醒必须走 showNotice');
+});

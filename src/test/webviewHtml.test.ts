@@ -242,6 +242,8 @@ test('不可达禁发(0.3.54):发送按钮 disabled 含 connState fail,就地提
     '缺不可达就地提示槽',
   );
   assert.ok(html.includes('Service unavailable'), 'boot.strings 缺禁发提示文案值');
+  // 0.3.57:跃迁瞬时提醒文案
+  assert.ok(html.includes('Connection restored') && html.includes('Connection lost'), 'boot.strings 缺跃迁提醒文案');
 });
 
 test('x-show 与 :style 不得同元素:services 重推后 :style 字符串重赋值会抹掉 x-show 的 display:none(空白行回归守卫)', () => {

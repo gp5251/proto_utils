@@ -105,6 +105,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     prefillMiss: l10n.t('Call target not found: {service} · {method}. The service list may be outdated — click Refresh.'),
     connUnreachable: l10n.t('Server unreachable'),
     svcUnavailable: l10n.t('Service unavailable — click Refresh to retry'),
+    connRestored: l10n.t('Connection restored'),
+    connLost: l10n.t('Connection lost'),
   };
   const boot = {
     server: options.server,
