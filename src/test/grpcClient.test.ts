@@ -1,9 +1,10 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import net from 'node:net';
 import path from 'node:path';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
-import { GrpcClient, buildChannelCredentials } from '../runner/core/grpcClient';
+import { GrpcClient, buildChannelCredentials, probeServerConnectivity } from '../runner/core/grpcClient';
 
 /**
  * GrpcClient 的行为测试:对 in-process grpc-js Server 发真实 loopback 调用。
@@ -393,6 +394,22 @@ test('timeoutMs 到点未响应 → DEADLINE_EXCEEDED', async () => {
   assert.equal(result.status, 'error');
   if (result.status === 'error') assert.match(result.error, /DEADLINE_EXCEEDED/);
   assert.ok(result.durationMs < 5000, `deadline 未生效,耗时 ${result.durationMs}ms`);
+});
+
+test('probeServerConnectivity(0.3.54):活体服务 true;死端口 deadline 内判 false', async () => {
+  assert.equal(await probeServerConnectivity(serverAddress, grpc.credentials.createInsecure()), true);
+
+  // 先占后放一个端口,拿到「几乎必然空闲」的地址;探测应在 deadline 内失败而非挂住
+  const deadPort = await new Promise<number>((resolve) => {
+    const s = net.createServer();
+    s.listen(0, '127.0.0.1', () => {
+      const p = (s.address() as net.AddressInfo).port;
+      s.close(() => resolve(p));
+    });
+  });
+  const startedAt = Date.now();
+  assert.equal(await probeServerConnectivity(`127.0.0.1:${deadPort}`, grpc.credentials.createInsecure(), 500), false);
+  assert.ok(Date.now() - startedAt < 5000, '探测不得无限挂住');
 });
 
 test('buildChannelCredentials:未启用 → insecure;证书只配一个 → 抛中文错误;PEM 不存在 → 抛带路径的中文错', () => {

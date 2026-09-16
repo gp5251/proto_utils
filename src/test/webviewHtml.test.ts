@@ -221,6 +221,15 @@ test('prefill miss 反馈锚点:通知卡片 + host 文案 + services 到达即�
   assert.ok(tsSrc.includes('prefillMiss: l10n.t('), 'host 侧必须下发 prefillMiss 文案');
 });
 
+test('顶栏连接状态点(0.3.54):绑定 connState 三态,不可达提示文案进 boot.strings', () => {
+  const html = render();
+  // 状态点颜色走 :class 绑定(unknown=灰/ok=绿/fail=红),不再是静态绿点
+  assert.ok(html.includes('class="dot" :class="$store.workbench.connState"'), '状态点必须绑定 connState');
+  assert.ok(html.includes("$store.workbench.connState === 'fail'"), '缺不可达提示的显隐门控');
+  assert.ok(html.includes('connUnreachable'), '缺不可达文案键');
+  assert.ok(html.includes('Server unreachable'), 'boot.strings 缺不可达文案值');
+});
+
 test('x-show 与 :style 不得同元素:services 重推后 :style 字符串重赋值会抹掉 x-show 的 display:none(空白行回归守卫)', () => {
   const html = render();
   // 抓所有开标签(含跨行),任何元素同时带 x-show 与 :style 即违规

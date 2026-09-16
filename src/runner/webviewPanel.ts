@@ -6,7 +6,7 @@ import { resolveRunnerConfig as resolveRunnerConfigPure } from './config';
 import { generateNonce, renderWorkbenchHtml } from './webviewHtml';
 import { parseProtoError, type ErrorSegment } from '../protoErrorMessage';
 
-// ---- 消息协议(字段名冻结,只增不改;0.3.40 loadError 增 segments) ----
+// ---- 消息协议(字段名冻结,只增不改;0.3.40 loadError 增 segments;0.3.54 增 connState) ----
 
 export type WebviewToWorkbench =
   | { type: 'ready' }
@@ -25,7 +25,9 @@ export type WorkbenchToWebview =
   | { type: 'streamHeaders'; service: string; method: string; headers: MetadataEntry[] }
   | { type: 'streamTrailers'; service: string; method: string; trailers: MetadataEntry[] }
   | { type: 'streamEnd'; service: string; method: string; durationMs: number }
-  | { type: 'prefill'; service: string; method: string };
+  | { type: 'prefill'; service: string; method: string }
+  /** 顶栏连接状态点:ok=通道可达,fail=不可达/超时/配置错(0.3.54) */
+  | { type: 'connState'; state: 'ok' | 'fail' };
 
 /** 纯消息路由层与 vscode 之间的最小宿主面;onDispose 可注册多个监听器,测试用 fake 实现。 */
 export interface WorkbenchHost {
@@ -40,6 +42,8 @@ export interface WorkbenchSessionDeps {
   getConfig(): { server: string; protoDir: string; metadata: MetadataEntry[] };
   /** 0.3.40:proto 加载尘埃落定(成功/部分错误/抛错)后回调,activation 侧借此补诊断飘红。可选,测试不受影响。 */
   onLoadSettled?(): void;
+  /** 0.3.54:后端连通性探测(顶栏状态点数据源);未注入则状态点保持未知态,不发 connState。 */
+  probeConnection?(): Promise<boolean>;
 }
 
 interface CallTarget {
@@ -230,6 +234,9 @@ export class WorkbenchSession {
     }
     this.loadInFlight = true;
     this.send({ type: 'loading' });
+    // 连通性探测走旁路:不阻塞 load 主链,结果异步推 connState。
+    // 挂在 loadAndSend 一个点,ready/refresh/watcher 重载全覆盖。
+    void this.probe();
     try {
       const { services, errors } = await this.deps.registry.load(this.deps.getConfig().protoDir);
       this.send({ type: 'services', payload: services });
@@ -249,6 +256,20 @@ export class WorkbenchSession {
         void this.loadAndSend();
       }
     }
+  }
+
+  /** 探测失败与抛错同报 fail(不可达/超时/TLS 配置错);未注入依赖则静默(状态点停未知态)。 */
+  private async probe(): Promise<void> {
+    if (!this.deps.probeConnection) {
+      return;
+    }
+    let reachable = false;
+    try {
+      reachable = await this.deps.probeConnection();
+    } catch {
+      reachable = false;
+    }
+    this.send({ type: 'connState', state: reachable ? 'ok' : 'fail' });
   }
 
   private async runUnary(target: CallTarget, values: Record<string, unknown>, metadata: MetadataEntry[]): Promise<void> {

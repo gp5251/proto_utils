@@ -6,3 +6,4 @@
 export { WorkbenchPanelManager, createVscodePanelFactory, resolveRunnerConfig } from './webviewPanel';
 export { ServiceRegistry } from './serviceRegistry';
 export { GrpcCallRunner } from './callHandler';
+export { probeServerConnectivity, buildChannelCredentials } from './core/grpcClient';

@@ -35,6 +35,18 @@ function nextTick(): Promise<void> {
   return promise;
 }
 
+/** 探测是 fire-and-forget 旁路,与 load 主链无时序约定:轮询等目标消息落定(有界防挂死) */
+async function untilPosted(posted: WorkbenchToWebview[], type: string): Promise<WorkbenchToWebview | undefined> {
+  for (let i = 0; i < 50; i++) {
+    const hit = posted.find((m) => m.type === type);
+    if (hit) {
+      return hit;
+    }
+    await new Promise((r) => setImmediate(r));
+  }
+  return undefined;
+}
+
 const SERVICES: ServicesPayload = [{ name: 'Greeter', fullName: 'c.Greeter', methods: [] }];
 
 function makeDeps(overrides: {
@@ -42,6 +54,7 @@ function makeDeps(overrides: {
   loadError?: Error;
   runner?: Partial<CallRunner>;
   onLoadSettled?: () => void;
+  probeConnection?: () => Promise<boolean>;
 } = {}) {
   const state = { invalidated: 0, protoDir: 'D:/protos' };
   const deps = {
@@ -65,6 +78,7 @@ function makeDeps(overrides: {
     } as CallRunner,
     getConfig: () => ({ server: 'localhost:50051', protoDir: state.protoDir, metadata: [] }),
     ...(overrides.onLoadSettled ? { onLoadSettled: overrides.onLoadSettled } : {}),
+    ...(overrides.probeConnection ? { probeConnection: overrides.probeConnection } : {}),
   };
   return { deps, state };
 }
@@ -157,6 +171,38 @@ test('未注入 onLoadSettled 时加载照常(可选依赖)', async () => {
   emit({ type: 'ready' });
   await nextTick();
   assert.deepEqual(posted.map((m) => m.type), ['loading', 'services']);
+});
+
+test('连通性探测(0.3.54):ready/refresh 各探测一次,可达 ok/不可达 fail/抛错 fail', async () => {
+  // 可达 → ok;refresh 重探一次
+  let probes = 0;
+  const okCase = makeHost();
+  new WorkbenchSession(makeDeps({ probeConnection: async () => { probes++; return true; } }).deps).attach(okCase.host);
+  okCase.emit({ type: 'ready' });
+  assert.deepEqual(await untilPosted(okCase.posted, 'connState'), { type: 'connState', state: 'ok' });
+  assert.equal(probes, 1);
+  okCase.emit({ type: 'refresh' });
+  // refresh 的 services 与首发同型,不能靠 untilPosted 区分;直接等探测计数落定
+  for (let i = 0; i < 50 && probes < 2; i++) {
+    await new Promise((r) => setImmediate(r));
+  }
+  assert.equal(probes, 2, 'refresh 必须重探(后端可能刚上下线)');
+
+  // 不可达与探测抛错(TLS 配置错等)同报 fail
+  for (const probeConnection of [async () => false, async () => { throw new Error('tls cfg'); }]) {
+    const c = makeHost();
+    new WorkbenchSession(makeDeps({ probeConnection }).deps).attach(c.host);
+    c.emit({ type: 'ready' });
+    assert.deepEqual(await untilPosted(c.posted, 'connState'), { type: 'connState', state: 'fail' });
+  }
+});
+
+test('未注入 probeConnection 时不发 connState(状态点保持未知态)', async () => {
+  const { host, posted, emit } = makeHost();
+  new WorkbenchSession(makeDeps().deps).attach(host);
+  emit({ type: 'ready' });
+  await nextTick();
+  assert.ok(!posted.some((m) => m.type === 'connState'));
 });
 
 test('call/callStream 的 metadata 经 sanitize 后透传给 runner(只收 {key,value} 字符串项)', async () => {

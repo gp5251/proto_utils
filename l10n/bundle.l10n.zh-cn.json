@@ -66,6 +66,7 @@
   "Ignored: {fields}": "已忽略:{fields}",
   "Unknown load error (empty message)": "未知加载错误(空消息)",
   "Call target not found: {service} · {method}. The service list may be outdated — click Refresh.": "未找到调用目标:{service} · {method}。服务列表可能已过期,请点击刷新。",
+  "Server unreachable": "服务器不可达",
   "Response metadata": "响应 metadata",
   "header": "头部",
   "trailer": "尾部",

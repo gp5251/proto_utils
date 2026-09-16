@@ -81,7 +81,10 @@ body {
 .page-header .page-title { margin-bottom: 0; }
 .page-meta { font-size: 12px; color: var(--text-dim); display: flex; gap: 16px; align-items: center; justify-content: flex-end; }
 .page-meta span { display: flex; align-items: center; gap: 5px; }
-.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); display: inline-block; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); display: inline-block; }
+.dot.ok { background: var(--success); }
+.dot.fail { background: var(--danger); }
+.conn-hint { color: var(--danger); }
 
 .topbar-search { flex: 0 1 960px; max-width: 100%; }
 .topbar-search input {

@@ -39,6 +39,28 @@ export function buildChannelCredentials(tls: TlsSettings): grpc.ChannelCredentia
   );
 }
 
+/**
+ * 连通性探测(0.3.54):裸 grpc.Client + waitForReady,只验证 deadline 内通道可达,
+ * 不依赖任何服务定义。工作台顶栏连接状态点的数据源;不可达/超时一律 false,不抛。
+ */
+export async function probeServerConnectivity(
+  address: string,
+  credentials: grpc.ChannelCredentials,
+  timeoutMs = 1500,
+): Promise<boolean> {
+  const client = new grpc.Client(address, credentials);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      client.waitForReady(Date.now() + timeoutMs, (err?: Error) => (err ? reject(err) : resolve()));
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    client.close();
+  }
+}
+
 type UnaryCall = (
   req: unknown,
   metadata: grpc.Metadata,

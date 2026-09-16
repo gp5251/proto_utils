@@ -142,3 +142,10 @@ test('prefill miss 必须可见:置 prefillNotice 并丢弃滞留,不得零反�
 
   assert.ok(src.includes('prefillMiss:'), '缺 miss 文案默认串');
 });
+
+test('connState 消息路由(0.3.54):状态点 unknown 默认,host 推送后转 ok/fail', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  assert.ok(src.includes("case 'connState':"), '缺 connState 消息路由');
+  assert.ok(src.includes("connState: 'unknown'"), 'store 缺 connState 默认态');
+  assert.ok(src.includes('connUnreachable:'), '缺 connUnreachable 默认串');
+});

@@ -20,6 +20,7 @@
     ignored: 'Ignored: {fields}',
     emptyLoadError: 'Unknown load error (empty message)',
     prefillMiss: 'Call target not found: {service} · {method}. The service list may be outdated — click Refresh.',
+    connUnreachable: 'Server unreachable',
   };
 
   function str(key, vars) {
@@ -89,6 +90,10 @@
       case 'prefill':
         pendingPrefill = { service: msg.service, method: msg.method };
         tryApplyPrefill();
+        break;
+      case 'connState':
+        // host 侧连通性探测结果(0.3.54):顶栏状态点 unknown=灰/ok=绿/fail=红
+        workbenchStore().connState = msg.state === 'ok' ? 'ok' : 'fail';
         break;
     }
   }
@@ -179,6 +184,8 @@
       protoDir: typeof boot.protoDir === 'string' ? boot.protoDir : '',
       refreshing: false,
       refreshNotice: '',
+      // 后端连通性:unknown=未探测(灰),host 推 connState 后转 ok(绿)/fail(红)
+      connState: 'unknown',
     });
 
     // 顶栏刷新区:@alpinejs/csp 表达式见不到 window 全局(0.3.19 前的 postRefresh 全局入口因此从未生效),

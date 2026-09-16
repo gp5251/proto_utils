@@ -162,6 +162,12 @@ class LazyWorkbench {
       runner: new runner.GrpcCallRunner(() => runner.resolveRunnerConfig(), registry),
       getConfig: () => runner.resolveRunnerConfig(),
       onLoadSettled: this.onLoadSettled,
+      // 顶栏连接状态点(0.3.54):与调用路径读同一份现读配置(server+TLS),配置改动即时生效;
+      // TLS 配置错会在此抛错,session 按不可达处理(状态点转红),精确错误仍由实际调用面报出。
+      probeConnection: () => {
+        const cfg = runner.resolveRunnerConfig();
+        return runner.probeServerConnectivity(cfg.server, runner.buildChannelCredentials(cfg.tls));
+      },
     };
     this.invalidateRunnerCaches = () => registry.invalidate();
     return new runner.WorkbenchPanelManager(deps, runner.createVscodePanelFactory(this.context.extensionUri, deps));

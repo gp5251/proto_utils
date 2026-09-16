@@ -103,6 +103,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     respMetaHeader: l10n.t('header'),
     respMetaTrailer: l10n.t('trailer'),
     prefillMiss: l10n.t('Call target not found: {service} · {method}. The service list may be outdated — click Refresh.'),
+    connUnreachable: l10n.t('Server unreachable'),
   };
   const boot = {
     server: options.server,
@@ -146,7 +147,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     <div class="page-header">
       <h1 class="page-title">${S.heading}</h1>
       <div class="page-meta" x-data="pageMeta" x-cloak>
-        <span><span class="dot"></span><span x-text="$store.workbench.server"></span></span>
+        <!-- 0.3.54:状态点绑定真实连通性(connState 由 host 探测推送;unknown=灰/ok=绿/fail=红) -->
+        <span><span class="dot" :class="$store.workbench.connState"></span><span x-text="$store.workbench.server"></span><span class="conn-hint" x-show="$store.workbench.connState === 'fail'" x-text="$store.str.connUnreachable"></span></span>
         <button type="button" class="btn btn-secondary btn-xs" :disabled="$store.workbench.refreshing" @click="refresh()">
           <span x-show="!$store.workbench.refreshing">${S.refresh}</span>
           <span x-show="$store.workbench.refreshing"><span class="proto-loading-spinner"></span>${S.refreshing}</span>
