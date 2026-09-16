@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   WorkbenchSession,
@@ -203,6 +203,66 @@ test('未注入 probeConnection 时不发 connState(状态点保持未知态)', 
   emit({ type: 'ready' });
   await nextTick();
   assert.ok(!posted.some((m) => m.type === 'connState'));
+});
+
+test('探测失败每 5s 自动重探(0.3.56):持续 fail 持续重探,恢复 ok 即停', async (t) => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(() => mock.timers.reset());
+
+  let calls = 0;
+  // fail → fail → ok:验证重探排期与恢复停止
+  const outcomes = [false, false, true];
+  const probeConnection = async () => outcomes[Math.min(calls++, outcomes.length - 1)];
+  const { host, posted, emit } = makeHost();
+  new WorkbenchSession(makeDeps({ probeConnection }).deps).attach(host);
+
+  emit({ type: 'ready' });
+  assert.deepEqual(await untilPosted(posted, 'connState'), { type: 'connState', state: 'fail' });
+  assert.equal(calls, 1);
+
+  // 4.9s 未到点不重探,5s 到点自动重探第二次(仍 fail → 再排一次)
+  mock.timers.tick(4900);
+  await nextTick();
+  assert.equal(calls, 1, '未到 5s 不得提前重探');
+  mock.timers.tick(200);
+  // tick 内同步发起 probe(calls 已递增),但 send/再排期在 promise 续体——先刷一轮微任务再断言
+  await new Promise((r) => setImmediate(r));
+  assert.equal(calls, 2, '5s 到点必须自动重探');
+
+  // 第三次转 ok:此后不再排期
+  mock.timers.tick(5000);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(calls, 3);
+  assert.deepEqual(posted[posted.length - 1], { type: 'connState', state: 'ok' });
+  mock.timers.tick(20000);
+  await nextTick();
+  assert.equal(calls, 3, '恢复后不得再重探');
+});
+
+test('面板销毁后不再自动重探(dispose 清定时器)', async (t) => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(() => mock.timers.reset());
+
+  let calls = 0;
+  const { host, emit, dispose } = makeHost();
+  new WorkbenchSession(
+    makeDeps({
+      probeConnection: async () => {
+        calls++;
+        return false;
+      },
+    }).deps,
+  ).attach(host);
+  emit({ type: 'ready' });
+  for (let i = 0; i < 50 && calls < 1; i++) {
+    await new Promise((r) => setImmediate(r));
+  }
+  assert.equal(calls, 1);
+
+  dispose();
+  mock.timers.tick(20000);
+  await nextTick();
+  assert.equal(calls, 1, 'dispose 后不得再重探');
 });
 
 test('call/callStream 的 metadata 经 sanitize 后透传给 runner(只收 {key,value} 字符串项)', async () => {

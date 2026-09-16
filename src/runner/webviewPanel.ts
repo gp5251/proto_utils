@@ -46,6 +46,9 @@ export interface WorkbenchSessionDeps {
   probeConnection?(): Promise<boolean>;
 }
 
+/** 探测失败后的自动重探间隔(0.3.56):后端重启后状态点自动转绿、按钮自动解禁,免手动刷新。 */
+const PROBE_RETRY_MS = 5000;
+
 interface CallTarget {
   service: string;
   method: string;
@@ -130,6 +133,8 @@ export class WorkbenchSession {
   private reloadQueued = false;
   private pendingPrefill: CallTarget | null = null;
   private readonly streams = new Map<string, ActiveStream>();
+  /** 自动重探定时器;同一时刻至多一个,dispose 时清除。 */
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly deps: WorkbenchSessionDeps) {}
 
@@ -201,6 +206,7 @@ export class WorkbenchSession {
   }
 
   dispose(): void {
+    this.cancelRetry();
     for (const entry of this.streams.values()) {
       entry.active = false;
       entry.cancel();
@@ -258,7 +264,8 @@ export class WorkbenchSession {
     }
   }
 
-  /** 探测失败与抛错同报 fail(不可达/超时/TLS 配置错);未注入依赖则静默(状态点停未知态)。 */
+  /** 探测失败与抛错同报 fail(不可达/超时/TLS 配置错);未注入依赖则静默(状态点停未知态)。
+   *  fail 后每 5s 自动重探(0.3.56),转 ok 即停;探测现读配置,server 改动自动生效。 */
   private async probe(): Promise<void> {
     if (!this.deps.probeConnection) {
       return;
@@ -270,6 +277,30 @@ export class WorkbenchSession {
       reachable = false;
     }
     this.send({ type: 'connState', state: reachable ? 'ok' : 'fail' });
+    if (reachable) {
+      this.cancelRetry();
+    } else {
+      this.scheduleRetry();
+    }
+  }
+
+  private scheduleRetry(): void {
+    if (this.retryTimer) {
+      return; // 并发探测只排一次
+    }
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      void this.probe();
+    }, PROBE_RETRY_MS);
+    // 不挡进程退出:测试环境 fail 路径的挂起定时器不拖累 node:test 收尾
+    this.retryTimer.unref?.();
+  }
+
+  private cancelRetry(): void {
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
   }
 
   private async runUnary(target: CallTarget, values: Record<string, unknown>, metadata: MetadataEntry[]): Promise<void> {
