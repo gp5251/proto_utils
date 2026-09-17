@@ -233,7 +233,7 @@ test('未注入 probeConnection 时不发 connState(状态点保持未知态)', 
   assert.ok(!posted.some((m) => m.type === 'connState'));
 });
 
-test('每 5s 周期复探(0.3.59):fail 与 ok 都持续复探,仅 dispose 停表', async (t) => {
+test('每 5s 周期复探(0.3.60):fail 与 ok 都持续复探,仅 dispose 停表', async (t) => {
   mock.timers.enable({ apis: ['setTimeout'] });
   t.after(() => mock.timers.reset());
 
@@ -263,7 +263,7 @@ test('每 5s 周期复探(0.3.59):fail 与 ok 都持续复探,仅 dispose 停表
   assert.equal(calls, 3);
   assert.deepEqual(posted[posted.length - 1], { type: 'connState', state: 'ok' });
 
-  // 可达也周期复探(0.3.59):转 ok 后仍每 5s 继续,不再“恢复即停”
+  // 可达也周期复探(0.3.60):转 ok 后仍每 5s 继续,不再“恢复即停”
   mock.timers.tick(5000);
   await new Promise((r) => setImmediate(r));
   assert.equal(calls, 4, '转 ok 后仍须周期复探');
