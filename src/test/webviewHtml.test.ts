@@ -273,4 +273,7 @@ test('序列视图锚点(0.3.59):视图切换/加入序列/运行控制/报告 +
   ]) {
     assert.ok(html.includes(anchor), `缺序列锚点: ${anchor}`);
   }
+  // 序列枚举 select 必须 option 级 :selected(预填值在 options 渲染前赋值会被丢弃,0.3.61)
+  assert.ok(html.includes(':selected="getFieldValue(step.id, row.path) === ev.name"'), '序列枚举缺 option 级 :selected');
+  assert.ok(html.includes(':selected="!getFieldValue(step.id, row.path)"'), '序列枚举占位 option 缺 :selected');
 });

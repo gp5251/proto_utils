@@ -180,6 +180,12 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
   <div class="container" x-data="homePage" x-cloak>
     <div class="page-header">
       <h1 class="page-title">${S.heading}</h1>
+
+      <div class="view-tabs">
+        <button type="button" class="view-tab" :class="{ 'view-tab-active': $store.workbench.view === 'services' }" @click="setView('services')">${S.servicesTab}</button>
+        <button type="button" class="view-tab" :class="{ 'view-tab-active': $store.workbench.view === 'sequence' }" @click="setView('sequence')">${S.sequenceTab}</button>
+      </div>
+
       <div class="page-meta" x-data="pageMeta" x-cloak>
         <!-- 0.3.54:状态点绑定真实连通性(connState 由 host 探测推送;unknown=灰/ok=绿/fail=红) -->
         <span><span class="dot" :class="$store.workbench.connState"></span><span x-text="$store.workbench.server"></span><span class="conn-hint" x-show="$store.workbench.connState === 'fail'" x-text="$store.str.connUnreachable"></span></span>
@@ -189,11 +195,6 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
         </button>
         <span class="refresh-notice" x-show="$store.workbench.refreshNotice" x-text="$store.workbench.refreshNotice" x-transition.opacity></span>
       </div>
-    </div>
-
-    <div class="view-tabs">
-      <button type="button" class="view-tab" :class="{ 'view-tab-active': $store.workbench.view === 'services' }" @click="setView('services')">${S.servicesTab}</button>
-      <button type="button" class="view-tab" :class="{ 'view-tab-active': $store.workbench.view === 'sequence' }" @click="setView('sequence')">${S.sequenceTab}</button>
     </div>
 
     <div class="card" id="proto-loading-card" x-show="$store.workbench.state === 'loading'">
@@ -815,10 +816,12 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                         <input type="checkbox" :checked="getFieldValue(step.id, row.path)" @change="setFieldValue(step.id, row.path, $event.target.checked)">
                       </template>
                       <template x-if="row.field.protoType === 'TYPE_ENUM' && row.field.enumValues && row.field.enumValues.length > 0">
-                        <select class="enum-select" :value="getFieldValue(step.id, row.path)" @change="setFieldValue(step.id, row.path, $event.target.value)">
-                          <option value="">${S.selectPlaceholder}</option>
+                        <!-- 序列表入参是渲染前预填的:select 的 :value 会在 x-for options 渲染前赋值被浏览器丢弃(回落空)。
+                             改 option 级 :selected,各 option 渲染时自判选中,与渲染顺序无关(0.3.61)。 -->
+                        <select class="enum-select" @change="setFieldValue(step.id, row.path, $event.target.value)">
+                          <option value="" :selected="!getFieldValue(step.id, row.path)">${S.selectPlaceholder}</option>
                           <template x-for="ev in row.field.enumValues" :key="ev.name">
-                            <option :value="ev.name" x-text="enumOptionLabel(ev, row.field.enumValues)"></option>
+                            <option :value="ev.name" :selected="getFieldValue(step.id, row.path) === ev.name" x-text="enumOptionLabel(ev, row.field.enumValues)"></option>
                           </template>
                         </select>
                       </template>

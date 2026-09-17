@@ -680,7 +680,8 @@ input[type="checkbox"] {
 .view-tabs {
   display: flex;
   gap: 4px;
-  margin: 0 0 14px;
+  /* margin: 0 0 14px; */
+  margin-right: auto;
   border-bottom: 1px solid var(--border);
 }
 .view-tab {
