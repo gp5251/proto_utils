@@ -47,6 +47,20 @@
     return qi === query.length;
   }
 
+  // 服务名命中:短名走模糊;fullName(包限定名)只收「子串」或「单个点分段内模糊」。
+  // 整串 fullName 跑跨段子序列会让短词散字命中包名段(trace → au[t]oshop.p[r]oject.v1.[a]utoshop.[c]ommunicat[e]...),
+  // 全部服务命中、filteredMethods 又因服务命中返回全方法——过滤列表看似完全无效(0.3.58 实证)。
+  // ponytail:跨段子序列有意不收;包名检索走子串(含点),段内容错走 fuzzy,天花板是段内打散顺序仍命中。
+  function matchServiceName(query, svc) {
+    if (fuzzyMatch(query, svc.name)) return true;
+    if (!svc.fullName) return false;
+    var lower = svc.fullName.toLowerCase();
+    if (lower.indexOf(query) > -1) return true;
+    return lower.split('.').some(function (seg) {
+      return fuzzyMatch(query, seg);
+    });
+  }
+
   // webview postMessage 走结构化克隆:Alpine 的响应式数据是 Proxy,直接发会
   // DataCloneError(调用卡死在发送中的根因)。所有出站消息一律先深克隆为纯对象。
   // 注意不能覆写 vscode.postMessage —— acquireVsCodeApi 返回的对象是只读的。
@@ -810,8 +824,7 @@
         var q = this.query.trim().toLowerCase();
         if (!q) return services;
         return services.filter(function (svc) {
-          if (fuzzyMatch(q, svc.name)) return true;
-          if (svc.fullName && fuzzyMatch(q, svc.fullName)) return true;
+          if (matchServiceName(q, svc)) return true;
           return svc.methods.some(function (m) {
             return fuzzyMatch(q, m.name);
           });
@@ -821,8 +834,7 @@
       filteredMethods: function (svc) {
         var q = this.query.trim().toLowerCase();
         if (!q) return svc.methods;
-        if (fuzzyMatch(q, svc.name)) return svc.methods;
-        if (svc.fullName && fuzzyMatch(q, svc.fullName)) return svc.methods;
+        if (matchServiceName(q, svc)) return svc.methods;
         return svc.methods.filter(function (m) {
           return fuzzyMatch(q, m.name);
         });

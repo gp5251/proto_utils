@@ -184,3 +184,31 @@ test('connState 跃迁提醒(0.3.57):fail→ok 提示恢复,ok→fail 提示断�
   // 提醒走 showNotice 瞬时通道(2.5s 自动消失),不得常驻 refreshNotice
   assert.ok(body.includes('showNotice('), '跃迁提醒必须走 showNotice');
 });
+
+test('过滤命中面(0.3.58):fullName 只收子串/单段模糊,跨段散字子序列不得命中', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  // 提取 fuzzyMatch + matchServiceName 同源实跑(两函数相邻,位于 postMessage 注释块之前)
+  const start = src.indexOf('function fuzzyMatch');
+  const end = src.indexOf('// webview postMessage', start);
+  assert.ok(start >= 0 && end > start, '缺 fuzzyMatch/matchServiceName 函数块');
+  const impl = new Function(`${src.slice(start, end)}; return { fuzzyMatch, matchServiceName };`)() as {
+    fuzzyMatch(q: string, t: string): boolean;
+    matchServiceName(q: string, svc: { name: string; fullName?: string }): boolean;
+  };
+  const svc = { name: 'AutoShopCommunicateService', fullName: 'autoshop.project.v1.AutoShopCommunicateService' };
+  // 实证 bug:trace 跨段散字命中包限定名 → 全服务命中、过滤看似无效
+  assert.equal(impl.matchServiceName('trace', svc), false, 'trace 不得跨段散字命中 fullName');
+  // 包名检索能力保留:含点子串 + 段内模糊
+  assert.equal(impl.matchServiceName('project.v1', svc), true, '含点包名子串必须命中');
+  assert.equal(impl.matchServiceName('prj', svc), true, '段内模糊(project→prj)必须命中');
+  // 短名与方法名仍走模糊
+  assert.equal(impl.matchServiceName('trace', { name: 'TraceGraph', fullName: 'x.y.TraceGraph' }), true, '短名模糊必须保留');
+  assert.equal(impl.fuzzyMatch('trace', 'ClickEnter'), false, '方法名模糊基线');
+
+  // 模板侧两个过滤函数必须走 matchServiceName,不得再对 fullName 整串跑 fuzzy
+  const fsStart = src.indexOf('filteredServices: function');
+  const fmEnd = src.indexOf('toggleService: function', fsStart);
+  const body = src.slice(fsStart, fmEnd);
+  assert.ok(body.includes('matchServiceName(q, svc)'), 'filteredServices/filteredMethods 必须走 matchServiceName');
+  assert.ok(!body.includes('fuzzyMatch(q, svc.fullName)'), '不得再对 fullName 整串跑跨段模糊');
+});
