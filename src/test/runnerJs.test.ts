@@ -212,3 +212,27 @@ test('过滤命中面(0.3.58):fullName 只收子串/单段模糊,跨段散字子
   assert.ok(body.includes('matchServiceName(q, svc)'), 'filteredServices/filteredMethods 必须走 matchServiceName');
   assert.ok(!body.includes('fuzzyMatch(q, svc.fullName)'), '不得再对 fullName 整串跑跨段模糊');
 });
+
+test('序列消息路由与组件方法(0.3.59)齐备', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  for (const c of ["case 'seqEvent':", "case 'sequences':", "case 'sequenceLoaded':", "case 'sequenceStoreError':"]) {
+    assert.ok(src.includes(c), `缺序列消息路由 ${c}`);
+  }
+  for (const fn of [
+    'addToSequence: function', 'buildSequencePayload: function', 'applySeqEvent: function',
+    'runSequence: function', 'setView: function', 'hasSeqReport: function', 'stepRefProblems: function',
+  ]) {
+    assert.ok(src.includes(fn), `缺序列方法 ${fn}`);
+  }
+  assert.ok(src.includes("view: 'services'"), 'workbench store 缺 view 默认态');
+});
+
+test('runSequence 早退:不可达/运行中在发 runSequence 消息之前拦下', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const start = src.indexOf('runSequence: function');
+  const end = src.indexOf('stopSequence: function', start);
+  const body = src.slice(start, end);
+  assert.ok(start >= 0 && end > start, '缺 runSequence');
+  assert.ok(body.indexOf("connState === 'fail'") < body.indexOf('sendMessage'), '不可达早退必须在发消息前');
+  assert.ok(body.indexOf('this.seqRunning') < body.indexOf('sendMessage'), '运行中早退必须在发消息前');
+});

@@ -6,6 +6,8 @@ testdata/golden/
 media/runner/formMapping.js*
 # 生成物:build.mjs 从 src/runner/utils/resultTree.ts 产出(0.3.41)
 media/runner/resultTree.js*
+# 生成物:build.mjs 从 src/runner/utils/placeholder.ts 产出(0.3.59)
+media/runner/placeholder.js*
 tmp/
 media/runner/repro-*
 .codegraph/

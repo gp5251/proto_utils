@@ -16,6 +16,8 @@ export interface WorkbenchHtmlOptions {
   formMappingScriptUri: string;
   /** media/runner/resultTree.js 的 asWebviewUri(0.3.41:响应 JSON 折叠树,同 ADR-0009 共享源通道) */
   resultTreeScriptUri: string;
+  /** media/runner/placeholder.js 的 asWebviewUri(0.3.59:序列占位符编辑时标红,同 ADR-0009 共享源通道) */
+  placeholderScriptUri: string;
   /** media/runner/alpine.min.js 的 asWebviewUri */
   alpineScriptUri: string;
   /** 顶栏显示的 gRPC server 地址 */
@@ -91,6 +93,26 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     headerKeyPlaceholder: l10n.t('Header name'),
     headerValuePlaceholder: l10n.t('Header value'),
     respMetaTitle: l10n.t('Response metadata'),
+    // ---- 调用序列(0.3.59,ADR-0012) ----
+    servicesTab: l10n.t('Services'),
+    sequenceTab: l10n.t('Sequence'),
+    addToSequence: l10n.t('Add to sequence'),
+    seqNamePlaceholder: l10n.t('Sequence name'),
+    seqSave: l10n.t('Save'),
+    seqRun: l10n.t('Run sequence'),
+    seqRunning: l10n.t('Running…'),
+    seqStop: l10n.t('Stop'),
+    seqEndStream: l10n.t('End & continue'),
+    seqSavedTitle: l10n.t('Saved sequences'),
+    seqLoad: l10n.t('Load'),
+    seqDelete: l10n.t('Delete'),
+    seqEmptySteps: l10n.t('No steps yet. Open a method and click Add to sequence.'),
+    seqStepUp: l10n.t('Up'),
+    seqStepDown: l10n.t('Down'),
+    seqStepRemove: l10n.t('Remove'),
+    seqReportTitle: l10n.t('Run report'),
+    seqCopyReport: l10n.t('Copy report'),
+    seqMethodMissing: l10n.t('Method not found. Click Refresh'),
   };
   const strings = {
     copy: l10n.t('Copy'),
@@ -107,6 +129,14 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     svcUnavailable: l10n.t('Service unavailable — click Refresh to retry'),
     connRestored: l10n.t('Connection restored'),
     connLost: l10n.t('Connection lost'),
+    // 调用序列动态通知(0.3.59):经 boot.strings 下发,runner.js str() 读取
+    seqNameRequired: l10n.t('Enter a sequence name to save'),
+    seqEmpty: l10n.t('Sequence has no steps'),
+    seqLoadMiss: l10n.t('Sequence not found'),
+    seqValidationFailed: l10n.t('{count} step(s) reference missing methods. Sequence not started.'),
+    seqCompleted: l10n.t('Sequence completed'),
+    seqAborted: l10n.t('Sequence aborted at a failed step'),
+    seqStopped: l10n.t('Sequence stopped'),
   };
   const boot = {
     server: options.server,
@@ -132,12 +162,13 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
   <script nonce="${options.nonce}">window.__PROTO_UTILS_BOOT__ = ${escapeInlineJson(boot)};</script>
   <script nonce="${options.nonce}" src="${options.formMappingScriptUri}"></script>
   <script nonce="${options.nonce}" src="${options.resultTreeScriptUri}"></script>
+  <script nonce="${options.nonce}" src="${options.placeholderScriptUri}"></script>
   <script nonce="${options.nonce}" src="${options.runnerScriptUri}"></script>
   <script nonce="${options.nonce}" defer src="${options.alpineScriptUri}"></script>
 </head>
 <body>
   <div class="topbar">
-    <div class="topbar-search" x-data x-cloak>
+    <div class="topbar-search" x-data x-cloak x-show="$store.workbench.view === 'services'">
       <input
         type="search"
         x-model="$store.search.query"
@@ -160,6 +191,11 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
       </div>
     </div>
 
+    <div class="view-tabs">
+      <button type="button" class="view-tab" :class="{ 'view-tab-active': $store.workbench.view === 'services' }" @click="setView('services')">${S.servicesTab}</button>
+      <button type="button" class="view-tab" :class="{ 'view-tab-active': $store.workbench.view === 'sequence' }" @click="setView('sequence')">${S.sequenceTab}</button>
+    </div>
+
     <div class="card" id="proto-loading-card" x-show="$store.workbench.state === 'loading'">
       <div class="card-title"><span><span class="proto-loading-spinner"></span>${S.loadingTitle}</span></div>
       <p id="proto-loading-detail" class="proto-loading-detail">${S.loadingDetail}</p>
@@ -178,6 +214,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
       <p class="error-line" x-text="$store.workbench.prefillNotice"></p>
     </div>
 
+    <div x-show="$store.workbench.view === 'services'">
     <div x-show="$store.workbench.state === 'ready' && filteredServices().length === 0 && query.trim()" class="empty-state">
       <h2 style="font-size:16px">${S.noMatchTitle}</h2>
       <p>${S.noMatchHint}</p>
@@ -228,6 +265,13 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                   <span x-show="isMethodCopied(svcId(svc), m.name)" class="copy-badge">${S.copiedBadge}</span>
                 </span>
                 <span x-show="m.responseStream" class="method-stream-badge">stream</span>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-xs seq-add"
+                  :disabled="m.requestStream"
+                  title="${S.addToSequence}"
+                  @click.stop="addToSequence(svc, m)"
+                >+ ${S.addToSequence}</button>
                 <span class="collapse-icon" x-text="isMethodOpen(svcId(svc), m.name) ? '▼' : '▶'"></span>
               </div>
               <template x-if="isMethodOpen(svcId(svc), m.name)">
@@ -688,6 +732,163 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
         </div>
       </div>
     </template>
+    </div>
+
+    <div x-show="$store.workbench.view === 'sequence'">
+      <div class="card seq-controls">
+        <div class="seq-controls-row">
+          <input type="text" class="seq-name" x-model="seqName" placeholder="${S.seqNamePlaceholder}" autocomplete="off">
+          <button type="button" class="btn btn-secondary" @click="saveSequence()">${S.seqSave}</button>
+          <button
+            type="button"
+            class="btn"
+            :disabled="seqRunning || seqSteps.length === 0 || $store.workbench.connState === 'fail'"
+            @click="runSequence()"
+          >
+            <span x-show="!seqRunning">${S.seqRun}</span>
+            <span x-show="seqRunning">${S.seqRunning}</span>
+          </button>
+          <button type="button" class="btn btn-secondary" x-show="seqRunning" @click="stopSequence()">${S.seqStop}</button>
+          <button type="button" class="btn btn-secondary" x-show="hasSeqReport()" @click="copySeqReport()">${S.seqCopyReport}</button>
+        </div>
+        <p x-show="$store.workbench.connState === 'fail'" class="unsupported-hint" x-text="$store.str.svcUnavailable"></p>
+        <p x-show="seqNotice" class="seq-notice" x-text="seqNotice"></p>
+      </div>
+
+      <div class="card" x-show="seqSaved.length > 0">
+        <div class="card-title">${S.seqSavedTitle}</div>
+        <template x-for="s in seqSaved" :key="s.name">
+          <div class="seq-saved-row">
+            <span class="seq-saved-name" x-text="s.name"></span>
+            <span class="seq-saved-count" x-text="s.steps.length"></span>
+            <button type="button" class="btn btn-secondary btn-xs" @click="loadSequence(s.name)">${S.seqLoad}</button>
+            <button type="button" class="btn btn-secondary btn-xs" @click="deleteSequence(s.name)">${S.seqDelete}</button>
+          </div>
+        </template>
+      </div>
+
+      <div class="empty-state" x-show="seqSteps.length === 0">
+        <p>${S.seqEmptySteps}</p>
+      </div>
+
+      <template x-for="(step, sIdx) in seqSteps" :key="step.id">
+        <div class="card seq-step">
+          <div class="seq-step-head">
+            <span class="seq-step-idx" x-text="'#' + (sIdx + 1)"></span>
+            <span class="seq-step-name" x-text="step.method"></span>
+            <span class="seq-step-svc" x-text="step.service"></span>
+            <span x-show="step.responseStream" class="method-stream-badge">stream</span>
+            <span class="seq-step-actions">
+              <button type="button" class="btn btn-secondary btn-xs" :disabled="sIdx === 0" @click="moveStep(sIdx, -1)">${S.seqStepUp}</button>
+              <button type="button" class="btn btn-secondary btn-xs" :disabled="sIdx === seqSteps.length - 1" @click="moveStep(sIdx, 1)">${S.seqStepDown}</button>
+              <button type="button" class="btn btn-secondary btn-xs" @click="removeStep(sIdx)">${S.seqStepRemove}</button>
+            </span>
+          </div>
+          <p x-show="!stepMethod(step)" class="unsupported-hint">${S.seqMethodMissing}</p>
+          <template x-if="stepMethod(step)">
+            <div class="method-panel">
+              <div class="editor-tabs" x-show="stepMethod(step).requestFields.length > 0">
+                <button type="button" class="editor-tab" :class="{ 'editor-tab-active': getEditorMode(step.id) === 'form' }" @click="setEditorMode(step.id, 'form', stepMethod(step))">${S.formTab}</button>
+                <button type="button" class="editor-tab" :class="{ 'editor-tab-active': getEditorMode(step.id) === 'json' }" @click="setEditorMode(step.id, 'json', stepMethod(step))">JSON</button>
+              </div>
+              <div x-show="showFormPane(step.id, stepMethod(step))">
+                <template x-for="(row, reqIdx) in flattenFormFields(stepMethod(step).requestFields)" :key="step.id + '-req-' + reqIdx">
+                  <div>
+                    <div
+                      class="field-group"
+                      :style="row.kind === 'group' ? 'padding-left:' + (row.depth * 14) + 'px' : 'display: none'"
+                    >
+                      <span class="field-group-name" x-text="row.field.name"></span>
+                      <span class="field-type-badge" x-text="row.field.refType || 'message'"></span>
+                    </div>
+                    <div
+                      class="field"
+                      :style="row.kind === 'input' ? 'padding-left:' + (row.depth * 14 + 8) + 'px' : 'display: none'"
+                    >
+                      <label class="field-label">
+                        <span x-text="row.field.name"></span>
+                        <span class="field-type-badge"><span x-text="fieldTypeLabel(row.field)"></span></span>
+                        <span x-show="row.field.optional" class="field-optional-badge">${S.optionalBadge}</span>
+                        <span x-show="row.field.comment" class="field-comment" x-text="row.field.comment"></span>
+                      </label>
+                      <template x-if="row.field.protoType === 'TYPE_BOOL'">
+                        <input type="checkbox" :checked="getFieldValue(step.id, row.path)" @change="setFieldValue(step.id, row.path, $event.target.checked)">
+                      </template>
+                      <template x-if="row.field.protoType === 'TYPE_ENUM' && row.field.enumValues && row.field.enumValues.length > 0">
+                        <select class="enum-select" :value="getFieldValue(step.id, row.path)" @change="setFieldValue(step.id, row.path, $event.target.value)">
+                          <option value="">${S.selectPlaceholder}</option>
+                          <template x-for="ev in row.field.enumValues" :key="ev.name">
+                            <option :value="ev.name" x-text="enumOptionLabel(ev, row.field.enumValues)"></option>
+                          </template>
+                        </select>
+                      </template>
+                      <template x-if="row.field.protoType === 'TYPE_ENUM' && (!row.field.enumValues || row.field.enumValues.length === 0)">
+                        <input type="text" :value="getFieldValue(step.id, row.path)" @input="setFieldValue(step.id, row.path, $event.target.value)" placeholder="${S.enumPlaceholder}">
+                      </template>
+                      <template x-if="row.field.protoType === 'TYPE_MESSAGE'">
+                        <textarea :value="getFieldValue(step.id, row.path)" @input="setFieldValue(step.id, row.path, $event.target.value)" placeholder='{ "key": "value" }'></textarea>
+                      </template>
+                      <template x-if="row.field.protoType === 'TYPE_BYTES'">
+                        <input type="text" :value="getFieldValue(step.id, row.path)" @input="setFieldValue(step.id, row.path, $event.target.value)" placeholder="${S.bytesHint}" title="${S.bytesHint}">
+                      </template>
+                      <template x-if="row.field.protoType !== 'TYPE_BOOL' && row.field.protoType !== 'TYPE_ENUM' && row.field.protoType !== 'TYPE_MESSAGE' && row.field.protoType !== 'TYPE_BYTES' && row.field.type === 'number'">
+                        <input type="number" :value="getFieldValue(step.id, row.path)" @input="setFieldValue(step.id, row.path, $event.target.value)">
+                      </template>
+                      <template x-if="row.field.protoType !== 'TYPE_BOOL' && row.field.protoType !== 'TYPE_ENUM' && row.field.protoType !== 'TYPE_MESSAGE' && row.field.protoType !== 'TYPE_BYTES' && row.field.type !== 'number'">
+                        <input type="text" :value="getFieldValue(step.id, row.path)" @input="setFieldValue(step.id, row.path, $event.target.value)">
+                      </template>
+                    </div>
+                  </div>
+                </template>
+              </div>
+              <div x-show="stepMethod(step).requestFields.length === 0" class="method-fields-empty">${S.noParams}</div>
+              <div x-show="showJsonPane(step.id, stepMethod(step))">
+                <textarea
+                  class="json-editor"
+                  spellcheck="false"
+                  placeholder='{ "fileId": 1 }'
+                  :value="getJsonText(step.id)"
+                  @input="onJsonInput(step.id, $event.target.value)"
+                ></textarea>
+                <div x-show="getJsonError(step.id)" class="json-error" x-text="getJsonError(step.id)"></div>
+              </div>
+              <div x-show="hasJsonWarnings(step.id)" class="json-warning" x-text="jsonWarningText(step.id)"></div>
+              <div x-show="stepRefProblems(step, sIdx).length > 0" class="json-error">
+                <template x-for="(prob, pIdx) in stepRefProblems(step, sIdx)" :key="pIdx">
+                  <div x-text="prob"></div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <div class="card" x-show="hasSeqReport()">
+        <div class="card-title">${S.seqReportTitle}</div>
+        <template x-for="entry in seqReportEntries()" :key="entry.index">
+          <div class="seq-report-row" x-show="entry.status !== 'pending'">
+            <div class="result-header">
+              <div class="result-meta">
+                <span class="seq-report-title" x-text="seqStepTitle(entry)"></span>
+                <span x-show="entry.status === 'ok'" class="result-ok">${S.success}</span>
+                <span x-show="entry.status === 'error'" class="result-err">${S.failed}</span>
+                <span x-show="entry.status === 'running'" class="result-ok"><span class="stream-live-dot"></span> ${S.receiving}</span>
+                <span x-show="entry.durationMs" class="result-time" x-text="entry.durationMs + 'ms'"></span>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-xs"
+                  x-show="entry.responseStream && entry.status === 'running'"
+                  @click="endSeqStream()"
+                >${S.seqEndStream}</button>
+              </div>
+            </div>
+            <pre class="result-body seq-report-body" x-show="!entry.responseStream && entry.body" x-text="entry.body"></pre>
+            <pre class="result-body seq-report-body" x-show="entry.responseStream && entry.chunks.length > 0" x-text="seqChunkText(entry.chunks)"></pre>
+            <pre class="result-body seq-report-body" x-show="entry.error && !entry.body && entry.chunks.length === 0" x-text="entry.error"></pre>
+          </div>
+        </template>
+      </div>
+    </div>
   </div>
 </body>
 </html>`;

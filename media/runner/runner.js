@@ -24,6 +24,14 @@
     svcUnavailable: 'Service unavailable — click Refresh to retry',
     connRestored: 'Connection restored',
     connLost: 'Connection lost',
+    // 调用序列(0.3.59,ADR-0012)
+    seqNameRequired: 'Enter a sequence name to save',
+    seqEmpty: 'Sequence has no steps',
+    seqLoadMiss: 'Sequence not found',
+    seqValidationFailed: '{count} step(s) reference missing methods. Sequence not started.',
+    seqCompleted: 'Sequence completed',
+    seqAborted: 'Sequence aborted at a failed step',
+    seqStopped: 'Sequence stopped',
   };
 
   function str(key, vars) {
@@ -119,6 +127,18 @@
         if (prevConn === 'ok' && nextConn === 'fail') showNotice(connStore, str('connLost'));
         break;
       }
+      case 'seqEvent':
+        if (component) component.applySeqEvent(msg.event);
+        break;
+      case 'sequences':
+        if (component) component.applySequences(msg.list);
+        break;
+      case 'sequenceLoaded':
+        if (component) component.applySequenceLoaded(msg.sequence);
+        break;
+      case 'sequenceStoreError':
+        if (component) component.showSeqNotice(msg.message);
+        break;
     }
   }
 
@@ -215,6 +235,8 @@
       refreshNotice: '',
       // 后端连通性:unknown=未探测(灰),host 推 connState 后转 ok(绿)/fail(红)
       connState: 'unknown',
+      // 顶视图切换(0.3.59):'services' 方法浏览 | 'sequence' 调用序列
+      view: 'services',
     });
 
     // 顶栏刷新区:@alpinejs/csp 表达式见不到 window 全局(0.3.19 前的 postRefresh 全局入口因此从未生效),
@@ -254,6 +276,18 @@
       formErrors: {},
       headers: {},
       respMeta: {},
+
+      // ---- 调用序列(0.3.59,ADR-0012) ----
+      // seqSteps: [{id, service, method, responseStream}];每步入参/模式存编辑器状态字典(键=id),支持同方法重复
+      seqSteps: [],
+      seqIdSeq: 0,
+      seqName: '',
+      seqSaved: [],
+      seqRunning: false,
+      seqStatus: 'idle',
+      seqNotice: '',
+      // seqReport: index → {status, service, method, responseStream, values, durationMs, body, chunks, error}
+      seqReport: {},
 
       // ---- 响应 JSON 折叠树(0.3.41):行构建与可见性遍历在 TS(全局 ResultTree) ----
       // resultTrees: methodKey → 根行数组(一元,applyCallResult 一次构建)
@@ -1150,6 +1184,255 @@
 
       isServiceCopied: function (svc) {
         return this.copiedServiceName === this.svcId(svc);
+      },
+
+      // ---- 调用序列(0.3.59,ADR-0012) ----
+
+      setView: function (v) {
+        Alpine.store('workbench').view = v;
+        if (v === 'sequence') this.requestSequences();
+      },
+
+      lookupMethod: function (service, methodName) {
+        var services = Alpine.store('workbench').services;
+        for (var i = 0; i < services.length; i++) {
+          if (services[i].name === service || services[i].fullName === service) {
+            var ms = services[i].methods;
+            for (var j = 0; j < ms.length; j++) {
+              if (ms[j].name === methodName) return ms[j];
+            }
+          }
+        }
+        return null;
+      },
+
+      // 服务视图“加入序列”:把当前方法连同入参快照追加为一步(快照到该步自己的编辑器键,与源表单脱钩)
+      addToSequence: function (svc, m) {
+        var srcKey = this.methodKey(this.svcId(svc), m.name);
+        this.ensureFormValues(srcKey, m);
+        var id = 'seq' + (this.seqIdSeq++);
+        var mode = this.getEditorMode(srcKey);
+        this.seqSteps = this.seqSteps.concat([{
+          id: id,
+          service: this.svcId(svc),
+          method: m.name,
+          responseStream: !!m.responseStream,
+        }]);
+        this.formValues = Object.assign({}, this.formValues, { [id]: JSON.parse(JSON.stringify(this.formValues[srcKey] || {})) });
+        this.editorMode = Object.assign({}, this.editorMode, { [id]: mode });
+        this.jsonText = Object.assign({}, this.jsonText, { [id]: this.jsonText[srcKey] || '' });
+        Alpine.store('workbench').view = 'sequence';
+      },
+
+      removeStep: function (i) {
+        this.seqSteps = this.seqSteps.filter(function (_s, idx) { return idx !== i; });
+      },
+
+      moveStep: function (i, dir) {
+        var j = i + dir;
+        if (j < 0 || j >= this.seqSteps.length) return;
+        var arr = this.seqSteps.slice();
+        var tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+        this.seqSteps = arr;
+      },
+
+      stepMethod: function (step) {
+        return this.lookupMethod(step.service, step.method);
+      },
+
+      // 占位符静态标红:扫该步入参里的 {{...}},前向/自引用与结构非法列出(路径能否取到值属运行时,不在此判)
+      stepRefProblems: function (step, index) {
+        if (typeof window.Placeholder === 'undefined') return [];
+        var mode = this.getEditorMode(step.id);
+        var text = mode === 'json'
+          ? this.getJsonText(step.id)
+          : JSON.stringify(this.formValues[step.id] || {});
+        if (!text) return [];
+        return window.Placeholder.findInvalidRefs(text, index).map(function (b) {
+          return b.raw + ' \u2014 ' + b.reason;
+        });
+      },
+
+      buildSequencePayload: function () {
+        var self = this;
+        return {
+          name: this.seqName,
+          steps: this.seqSteps.map(function (s) {
+            var mode = self.getEditorMode(s.id);
+            var step = { service: s.service, method: s.method, mode: mode, responseStream: s.responseStream };
+            if (mode === 'json') step.jsonText = self.getJsonText(s.id);
+            else step.values = self.formValues[s.id] || {};
+            return step;
+          }),
+        };
+      },
+
+      requestSequences: function () {
+        sendMessage({ type: 'listSequences' });
+      },
+
+      runSequence: function () {
+        if (workbenchStore().connState === 'fail') return;
+        if (this.seqRunning) return;
+        if (this.seqSteps.length === 0) { this.showSeqNotice(str('seqEmpty')); return; }
+        this.seqReport = {};
+        this.seqNotice = '';
+        this.seqStatus = 'running';
+        this.seqRunning = true;
+        sendMessage({ type: 'runSequence', sequence: this.buildSequencePayload() });
+      },
+
+      stopSequence: function () {
+        sendMessage({ type: 'stopSequence' });
+      },
+
+      endSeqStream: function () {
+        sendMessage({ type: 'endSequenceStream' });
+      },
+
+      saveSequence: function () {
+        if (!(this.seqName || '').trim()) { this.showSeqNotice(str('seqNameRequired')); return; }
+        if (this.seqSteps.length === 0) { this.showSeqNotice(str('seqEmpty')); return; }
+        sendMessage({ type: 'saveSequence', sequence: this.buildSequencePayload() });
+      },
+
+      loadSequence: function (name) {
+        sendMessage({ type: 'loadSequence', name: name });
+      },
+
+      deleteSequence: function (name) {
+        sendMessage({ type: 'deleteSequence', name: name });
+      },
+
+      showSeqNotice: function (text) {
+        this.seqNotice = text || '';
+      },
+
+      applySequences: function (list) {
+        this.seqSaved = Array.isArray(list) ? list : [];
+      },
+
+      applySequenceLoaded: function (seq) {
+        if (!seq) { this.showSeqNotice(str('seqLoadMiss')); return; }
+        var self = this;
+        this.seqName = seq.name || '';
+        this.seqSteps = [];
+        (seq.steps || []).forEach(function (st) {
+          var id = 'seq' + (self.seqIdSeq++);
+          var m = self.lookupMethod(st.service, st.method);
+          self.seqSteps.push({ id: id, service: st.service, method: st.method, responseStream: !!st.responseStream });
+          var mode = st.mode === 'json' ? 'json' : 'form';
+          self.editorMode = Object.assign({}, self.editorMode, { [id]: mode });
+          if (mode === 'json') {
+            self.jsonText = Object.assign({}, self.jsonText, { [id]: st.jsonText || '' });
+            self.formValues = Object.assign({}, self.formValues, { [id]: m ? self.initFieldValues(m.requestFields) : {} });
+          } else {
+            self.formValues = Object.assign({}, self.formValues, { [id]: st.values || (m ? self.initFieldValues(m.requestFields) : {}) });
+          }
+        });
+        Alpine.store('workbench').view = 'sequence';
+      },
+
+      // 引擎事件 → 序列报告(按步序号)
+      applySeqEvent: function (ev) {
+        if (!ev || typeof ev !== 'object') return;
+        var rep;
+        switch (ev.type) {
+          case 'validationFailed':
+            this.showSeqNotice(str('seqValidationFailed', { count: (ev.missing || []).length }));
+            break;
+          case 'stepStart':
+            rep = Object.assign({}, this.seqReport);
+            rep[ev.index] = {
+              status: 'running', service: ev.service, method: ev.method,
+              responseStream: ev.responseStream, values: ev.values, chunks: [], body: '', error: '', durationMs: 0,
+            };
+            this.seqReport = rep;
+            break;
+          case 'stepChunk':
+            rep = Object.assign({}, this.seqReport);
+            if (rep[ev.index]) {
+              rep[ev.index] = Object.assign({}, rep[ev.index], { chunks: rep[ev.index].chunks.concat([ev.data]) });
+              this.seqReport = rep;
+            }
+            break;
+          case 'stepUnaryResult': {
+            rep = Object.assign({}, this.seqReport);
+            var p = ev.payload || {};
+            var ok = p.result && p.result.status === 'ok';
+            rep[ev.index] = Object.assign({}, rep[ev.index], {
+              status: ok ? 'ok' : 'error',
+              body: p.resultBody || '',
+              durationMs: (p.result && p.result.durationMs) || 0,
+              error: ok ? '' : (p.resultBody || ''),
+            });
+            this.seqReport = rep;
+            break;
+          }
+          case 'stepStreamEnd':
+            rep = Object.assign({}, this.seqReport);
+            rep[ev.index] = Object.assign({}, rep[ev.index], {
+              status: ev.ok ? 'ok' : 'error', durationMs: ev.durationMs || 0, error: ev.ok ? '' : (ev.error || ''),
+            });
+            this.seqReport = rep;
+            break;
+          case 'stepFailed':
+            rep = Object.assign({}, this.seqReport);
+            rep[ev.index] = Object.assign({}, rep[ev.index], { status: 'error', error: ev.error || '' });
+            this.seqReport = rep;
+            break;
+          case 'end':
+            this.seqRunning = false;
+            this.seqStatus = ev.status;
+            if (ev.status === 'completed') this.showSeqNotice(str('seqCompleted'));
+            else if (ev.status === 'aborted') this.showSeqNotice(str('seqAborted'));
+            else if (ev.status === 'stopped') this.showSeqNotice(str('seqStopped'));
+            break;
+        }
+      },
+
+      // 报告行(按当前 seqSteps 顺序对齐步序号)
+      seqReportEntries: function () {
+        var self = this;
+        return this.seqSteps.map(function (s, i) {
+          var r = self.seqReport[i];
+          return {
+            index: i, service: s.service, method: s.method,
+            status: r ? r.status : 'pending',
+            durationMs: r ? r.durationMs : 0,
+            body: r ? r.body : '',
+            error: r ? r.error : '',
+            chunks: r ? r.chunks : [],
+            responseStream: s.responseStream,
+          };
+        });
+      },
+
+      seqStepTitle: function (entry) {
+        return '#' + (entry.index + 1) + '  ' + entry.method;
+      },
+
+      // 报告卡可见性:任一步已启动(seqReport 有条目)即显示;@alpinejs/csp 不支持模板内函数表达式,收敛到这里
+      hasSeqReport: function () {
+        for (var k in this.seqReport) {
+          if (Object.prototype.hasOwnProperty.call(this.seqReport, k)) return true;
+        }
+        return false;
+      },
+
+      seqChunkText: function (chunks) {
+        return (chunks || []).map(function (c) { return JSON.stringify(c, null, 2); }).join('\n\n');
+      },
+
+      copySeqReport: function () {
+        var self = this;
+        var text = this.seqReportEntries().map(function (e) {
+          var head = self.seqStepTitle(e) + '  [' + e.status + (e.durationMs ? ' ' + e.durationMs + 'ms' : '') + ']';
+          var body = e.responseStream ? self.seqChunkText(e.chunks) : e.body;
+          return head + '\n' + (body || e.error || '');
+        }).join('\n\n');
+        if (!text) return;
+        navigator.clipboard.writeText(text);
       },
     };
     });

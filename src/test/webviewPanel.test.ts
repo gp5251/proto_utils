@@ -9,6 +9,7 @@ import {
 import { CallRunner, CallResultPayload } from '../runner/callHandler';
 import { ServicesPayload } from '../runner/serviceRegistry';
 import { StreamHandlers } from '../runner/core/types';
+import type { SequenceStore, Sequence } from '../runner/sequenceStore';
 
 /** 记录出站消息、可模拟入站消息与销毁事件的 fake host */
 function makeHost() {
@@ -55,6 +56,7 @@ function makeDeps(overrides: {
   runner?: Partial<CallRunner>;
   onLoadSettled?: () => void;
   probeConnection?: () => Promise<boolean>;
+  store?: SequenceStore;
 } = {}) {
   const state = { invalidated: 0, protoDir: 'D:/protos' };
   const deps = {
@@ -79,8 +81,34 @@ function makeDeps(overrides: {
     getConfig: () => ({ server: 'localhost:50051', protoDir: state.protoDir, metadata: [] }),
     ...(overrides.onLoadSettled ? { onLoadSettled: overrides.onLoadSettled } : {}),
     ...(overrides.probeConnection ? { probeConnection: overrides.probeConnection } : {}),
+    ...(overrides.store ? { store: overrides.store } : {}),
   };
   return { deps, state };
+}
+
+/** 内存 fake store:仅实现 Session 用到的 list/get/save/delete。 */
+function fakeStore(initial: Sequence[] = []): { store: SequenceStore; data: Sequence[] } {
+  const data = initial.slice();
+  const store = {
+    async list() {
+      return data.slice();
+    },
+    async get(name: string) {
+      return data.find((s) => s.name === name) ?? null;
+    },
+    async save(seq: Sequence) {
+      const i = data.findIndex((s) => s.name === seq.name);
+      if (i >= 0) data[i] = seq;
+      else data.push(seq);
+    },
+    async delete(name: string) {
+      const i = data.findIndex((s) => s.name === name);
+      if (i < 0) return false;
+      data.splice(i, 1);
+      return true;
+    },
+  } as unknown as SequenceStore;
+  return { store, data };
 }
 
 test('ready → loading 后推 services;protoDir 来自 getConfig', async () => {
@@ -514,4 +542,137 @@ test('loadAndSend 并发合并:in-flight 期间第二次请求塌缩为一次补
   gates[1](); // 放行补跑 → 无排队,不再 load
   await settle();
   assert.equal(loadCalls, 2, '无排队请求时不再重复 load');
+});
+
+// ---- 调用序列(0.3.59,ADR-0012) ----
+
+const SEQ_SERVICES: ServicesPayload = [
+  {
+    name: 'Greeter',
+    fullName: 'c.Greeter',
+    methods: [
+      { name: 'SayHello', requestType: 'R', responseType: 'R', requestStream: false, responseStream: false, requestFields: [], responseSchemaRows: [] },
+      { name: 'Watch', requestType: 'R', responseType: 'R', requestStream: false, responseStream: true, requestFields: [], responseSchemaRows: [] },
+    ],
+  },
+];
+
+function seqEvents(posted: WorkbenchToWebview[]): Array<{ type: string; [k: string]: unknown }> {
+  return posted
+    .filter((m) => m.type === 'seqEvent')
+    .map((m) => (m as { event: { type: string } }).event as { type: string });
+}
+
+async function untilSeqEnd(posted: WorkbenchToWebview[]): Promise<void> {
+  for (let i = 0; i < 100; i++) {
+    if (seqEvents(posted).some((e) => e.type === 'end')) return;
+    await new Promise((r) => setImmediate(r));
+  }
+}
+
+const okPayload = { result: { status: 'ok', data: { ok: true }, durationMs: 1 } } as CallResultPayload;
+
+test('runSequence:一元两步依次跑,seqEvent 逐步转发至 end=completed', async () => {
+  const { host, posted, emit } = makeHost();
+  const runner: Partial<CallRunner> = { callUnary: async () => okPayload };
+  new WorkbenchSession(makeDeps({ runner, loadResult: { services: SEQ_SERVICES, errors: [] } }).deps).attach(host);
+  emit({
+    type: 'runSequence',
+    sequence: {
+      name: 's',
+      steps: [
+        { service: 'Greeter', method: 'SayHello', mode: 'form', values: {}, responseStream: false },
+        { service: 'Greeter', method: 'SayHello', mode: 'form', values: {}, responseStream: false },
+      ],
+    },
+  });
+  await untilSeqEnd(posted);
+  assert.deepEqual(seqEvents(posted).map((e) => e.type), [
+    'stepStart', 'stepUnaryResult', 'stepStart', 'stepUnaryResult', 'end',
+  ]);
+});
+
+test('runSequence:方法失效 → validationFailed + aborted,不发起调用', async () => {
+  const { host, posted, emit } = makeHost();
+  let called = 0;
+  const runner: Partial<CallRunner> = { callUnary: async () => { called++; return okPayload; } };
+  new WorkbenchSession(makeDeps({ runner, loadResult: { services: SEQ_SERVICES, errors: [] } }).deps).attach(host);
+  emit({
+    type: 'runSequence',
+    sequence: { name: 's', steps: [{ service: 'Greeter', method: 'Ghost', mode: 'form', responseStream: false }] },
+  });
+  await untilSeqEnd(posted);
+  assert.ok(seqEvents(posted).some((e) => e.type === 'validationFailed'));
+  assert.equal(called, 0);
+});
+
+test('runSequence:非法序列 → sequenceStoreError,不启动', async () => {
+  const { host, posted, emit } = makeHost();
+  new WorkbenchSession(makeDeps({ loadResult: { services: SEQ_SERVICES, errors: [] } }).deps).attach(host);
+  emit({ type: 'runSequence', sequence: { nope: true } });
+  await nextTick();
+  assert.ok(posted.some((m) => m.type === 'sequenceStoreError'));
+});
+
+test('stopSequence:流步骤进行中停止 → end=stopped', async () => {
+  const { host, posted, emit } = makeHost();
+  let handlers: StreamHandlers | null = null;
+  const runner: Partial<CallRunner> = {
+    callServerStream: (_s, _m, _v, h) => {
+      handlers = h;
+      return { cancel: () => h.onError('CANCELLED') };
+    },
+  };
+  new WorkbenchSession(makeDeps({ runner, loadResult: { services: SEQ_SERVICES, errors: [] } }).deps).attach(host);
+  emit({
+    type: 'runSequence',
+    sequence: { name: 's', steps: [{ service: 'Greeter', method: 'Watch', mode: 'form', responseStream: true }] },
+  });
+  for (let i = 0; i < 100 && handlers === null; i++) await new Promise((r) => setImmediate(r));
+  emit({ type: 'stopSequence' });
+  await untilSeqEnd(posted);
+  const end = seqEvents(posted).find((e) => e.type === 'end');
+  assert.equal(end?.status, 'stopped');
+});
+
+test('listSequences/saveSequence/deleteSequence/loadSequence 走 store', async () => {
+  const { host, posted, emit } = makeHost();
+  const { store, data } = fakeStore();
+  new WorkbenchSession(makeDeps({ store }).deps).attach(host);
+
+  emit({ type: 'listSequences' });
+  await nextTick();
+  assert.deepEqual((posted.find((m) => m.type === 'sequences') as { list: Sequence[] }).list, []);
+
+  const seq: Sequence = { name: 'flow', steps: [{ service: 'Greeter', method: 'SayHello', mode: 'form', responseStream: false }] };
+  emit({ type: 'saveSequence', sequence: seq });
+  await nextTick();
+  assert.equal(data.length, 1, '已落库');
+
+  posted.length = 0;
+  emit({ type: 'loadSequence', name: 'flow' });
+  await nextTick();
+  assert.deepEqual((posted.find((m) => m.type === 'sequenceLoaded') as { sequence: Sequence }).sequence?.name, 'flow');
+
+  posted.length = 0;
+  emit({ type: 'deleteSequence', name: 'flow' });
+  await nextTick();
+  assert.equal(data.length, 0);
+});
+
+test('saveSequence 空名 → sequenceStoreError;无 store 时 save 降级报错、list 返空', async () => {
+  const withStore = makeHost();
+  const { store } = fakeStore();
+  new WorkbenchSession(makeDeps({ store }).deps).attach(withStore.host);
+  withStore.emit({ type: 'saveSequence', sequence: { name: '', steps: [] } });
+  await nextTick();
+  assert.ok(withStore.posted.some((m) => m.type === 'sequenceStoreError'));
+
+  const noStore = makeHost();
+  new WorkbenchSession(makeDeps().deps).attach(noStore.host);
+  noStore.emit({ type: 'saveSequence', sequence: { name: 'x', steps: [] } });
+  noStore.emit({ type: 'listSequences' });
+  await nextTick();
+  assert.ok(noStore.posted.some((m) => m.type === 'sequenceStoreError'));
+  assert.deepEqual((noStore.posted.find((m) => m.type === 'sequences') as { list: Sequence[] }).list, []);
 });

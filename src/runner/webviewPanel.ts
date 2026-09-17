@@ -2,9 +2,15 @@ import * as vscode from 'vscode';
 import type { ServiceRegistry, ServicesPayload } from './serviceRegistry';
 import type { CallResultPayload, CallRunner } from './callHandler';
 import type { MetadataEntry, TlsSettings } from './config';
+import { SequenceRunner, type SequenceEvent } from './sequence';
+import { parseSequence, type Sequence, type SequenceStore } from './sequenceStore';
 import { resolveRunnerConfig as resolveRunnerConfigPure } from './config';
 import { generateNonce, renderWorkbenchHtml } from './webviewHtml';
 import { parseProtoError, type ErrorSegment } from '../protoErrorMessage';
+
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 // ---- 消息协议(字段名冻结,只增不改;0.3.40 loadError 增 segments;0.3.54 增 connState) ----
 
@@ -13,7 +19,18 @@ export type WebviewToWorkbench =
   | { type: 'refresh' }
   | { type: 'call'; service: string; method: string; values: Record<string, unknown>; metadata?: MetadataEntry[] }
   | { type: 'callStream'; service: string; method: string; values: Record<string, unknown>; metadata?: MetadataEntry[] }
-  | { type: 'cancelStream'; service: string; method: string };
+  | { type: 'cancelStream'; service: string; method: string }
+  // ---- 调用序列(0.3.59,ADR-0012) ----
+  /** 跑一条工作序列(sequence 为未信任入站,经 parseSequence 校验)。 */
+  | { type: 'runSequence'; sequence: Sequence }
+  /** 停止整条序列(取消当前步 + 丢弃后续)。 */
+  | { type: 'stopSequence' }
+  /** 手动结束当前流步骤并继续下一步(双通道推进)。 */
+  | { type: 'endSequenceStream' }
+  | { type: 'listSequences' }
+  | { type: 'saveSequence'; sequence: Sequence }
+  | { type: 'loadSequence'; name: string }
+  | { type: 'deleteSequence'; name: string };
 
 export type WorkbenchToWebview =
   | { type: 'loading' }
@@ -27,7 +44,16 @@ export type WorkbenchToWebview =
   | { type: 'streamEnd'; service: string; method: string; durationMs: number }
   | { type: 'prefill'; service: string; method: string }
   /** 顶栏连接状态点:ok=通道可达,fail=不可达/超时/配置错(0.3.54) */
-  | { type: 'connState'; state: 'ok' | 'fail' };
+  | { type: 'connState'; state: 'ok' | 'fail' }
+  // ---- 调用序列(0.3.59,ADR-0012) ----
+  /** 已存命名序列列表(存/删后重推)。 */
+  | { type: 'sequences'; list: Sequence[] }
+  /** 加载结果:null = 未找到。 */
+  | { type: 'sequenceLoaded'; sequence: Sequence | null }
+  /** 持久化/序列非法错误(损坏文件、无工作区、空名等)。 */
+  | { type: 'sequenceStoreError'; message: string }
+  /** 引擎逐步事件包一层转发:webview 按 event.type 路由到序列报告。 */
+  | { type: 'seqEvent'; event: SequenceEvent };
 
 /** 纯消息路由层与 vscode 之间的最小宿主面;onDispose 可注册多个监听器,测试用 fake 实现。 */
 export interface WorkbenchHost {
@@ -44,6 +70,8 @@ export interface WorkbenchSessionDeps {
   onLoadSettled?(): void;
   /** 0.3.54:后端连通性探测(顶栏状态点数据源);未注入则状态点保持未知态,不发 connState。 */
   probeConnection?(): Promise<boolean>;
+  /** 0.3.59:命名序列持久化(ADR-0012);未注入(如无工作区)则存/载/删降级为不可用。 */
+  store?: SequenceStore;
 }
 
 /** 探测失败后的自动重探间隔(0.3.56):后端重启后状态点自动转绿、按钮自动解禁,免手动刷新。 */
@@ -135,6 +163,8 @@ export class WorkbenchSession {
   private readonly streams = new Map<string, ActiveStream>();
   /** 自动重探定时器;同一时刻至多一个,dispose 时清除。 */
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 进行中的序列引擎;同一时刻至多一条,run 收尾后清空(0.3.59)。 */
+  private activeSequence: SequenceRunner | null = null;
 
   constructor(private readonly deps: WorkbenchSessionDeps) {}
 
@@ -202,11 +232,47 @@ export class WorkbenchSession {
         }
         return;
       }
+      case 'runSequence': {
+        this.startSequence((message as { sequence?: unknown }).sequence);
+        return;
+      }
+      case 'stopSequence': {
+        this.activeSequence?.stop();
+        return;
+      }
+      case 'endSequenceStream': {
+        this.activeSequence?.endCurrentStream();
+        return;
+      }
+      case 'listSequences': {
+        await this.listSequences();
+        return;
+      }
+      case 'saveSequence': {
+        await this.saveSequence((message as { sequence?: unknown }).sequence);
+        return;
+      }
+      case 'loadSequence': {
+        const name = (message as { name?: unknown }).name;
+        if (typeof name === 'string') {
+          await this.loadSequence(name);
+        }
+        return;
+      }
+      case 'deleteSequence': {
+        const name = (message as { name?: unknown }).name;
+        if (typeof name === 'string') {
+          await this.deleteSequence(name);
+        }
+        return;
+      }
     }
   }
 
   dispose(): void {
     this.cancelRetry();
+    this.activeSequence?.stop();
+    this.activeSequence = null;
     for (const entry of this.streams.values()) {
       entry.active = false;
       entry.cancel();
@@ -391,6 +457,93 @@ export class WorkbenchSession {
       durationMs: Date.now() - entry.startedAt,
     });
   }
+
+  // ---- 调用序列(0.3.59,ADR-0012) ----
+
+  /** 启动一条序列:校验入站、拒绝并发、驱动引擎并逐步转发事件。 */
+  private startSequence(raw: unknown): void {
+    const seq = parseSequence(raw);
+    if (!seq) {
+      this.send({ type: 'sequenceStoreError', message: vscode.l10n.t('Invalid sequence') });
+      return;
+    }
+    if (this.activeSequence) {
+      return; // 已有运行中的序列:忽略(webview 侧按钮亦已禁用)
+    }
+    const engine = new SequenceRunner({
+      runner: this.deps.runner,
+      registry: this.deps.registry,
+      getConfig: () => {
+        const c = this.deps.getConfig();
+        return { protoDir: c.protoDir, metadata: c.metadata };
+      },
+      onEvent: (event) => {
+        this.send({ type: 'seqEvent', event });
+      },
+    });
+    this.activeSequence = engine;
+    // run 内部全路径捕获,不会 reject;finally 仅作清空兜底(end 事件已先行送达)
+    void engine.run(seq).finally(() => {
+      if (this.activeSequence === engine) {
+        this.activeSequence = null;
+      }
+    });
+  }
+
+  private async listSequences(): Promise<void> {
+    if (!this.deps.store) {
+      this.send({ type: 'sequences', list: [] });
+      return;
+    }
+    try {
+      this.send({ type: 'sequences', list: await this.deps.store.list() });
+    } catch (err) {
+      this.send({ type: 'sequenceStoreError', message: errText(err) });
+    }
+  }
+
+  private async saveSequence(raw: unknown): Promise<void> {
+    const seq = parseSequence(raw);
+    if (!seq || seq.name.trim() === '') {
+      this.send({ type: 'sequenceStoreError', message: vscode.l10n.t('A non-empty sequence name is required to save') });
+      return;
+    }
+    if (!this.deps.store) {
+      this.send({ type: 'sequenceStoreError', message: vscode.l10n.t('Sequence persistence is unavailable without a workspace folder') });
+      return;
+    }
+    try {
+      await this.deps.store.save(seq);
+      this.send({ type: 'sequences', list: await this.deps.store.list() });
+    } catch (err) {
+      this.send({ type: 'sequenceStoreError', message: errText(err) });
+    }
+  }
+
+  private async loadSequence(name: string): Promise<void> {
+    if (!this.deps.store) {
+      this.send({ type: 'sequenceLoaded', sequence: null });
+      return;
+    }
+    try {
+      this.send({ type: 'sequenceLoaded', sequence: await this.deps.store.get(name) });
+    } catch (err) {
+      this.send({ type: 'sequenceStoreError', message: errText(err) });
+    }
+  }
+
+  private async deleteSequence(name: string): Promise<void> {
+    if (!this.deps.store) {
+      this.send({ type: 'sequences', list: [] });
+      return;
+    }
+    try {
+      await this.deps.store.delete(name);
+      this.send({ type: 'sequences', list: await this.deps.store.list() });
+    } catch (err) {
+      this.send({ type: 'sequenceStoreError', message: errText(err) });
+    }
+  }
 }
 
 // ---- vscode 粘合层(以下只在扩展宿主内运行,测试不触达) ----
@@ -490,6 +643,7 @@ export function createVscodePanelFactory(
       runnerScriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'runner.js')).toString(),
       formMappingScriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'formMapping.js')).toString(),
       resultTreeScriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'resultTree.js')).toString(),
+      placeholderScriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'placeholder.js')).toString(),
       alpineScriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'alpine.min.js')).toString(),
       server: deps.getConfig().server,
       protoDir: deps.getConfig().protoDir,

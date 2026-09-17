@@ -11,6 +11,7 @@ const baseOptions = {
   runnerScriptUri: 'vscode-webview://test/runner.js',
   formMappingScriptUri: 'vscode-webview://test/formMapping.js',
   resultTreeScriptUri: 'vscode-webview://test/resultTree.js',
+  placeholderScriptUri: 'vscode-webview://test/placeholder.js',
   alpineScriptUri: 'vscode-webview://test/alpine.min.js',
   server: 'localhost:50051',
   protoDir: 'D:/work/protos',
@@ -255,4 +256,21 @@ test('x-show 与 :style 不得同元素:services 重推后 :style 字符串重�
   // 修复后的可见性门控:display:none 由 :style 三元式 false 分支给出
   assert.ok(html.includes(`? 'padding-left:' + (row.depth * 14) + 'px' : 'display: none'`), 'field-group 的 kind 门控应折进 :style');
   assert.ok(html.includes(`? 'margin-bottom: 10px; padding-left:' + (row.depth * 14 + 24) + 'px' : 'display: none'`), '请求嵌套 schema-block 的展开门控应折进 :style');
+});
+
+test('序列视图锚点(0.3.59):视图切换/加入序列/运行控制/报告 + placeholder.js 先于 runner.js', () => {
+  const html = render();
+  assert.ok(html.includes('src="vscode-webview://test/placeholder.js"'));
+  assert.ok(html.indexOf('placeholder.js') < html.indexOf('runner.js'), 'placeholder.js 必须在 runner.js 之前加载');
+  assert.ok(html.includes('class="view-tabs"'), '缺视图切换 tab 条');
+  assert.ok(html.includes("setView('sequence')"), '缺切到序列视图入口');
+  assert.ok(html.includes('addToSequence(svc, m)'), '方法行缺“加入序列”按钮');
+  for (const anchor of [
+    'runSequence()', 'stopSequence()', 'saveSequence()', 'endSeqStream()',
+    'seqReportEntries()', 'hasSeqReport()', 'stepRefProblems(step, sIdx)',
+    'loadSequence(s.name)', 'deleteSequence(s.name)',
+    "$store.workbench.view === 'sequence'",
+  ]) {
+    assert.ok(html.includes(anchor), `缺序列锚点: ${anchor}`);
+  }
 });

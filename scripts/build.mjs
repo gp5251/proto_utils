@@ -58,6 +58,17 @@ const configs = [
     entryPoints: ['src/runner/utils/resultTree.ts'],
     outfile: 'media/runner/resultTree.js',
   },
+  {
+    ...shared,
+    // 调用序列管道占位符解析(0.3.59,ADR-0012):iife 全局 Placeholder,
+    // webview 编辑时标红与宿主发送前真解析共用同一份源(ADR-0009)
+    format: 'iife',
+    globalName: 'Placeholder',
+    platform: 'browser',
+    external: [],
+    entryPoints: ['src/runner/utils/placeholder.ts'],
+    outfile: 'media/runner/placeholder.js',
+  },
 ];
 
 // Webview 工作台静态资源:Alpine 打包进 media/runner,避免 CDN(CSP 不允许远端脚本)。

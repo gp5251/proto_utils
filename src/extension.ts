@@ -155,6 +155,9 @@ class LazyWorkbench {
     // 必须带 .js:CJS 里的动态 import 走 ESM 解析器,无扩展名解析失败。
     const runner = await import('./runner/index.js');
     const registry = new runner.ServiceRegistry(this.scanExcludes);
+    // 命名序列持久化(0.3.59,ADR-0012):存工作区文件 .proto-utils/sequences.json;
+    // 无工作区则不注入 store,序列存/载/删降级为不可用(运行仍可用)。
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const deps = {
       registry,
       // 配置经 getConfig 每次调用现读(0.3.44):server/protoDir/TLS/超时改动即时生效,
@@ -168,6 +171,7 @@ class LazyWorkbench {
         const cfg = runner.resolveRunnerConfig();
         return runner.probeServerConnectivity(cfg.server, runner.buildChannelCredentials(cfg.tls));
       },
+      ...(wsRoot ? { store: new runner.SequenceStore(wsRoot) } : {}),
     };
     this.invalidateRunnerCaches = () => registry.invalidate();
     return new runner.WorkbenchPanelManager(deps, runner.createVscodePanelFactory(this.context.extensionUri, deps));
