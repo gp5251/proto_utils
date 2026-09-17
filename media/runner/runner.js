@@ -24,6 +24,9 @@
     svcUnavailable: 'Service unavailable — click Refresh to retry',
     connRestored: 'Connection restored',
     connLost: 'Connection lost',
+    // 0.3.62 手动「刷新服务」回执
+    connProbeOk: 'Service reachable',
+    connProbeFail: 'Service unreachable',
     // 调用序列(0.3.59,ADR-0012)
     seqNameRequired: 'Enter a sequence name to save',
     seqEmpty: 'Sequence has no steps',
@@ -125,6 +128,11 @@
         // 0.3.57:跃迁瞬时提醒——fail→ok 恢复,ok→fail 断开;unknown 首探不打扰
         if (prevConn === 'fail' && nextConn === 'ok') showNotice(connStore, str('connRestored'));
         if (prevConn === 'ok' && nextConn === 'fail') showNotice(connStore, str('connLost'));
+        // 0.3.62 手动「刷新服务」回执:仅手动探测才提醒,周期复探不打扰
+        if (connStore.probingServices) {
+          connStore.probingServices = false;
+          showNotice(connStore, str(nextConn === 'ok' ? 'connProbeOk' : 'connProbeFail'));
+        }
         break;
       }
       case 'seqEvent':
@@ -233,6 +241,8 @@
       protoDir: typeof boot.protoDir === 'string' ? boot.protoDir : '',
       refreshing: false,
       refreshNotice: '',
+      // 0.3.62 手动「刷新服务」(仅探测)进行中;connState 回执后收尾
+      probingServices: false,
       // 后端连通性:unknown=未探测(灰),host 推 connState 后转 ok(绿)/fail(红)
       connState: 'unknown',
       // 顶视图切换(0.3.59):'services' 方法浏览 | 'sequence' 调用序列
@@ -251,6 +261,15 @@
           store.refreshing = true;
           store.refreshNotice = '';
           sendMessage({ type: 'refresh' });
+        },
+        // 0.3.62 刷新服务:仅重探连接,不重解析 proto;回执走 connState
+        refreshServices() {
+          var store = workbenchStore();
+          if (store.probingServices) {
+            return;
+          }
+          store.probingServices = true;
+          sendMessage({ type: 'refreshServices' });
         },
       };
     });
@@ -284,10 +303,14 @@
       seqName: '',
       seqSaved: [],
       seqRunning: false,
+      // 0.3.62 已点停止/结束并继续、等底层收尾中:按钮转「正在停止…」防重复点击并给即时反馈
+      seqStopping: false,
       seqStatus: 'idle',
       seqNotice: '',
       // seqReport: index → {status, service, method, responseStream, values, durationMs, body, chunks, error}
       seqReport: {},
+      // 序列内二级 tab(0.3.62):'steps' 步骤编辑 | 'report' 运行报告
+      seqTab: 'steps',
 
       // ---- 响应 JSON 折叠树(0.3.41):行构建与可见性遍历在 TS(全局 ResultTree) ----
       // resultTrees: methodKey → 根行数组(一元,applyCallResult 一次构建)
@@ -1193,6 +1216,10 @@
         if (v === 'sequence') this.requestSequences();
       },
 
+      setSeqTab: function (v) {
+        this.seqTab = v;
+      },
+
       lookupMethod: function (service, methodName) {
         var services = Alpine.store('workbench').services;
         for (var i = 0; i < services.length; i++) {
@@ -1221,6 +1248,7 @@
         this.formValues = Object.assign({}, this.formValues, { [id]: JSON.parse(JSON.stringify(this.formValues[srcKey] || {})) });
         this.editorMode = Object.assign({}, this.editorMode, { [id]: mode });
         this.jsonText = Object.assign({}, this.jsonText, { [id]: this.jsonText[srcKey] || '' });
+        this.seqTab = 'steps'; // 新加的步要可见
         Alpine.store('workbench').view = 'sequence';
       },
 
@@ -1279,15 +1307,30 @@
         this.seqNotice = '';
         this.seqStatus = 'running';
         this.seqRunning = true;
+        this.seqTab = 'report'; // 点运行立即切报告 tab,所见即所得
         sendMessage({ type: 'runSequence', sequence: this.buildSequencePayload() });
       },
 
       stopSequence: function () {
+        if (this.seqStopping) return;
+        this.seqStopping = true;
         sendMessage({ type: 'stopSequence' });
       },
 
       endSeqStream: function () {
+        if (this.seqStopping) return;
+        this.seqStopping = true;
         sendMessage({ type: 'endSequenceStream' });
+      },
+
+      // 当前是否有“运行中的流步骤”:常驻控件条上的「结束并继续」显隐门控。
+      // 报告行内的同款按钮随 chunk 高频重渲染,点击可能被 DOM 重建吞掉;控件条不重渲染,点击必达(0.3.62)。
+      seqHasRunningStream: function () {
+        for (var k in this.seqReport) {
+          var r = this.seqReport[k];
+          if (r && r.status === 'running' && r.responseStream) return true;
+        }
+        return false;
       },
 
       saveSequence: function () {
@@ -1330,6 +1373,7 @@
             self.formValues = Object.assign({}, self.formValues, { [id]: st.values || (m ? self.initFieldValues(m.requestFields) : {}) });
           }
         });
+        this.seqTab = 'steps'; // 加载后回到步骤编辑查看/调整
         Alpine.store('workbench').view = 'sequence';
       },
 
@@ -1375,6 +1419,7 @@
               status: ev.ok ? 'ok' : 'error', durationMs: ev.durationMs || 0, error: ev.ok ? '' : (ev.error || ''),
             });
             this.seqReport = rep;
+            this.seqStopping = false; // 流步骤已收尾,解除「正在停止」
             break;
           case 'stepFailed':
             rep = Object.assign({}, this.seqReport);
@@ -1383,6 +1428,7 @@
             break;
           case 'end':
             this.seqRunning = false;
+            this.seqStopping = false;
             this.seqStatus = ev.status;
             if (ev.status === 'completed') this.showSeqNotice(str('seqCompleted'));
             else if (ev.status === 'aborted') this.showSeqNotice(str('seqAborted'));

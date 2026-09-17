@@ -210,6 +210,8 @@ export class SequenceRunner {
           values,
           {
             onData: (data: unknown) => {
+              // 手动结束/停止后底层流残留数据不再上报:避免收尾后报告区继续 churn 观感“没停”(0.3.62)
+              if (settled) return;
               chunks.push(data);
               this.deps.onEvent({ type: 'stepChunk', index, data });
             },

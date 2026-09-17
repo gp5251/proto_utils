@@ -51,7 +51,9 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     title: l10n.t('RPC Workbench'),
     searchPlaceholder: l10n.t('Search services or methods...'),
     heading: l10n.t('RPC Services'),
-    refresh: l10n.t('Refresh'),
+    refresh: l10n.t('Refresh proto'),
+    refreshServices: l10n.t('Refresh services'),
+    probing: l10n.t('Probing…'),
     refreshing: l10n.t('Refreshing…'),
     loadingTitle: l10n.t('Parsing proto files…'),
     loadingDetail: l10n.t(
@@ -102,6 +104,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     seqRun: l10n.t('Run sequence'),
     seqRunning: l10n.t('Running…'),
     seqStop: l10n.t('Stop'),
+    seqStopping: l10n.t('Stopping…'),
     seqEndStream: l10n.t('End & continue'),
     seqSavedTitle: l10n.t('Saved sequences'),
     seqLoad: l10n.t('Load'),
@@ -113,6 +116,9 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     seqReportTitle: l10n.t('Run report'),
     seqCopyReport: l10n.t('Copy report'),
     seqMethodMissing: l10n.t('Method not found. Click Refresh'),
+    seqStepsTab: l10n.t('Steps'),
+    seqReportTab: l10n.t('Run report'),
+    seqReportEmpty: l10n.t('Not run yet. Results appear here step by step after clicking Run sequence.'),
   };
   const strings = {
     copy: l10n.t('Copy'),
@@ -129,6 +135,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     svcUnavailable: l10n.t('Service unavailable — click Refresh to retry'),
     connRestored: l10n.t('Connection restored'),
     connLost: l10n.t('Connection lost'),
+    connProbeOk: l10n.t('Service reachable'),
+    connProbeFail: l10n.t('Service unreachable'),
     // 调用序列动态通知(0.3.59):经 boot.strings 下发,runner.js str() 读取
     seqNameRequired: l10n.t('Enter a sequence name to save'),
     seqEmpty: l10n.t('Sequence has no steps'),
@@ -189,6 +197,11 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
       <div class="page-meta" x-data="pageMeta" x-cloak>
         <!-- 0.3.54:状态点绑定真实连通性(connState 由 host 探测推送;unknown=灰/ok=绿/fail=红) -->
         <span><span class="dot" :class="$store.workbench.connState"></span><span x-text="$store.workbench.server"></span><span class="conn-hint" x-show="$store.workbench.connState === 'fail'" x-text="$store.str.connUnreachable"></span></span>
+        <!-- 0.3.62 刷新拆分为二:「刷新服务」仅重探连接(毫秒级),「刷新 proto」才 invalidate+重解析 -->
+        <button type="button" class="btn btn-secondary btn-xs" :disabled="$store.workbench.probingServices" @click="refreshServices()">
+          <span x-show="!$store.workbench.probingServices">${S.refreshServices}</span>
+          <span x-show="$store.workbench.probingServices"><span class="proto-loading-spinner"></span>${S.probing}</span>
+        </button>
         <button type="button" class="btn btn-secondary btn-xs" :disabled="$store.workbench.refreshing" @click="refresh()">
           <span x-show="!$store.workbench.refreshing">${S.refresh}</span>
           <span x-show="$store.workbench.refreshing"><span class="proto-loading-spinner"></span>${S.refreshing}</span>
@@ -749,13 +762,27 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
             <span x-show="!seqRunning">${S.seqRun}</span>
             <span x-show="seqRunning">${S.seqRunning}</span>
           </button>
-          <button type="button" class="btn btn-secondary" x-show="seqRunning" @click="stopSequence()">${S.seqStop}</button>
-          <button type="button" class="btn btn-secondary" x-show="hasSeqReport()" @click="copySeqReport()">${S.seqCopyReport}</button>
+          <button type="button" class="btn btn-secondary" :disabled="seqStopping" x-show="seqRunning" @click="stopSequence()">
+            <span x-show="!seqStopping">${S.seqStop}</span>
+            <span x-show="seqStopping"><span class="proto-loading-spinner"></span>${S.seqStopping}</span>
+          </button>
+          <!-- 常驻控件条上的「结束并继续」:报告行内同款按钮随 chunk 高频重渲染可能吞点击,此按钮不重渲染(0.3.62) -->
+          <button type="button" class="btn btn-secondary" :disabled="seqStopping" x-show="seqHasRunningStream()" @click="endSeqStream()">
+            <span x-show="!seqStopping">${S.seqEndStream}</span>
+            <span x-show="seqStopping"><span class="proto-loading-spinner"></span>${S.seqStopping}</span>
+          </button>
         </div>
         <p x-show="$store.workbench.connState === 'fail'" class="unsupported-hint" x-text="$store.str.svcUnavailable"></p>
         <p x-show="seqNotice" class="seq-notice" x-text="seqNotice"></p>
       </div>
 
+      <!-- 序列内二级 tab(0.3.62):步骤编辑 / 运行报告 分容器,避免整页纵向堆叠过长;控件条常驻两者之上 -->
+      <div class="view-tabs">
+        <button type="button" class="view-tab" :class="{ 'view-tab-active': seqTab === 'steps' }" @click="setSeqTab('steps')">${S.seqStepsTab}</button>
+        <button type="button" class="view-tab" :class="{ 'view-tab-active': seqTab === 'report' }" @click="setSeqTab('report')">${S.seqReportTab}</button>
+      </div>
+
+      <div x-show="seqTab === 'steps'">
       <div class="card" x-show="seqSaved.length > 0">
         <div class="card-title">${S.seqSavedTitle}</div>
         <template x-for="s in seqSaved" :key="s.name">
@@ -817,7 +844,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                       </template>
                       <template x-if="row.field.protoType === 'TYPE_ENUM' && row.field.enumValues && row.field.enumValues.length > 0">
                         <!-- 序列表入参是渲染前预填的:select 的 :value 会在 x-for options 渲染前赋值被浏览器丢弃(回落空)。
-                             改 option 级 :selected,各 option 渲染时自判选中,与渲染顺序无关(0.3.61)。 -->
+                             改 option 级 :selected,各 option 渲染时自判选中,与渲染顺序无关(0.3.62)。 -->
                         <select class="enum-select" @change="setFieldValue(step.id, row.path, $event.target.value)">
                           <option value="" :selected="!getFieldValue(step.id, row.path)">${S.selectPlaceholder}</option>
                           <template x-for="ev in row.field.enumValues" :key="ev.name">
@@ -865,7 +892,15 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
           </template>
         </div>
       </template>
+      </div>
 
+      <div x-show="seqTab === 'report'">
+      <div class="seq-report-actions">
+        <button type="button" class="btn btn-secondary" x-show="hasSeqReport()" @click="copySeqReport()">${S.seqCopyReport}</button>
+      </div>
+      <div class="empty-state" x-show="!hasSeqReport()">
+        <p>${S.seqReportEmpty}</p>
+      </div>
       <div class="card" x-show="hasSeqReport()">
         <div class="card-title">${S.seqReportTitle}</div>
         <template x-for="entry in seqReportEntries()" :key="entry.index">
@@ -880,6 +915,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                 <button
                   type="button"
                   class="btn btn-secondary btn-xs"
+                  :disabled="seqStopping"
                   x-show="entry.responseStream && entry.status === 'running'"
                   @click="endSeqStream()"
                 >${S.seqEndStream}</button>
@@ -890,6 +926,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
             <pre class="result-body seq-report-body" x-show="entry.error && !entry.body && entry.chunks.length === 0" x-text="entry.error"></pre>
           </div>
         </template>
+      </div>
       </div>
     </div>
   </div>

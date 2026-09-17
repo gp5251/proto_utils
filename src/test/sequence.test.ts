@@ -278,6 +278,10 @@ test('回归:传输层 cancel 不回事件时,手动结束仍立即推进(不卡
   assert.ok(se && se.type === 'stepStreamEnd' && se.ok === true);
   assert.equal(fake.unary.length, 1, '手动结束后必须推进到下一步');
   assert.deepEqual(events[events.length - 1], { type: 'end', status: 'completed' });
+  // 收尾后底层流残留数据不得再上报(0.3.62):否则报告区继续 churn 观感“没停”
+  const chunksBefore = events.filter((e) => e.type === 'stepChunk').length;
+  fake.lastStreamHandlers!.onData({ late: true });
+  assert.equal(events.filter((e) => e.type === 'stepChunk').length, chunksBefore, '收尾后残留 chunk 不得上报');
 });
 
 test('回归:传输层 cancel 不回事件时,stop() 仍能终止(end=stopped)', async () => {

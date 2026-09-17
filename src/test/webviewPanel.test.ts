@@ -233,7 +233,7 @@ test('未注入 probeConnection 时不发 connState(状态点保持未知态)', 
   assert.ok(!posted.some((m) => m.type === 'connState'));
 });
 
-test('每 5s 周期复探(0.3.60):fail 与 ok 都持续复探,仅 dispose 停表', async (t) => {
+test('每 5s 周期复探(0.3.62):fail 与 ok 都持续复探,仅 dispose 停表', async (t) => {
   mock.timers.enable({ apis: ['setTimeout'] });
   t.after(() => mock.timers.reset());
 
@@ -263,7 +263,7 @@ test('每 5s 周期复探(0.3.60):fail 与 ok 都持续复探,仅 dispose 停表
   assert.equal(calls, 3);
   assert.deepEqual(posted[posted.length - 1], { type: 'connState', state: 'ok' });
 
-  // 可达也周期复探(0.3.60):转 ok 后仍每 5s 继续,不再“恢复即停”
+  // 可达也周期复探(0.3.62):转 ok 后仍每 5s 继续,不再“恢复即停”
   mock.timers.tick(5000);
   await new Promise((r) => setImmediate(r));
   assert.equal(calls, 4, '转 ok 后仍须周期复探');
@@ -494,6 +494,28 @@ test('refresh → invalidate 后重载并推 services', async () => {
   );
 });
 
+test('refreshServices(0.3.62):仅 probe 一次,不 invalidate/不重载服务列表', async () => {
+  let probes = 0;
+  const { host, posted, emit } = makeHost();
+  const { deps, state } = makeDeps({ probeConnection: async () => { probes++; return true; } });
+  let loads = 0;
+  const origLoad = deps.registry.load;
+  deps.registry.load = async (d: string) => {
+    loads++;
+    return origLoad(d);
+  };
+  new WorkbenchSession(deps).attach(host);
+  emit({ type: 'refreshServices' });
+  for (let i = 0; i < 50 && probes < 1; i++) await new Promise((r) => setImmediate(r));
+  // 探测的 connState 在 probeConnection 续体里发送,先刷微任务再断言
+  await nextTick();
+  assert.equal(probes, 1, '刷新服务必须触发一次探测');
+  assert.equal(loads, 0, '刷新服务不得重载服务列表');
+  assert.equal(state.invalidated, 0, '刷新服务不得 invalidate proto 缓存');
+  assert.ok(posted.some((m) => m.type === 'connState'), '探测结果须经 connState 回推');
+  assert.ok(!posted.some((m) => m.type === 'services'), '刷新服务不得重推服务列表');
+});
+
 test('面板单例:两次 reveal 只建一次,销毁后重建', () => {
   let created = 0;
   let revealed = 0;
@@ -660,6 +682,45 @@ test('stopSequence:流步骤进行中停止 → end=stopped', async () => {
   await untilSeqEnd(posted);
   const end = seqEvents(posted).find((e) => e.type === 'end');
   assert.equal(end?.status, 'stopped');
+});
+
+test('endSequenceStream:流步骤手动结束 → stepStreamEnd ok 并推进下一步(传输层 cancel 不回事件)', async () => {
+  const { host, posted, emit } = makeHost();
+  let handlers: StreamHandlers | null = null;
+  const runner: Partial<CallRunner> = {
+    callUnary: async (s, m) =>
+      ({
+        service: s, method: m, requestType: 'R', responseType: 'R', fields: [], values: {},
+        result: { status: 'ok', data: {}, durationMs: 1 }, resultBody: '{}',
+      }) as CallResultPayload,
+    callServerStream: (_s, _m, _v, h) => {
+      handlers = h;
+      return { cancel: () => undefined }; // 故意不回事件,复现真实 grpc 取消无回执
+    },
+  };
+  new WorkbenchSession(makeDeps({ runner, loadResult: { services: SEQ_SERVICES, errors: [] } }).deps).attach(host);
+  emit({
+    type: 'runSequence',
+    sequence: {
+      name: 's',
+      steps: [
+        { service: 'Greeter', method: 'Watch', mode: 'form', responseStream: true },
+        { service: 'Greeter', method: 'SayHello', mode: 'form', responseStream: false },
+      ],
+    },
+  });
+  for (let i = 0; i < 100 && handlers === null; i++) await new Promise((r) => setImmediate(r));
+  assert.ok(handlers, '流步骤应已启动');
+  (handlers as StreamHandlers).onData({ n: 1 });
+
+  emit({ type: 'endSequenceStream' });
+  await untilSeqEnd(posted);
+  const evs = seqEvents(posted);
+  const se = evs.find((e) => e.type === 'stepStreamEnd');
+  assert.ok(se && se.ok === true, '手动结束应报 stepStreamEnd ok');
+  assert.ok(evs.some((e) => e.type === 'stepStart' && (e.index as number) === 1), '应推进到下一步');
+  assert.equal(evs[evs.length - 1].type, 'end');
+  assert.equal(evs[evs.length - 1].status, 'completed');
 });
 
 test('listSequences/saveSequence/deleteSequence/loadSequence 走 store', async () => {

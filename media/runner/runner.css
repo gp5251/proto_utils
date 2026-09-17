@@ -770,3 +770,8 @@ input[type="checkbox"] {
   font-size: 13px;
   margin-right: 6px;
 }
+.seq-report-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 8px;
+}

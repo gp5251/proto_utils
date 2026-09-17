@@ -17,6 +17,8 @@ function errText(err: unknown): string {
 export type WebviewToWorkbench =
   | { type: 'ready' }
   | { type: 'refresh' }
+  /** 0.3.62:仅重探连接/服务可达性,不 invalidate/不重解析 proto;结果经 connState 回推。 */
+  | { type: 'refreshServices' }
   | { type: 'call'; service: string; method: string; values: Record<string, unknown>; metadata?: MetadataEntry[] }
   | { type: 'callStream'; service: string; method: string; values: Record<string, unknown>; metadata?: MetadataEntry[] }
   | { type: 'cancelStream'; service: string; method: string }
@@ -165,7 +167,7 @@ export class WorkbenchSession {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   /** 进行中的序列引擎;同一时刻至多一条,run 收尾后清空(0.3.59)。 */
   private activeSequence: SequenceRunner | null = null;
-  /** dispose 后不再发送/排期:防 in-flight 探测在 dispose 续体里复活定时器(zombie 心跳,0.3.60 周期复探引入)。 */
+  /** dispose 后不再发送/排期:防 in-flight 探测在 dispose 续体里复活定时器(zombie 心跳,0.3.62 周期复探引入)。 */
   private disposed = false;
 
   constructor(private readonly deps: WorkbenchSessionDeps) {}
@@ -209,6 +211,12 @@ export class WorkbenchSession {
       case 'refresh': {
         await this.reload();
         this.flushPrefill();
+        return;
+      }
+      case 'refreshServices': {
+        // 0.3.62 刷新服务:只发一次探测(毫秒级),不动 proto 缓存与服务列表;
+        // 探测恒推 connState,webview 据此收尾手动探测态并给回执通知
+        void this.probe();
         return;
       }
       case 'call': {
@@ -334,7 +342,7 @@ export class WorkbenchSession {
   }
 
   /** 探测失败与抛错同报 fail(不可达/超时/TLS 配置错);未注入依赖则静默(状态点停未知态)。
-   *  每 5s 周期复探(0.3.56 起仅失败重探;0.3.60 改为可达也周期复探),后端上下线都在一个
+   *  每 5s 周期复探(0.3.56 起仅失败重探;0.3.62 改为可达也周期复探),后端上下线都在一个
    *  周期内反映到状态点;探测现读配置,server 改动自动生效。 */
   private async probe(): Promise<void> {
     if (!this.deps.probeConnection) {

@@ -183,6 +183,12 @@ test('connState 跃迁提醒(0.3.57):fail→ok 提示恢复,ok→fail 提示断�
   assert.ok(src.includes('connRestored:') && src.includes('connLost:'), '缺跃迁文案默认串');
   // 提醒走 showNotice 瞬时通道(2.5s 自动消失),不得常驻 refreshNotice
   assert.ok(body.includes('showNotice('), '跃迁提醒必须走 showNotice');
+  // 0.3.62 手动「刷新服务」回执:仅手动探测才提醒,周期复探不打扰
+  assert.ok(body.includes('probingServices'), '手动刷新服务回执须在 connState 路由内收尾');
+  assert.ok(src.includes('refreshServices() {'), 'pageMeta 缺 refreshServices');
+  // 0.3.62 停止反馈:点击立即置 seqStopping,收尾事件清除
+  assert.ok(src.includes('this.seqStopping = true'), '停止/结束点击须立即置 seqStopping');
+  assert.ok(src.includes('this.seqStopping = false'), '收尾事件须清除 seqStopping');
 });
 
 test('过滤命中面(0.3.58):fullName 只收子串/单段模糊,跨段散字子序列不得命中', () => {
@@ -221,6 +227,7 @@ test('序列消息路由与组件方法(0.3.59)齐备', () => {
   for (const fn of [
     'addToSequence: function', 'buildSequencePayload: function', 'applySeqEvent: function',
     'runSequence: function', 'setView: function', 'hasSeqReport: function', 'stepRefProblems: function',
+    'seqHasRunningStream: function', 'setSeqTab: function',
   ]) {
     assert.ok(src.includes(fn), `缺序列方法 ${fn}`);
   }
@@ -235,4 +242,6 @@ test('runSequence 早退:不可达/运行中在发 runSequence 消息之前拦�
   assert.ok(start >= 0 && end > start, '缺 runSequence');
   assert.ok(body.indexOf("connState === 'fail'") < body.indexOf('sendMessage'), '不可达早退必须在发消息前');
   assert.ok(body.indexOf('this.seqRunning') < body.indexOf('sendMessage'), '运行中早退必须在发消息前');
+  assert.ok(body.includes("this.seqTab = 'report'"), '点运行必须切到报告 tab(0.3.62)');
+  assert.ok(body.indexOf("this.seqTab = 'report'") < body.indexOf('sendMessage'), '切 tab 必须在发消息前');
 });

@@ -194,6 +194,10 @@ test('交互结构:搜索、刷新按钮、流式徽标、取消按钮、prefill
   // 刷新走 Alpine.data 组件方法(csp Alpine 见不到 window 全局,postRefresh 入口已移除)
   assert.ok(html.includes('x-data="pageMeta"'));
   assert.ok(html.includes('@click="refresh()"'));
+  // 0.3.62 刷新拆分:「刷新服务」仅探测 / 「刷新 proto」才重解析,双按钮文案与状态绑定须区分
+  assert.ok(html.includes('@click="refreshServices()"'), '缺刷新服务按钮');
+  assert.ok(html.includes('Refresh proto') && html.includes('Refresh services'), '两个刷新按钮文案须区分');
+  assert.ok(html.includes('$store.workbench.probingServices'), '刷新服务按钮须绑定 probingServices');
   assert.ok(html.includes("$store.workbench.refreshing"));
   assert.ok(html.includes('method-stream-badge'));
   assert.ok(html.includes('copyServiceName(svc)'), '服务名旁复制 icon');
@@ -273,7 +277,16 @@ test('序列视图锚点(0.3.59):视图切换/加入序列/运行控制/报告 +
   ]) {
     assert.ok(html.includes(anchor), `缺序列锚点: ${anchor}`);
   }
-  // 序列枚举 select 必须 option 级 :selected(预填值在 options 渲染前赋值会被丢弃,0.3.61)
+  // 序列枚举 select 必须 option 级 :selected(预填值在 options 渲染前赋值会被丢弃,0.3.62)
   assert.ok(html.includes(':selected="getFieldValue(step.id, row.path) === ev.name"'), '序列枚举缺 option 级 :selected');
   assert.ok(html.includes(':selected="!getFieldValue(step.id, row.path)"'), '序列枚举占位 option 缺 :selected');
+  // 常驻控件条上的「结束并继续」(报告行内按钮随 chunk 重渲染可能吞点击,0.3.62)
+  assert.ok(html.includes('x-show="seqHasRunningStream()"'), '缺常驻控件条的结束并继续按钮');
+  // 0.3.62 停止反馈:停止/结束按钮绑定 seqStopping 禁用并换「正在停止…」文案
+  assert.ok(html.includes(':disabled="seqStopping"'), '停止/结束按钮须绑定 seqStopping 禁用');
+  assert.ok(html.includes('Stopping…'), '缺正在停止文案');
+  // 序列内二级 tab(0.3.62):步骤/报告分容器 + 报告空态 + 复制报告移入报告 tab
+  assert.ok(html.includes("seqTab === 'steps'") && html.includes("seqTab === 'report'"), '缺序列二级 tab 门控');
+  assert.ok(html.includes("setSeqTab('report')"), '缺切到报告 tab 入口');
+  assert.ok(html.includes('x-show="!hasSeqReport()"'), '缺运行报告空态');
 });
