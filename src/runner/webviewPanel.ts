@@ -165,6 +165,8 @@ export class WorkbenchSession {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   /** 进行中的序列引擎;同一时刻至多一条,run 收尾后清空(0.3.59)。 */
   private activeSequence: SequenceRunner | null = null;
+  /** dispose 后不再发送/排期:防 in-flight 探测在 dispose 续体里复活定时器(zombie 心跳,0.3.59 周期复探引入)。 */
+  private disposed = false;
 
   constructor(private readonly deps: WorkbenchSessionDeps) {}
 
@@ -270,6 +272,7 @@ export class WorkbenchSession {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.cancelRetry();
     this.activeSequence?.stop();
     this.activeSequence = null;
@@ -331,7 +334,8 @@ export class WorkbenchSession {
   }
 
   /** 探测失败与抛错同报 fail(不可达/超时/TLS 配置错);未注入依赖则静默(状态点停未知态)。
-   *  fail 后每 5s 自动重探(0.3.56),转 ok 即停;探测现读配置,server 改动自动生效。 */
+   *  每 5s 周期复探(0.3.56 起仅失败重探;0.3.59 改为可达也周期复探),后端上下线都在一个
+   *  周期内反映到状态点;探测现读配置,server 改动自动生效。 */
   private async probe(): Promise<void> {
     if (!this.deps.probeConnection) {
       return;
@@ -342,14 +346,16 @@ export class WorkbenchSession {
     } catch {
       reachable = false;
     }
-    this.send({ type: 'connState', state: reachable ? 'ok' : 'fail' });
-    if (reachable) {
-      this.cancelRetry();
-    } else {
-      this.scheduleRetry();
+    // 关闭瞬间探测在途:续体醒来时 session 已销毁,不得再发送/排期(否则 zombie 5s 心跳)
+    if (this.disposed) {
+      return;
     }
+    this.send({ type: 'connState', state: reachable ? 'ok' : 'fail' });
+    // 可达也排下一次:周期复探不区分结局,仅 dispose 停表
+    this.scheduleRetry();
   }
 
+  /** 排下一次周期复探;同一时刻至多一个定时器(并发探测不重复排期)。 */
   private scheduleRetry(): void {
     if (this.retryTimer) {
       return; // 并发探测只排一次

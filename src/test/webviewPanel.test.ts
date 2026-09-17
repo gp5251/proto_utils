@@ -233,13 +233,13 @@ test('未注入 probeConnection 时不发 connState(状态点保持未知态)', 
   assert.ok(!posted.some((m) => m.type === 'connState'));
 });
 
-test('探测失败每 5s 自动重探(0.3.56):持续 fail 持续重探,恢复 ok 即停', async (t) => {
+test('每 5s 周期复探(0.3.59):fail 与 ok 都持续复探,仅 dispose 停表', async (t) => {
   mock.timers.enable({ apis: ['setTimeout'] });
   t.after(() => mock.timers.reset());
 
   let calls = 0;
-  // fail → fail → ok:验证重探排期与恢复停止
-  const outcomes = [false, false, true];
+  // fail → fail → ok → ok:验证失败重探与可达也周期复探
+  const outcomes = [false, false, true, true];
   const probeConnection = async () => outcomes[Math.min(calls++, outcomes.length - 1)];
   const { host, posted, emit } = makeHost();
   new WorkbenchSession(makeDeps({ probeConnection }).deps).attach(host);
@@ -257,14 +257,16 @@ test('探测失败每 5s 自动重探(0.3.56):持续 fail 持续重探,恢复 ok
   await new Promise((r) => setImmediate(r));
   assert.equal(calls, 2, '5s 到点必须自动重探');
 
-  // 第三次转 ok:此后不再排期
+  // 第三次转 ok
   mock.timers.tick(5000);
   await new Promise((r) => setImmediate(r));
   assert.equal(calls, 3);
   assert.deepEqual(posted[posted.length - 1], { type: 'connState', state: 'ok' });
-  mock.timers.tick(20000);
-  await nextTick();
-  assert.equal(calls, 3, '恢复后不得再重探');
+
+  // 可达也周期复探(0.3.59):转 ok 后仍每 5s 继续,不再“恢复即停”
+  mock.timers.tick(5000);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(calls, 4, '转 ok 后仍须周期复探');
 });
 
 test('面板销毁后不再自动重探(dispose 清定时器)', async (t) => {
@@ -291,6 +293,31 @@ test('面板销毁后不再自动重探(dispose 清定时器)', async (t) => {
   mock.timers.tick(20000);
   await nextTick();
   assert.equal(calls, 1, 'dispose 后不得再重探');
+});
+
+test('关闭瞬间探测在途:dispose 后续体不得复活定时器(zombie 心跳守卫)', async (t) => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(() => mock.timers.reset());
+
+  let calls = 0;
+  const gates: Array<() => void> = [];
+  // 可控 gate:探测挂起不返回,制造 in-flight 窗口
+  const probeConnection = () => {
+    calls++;
+    return new Promise<boolean>((resolve) => gates.push(() => resolve(false)));
+  };
+  const { host, emit, dispose } = makeHost();
+  new WorkbenchSession(makeDeps({ probeConnection }).deps).attach(host);
+  emit({ type: 'ready' });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(calls, 1, '首次探测已发起且在途');
+
+  dispose(); // 探测未返回时关闭面板
+  gates[0](); // 放行在途探测:续体醒来时 session 已销毁
+  await new Promise((r) => setImmediate(r));
+  mock.timers.tick(20000);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(calls, 1, 'dispose 后不得再排期复探(zombie 心跳)');
 });
 
 test('call/callStream 的 metadata 经 sanitize 后透传给 runner(只收 {key,value} 字符串项)', async () => {
