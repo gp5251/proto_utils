@@ -297,6 +297,10 @@ test('序列视图锚点(0.3.59):视图切换/加入序列/运行控制/报告 +
   assert.ok(html.includes('seqMaxMsgs[methodKey(svcId(svc), m.name)]'), '服务页流方法缺最大消息数输入');
   assert.ok(html.includes('streamIsCapped('), '缺收满自动停的完成态判定');
   assert.ok(html.includes('seqChunkCountText(entry)'), '报告行缺 chunk 计数');
+  // 0.3.67 回到顶部浮动按钮
+  assert.ok(html.includes('class="back-top"'), '缺回到顶部浮动按钮');
+  assert.ok(html.includes('@click="backToTop()"'), '回到顶部按钮缺点击绑定');
+  assert.ok(html.includes('x-show="$store.workbench.backTop"'), '回到顶部按钮须受滚动阈值门控');
   // 0.3.63 步骤入参默认折叠:入参区 x-show 折叠态 + 标题/图标可切换 + 占位符告警在折叠外
   assert.ok(html.includes('x-show="isSeqStepOpen(step.id)"'), '步骤入参区须受折叠态门控');
   assert.ok(html.includes('@click="toggleSeqStep(step.id)"'), '缺步骤折叠切换入口');

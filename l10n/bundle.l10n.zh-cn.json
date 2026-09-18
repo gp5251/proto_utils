@@ -129,6 +129,7 @@
   "Not run yet. Results appear here step by step after clicking Run sequence.": "尚未运行。点击「运行序列」后此处逐步展示结果。",
   "Enter a sequence name to save": "请输入序列名称以保存",
   "Added to sequence: {method}": "已加入序列:{method}",
+  "Back to top": "回到顶部",
   "Sequence has no steps": "序列没有任何步",
   "Sequence not found": "未找到该序列",
   "{count} step(s) reference missing methods. Sequence not started.": "有 {count} 步引用了不存在的方法，序列未启动。",

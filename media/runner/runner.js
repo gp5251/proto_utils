@@ -92,6 +92,13 @@
     routeMessage(event.data);
   });
 
+  // 0.3.67 回到顶部浮动按钮:滚动超阈值才显示;passive 不阻滚动
+  var BACK_TOP_THRESHOLD = 320;
+  window.addEventListener('scroll', function () {
+    var store = typeof Alpine !== 'undefined' ? Alpine.store('workbench') : null;
+    if (store) store.backTop = window.scrollY > BACK_TOP_THRESHOLD;
+  }, { passive: true });
+
   function routeMessage(msg) {
     if (!msg || typeof msg !== 'object') {
       return;
@@ -251,6 +258,8 @@
       connState: 'unknown',
       // 顶视图切换(0.3.59):'services' 方法浏览 | 'sequence' 调用序列
       view: 'services',
+      // 0.3.67 回到顶部浮动按钮显隐
+      backTop: false,
     });
 
     // 顶栏刷新区:@alpinejs/csp 表达式见不到 window 全局(0.3.19 前的 postRefresh 全局入口因此从未生效),
@@ -1240,6 +1249,12 @@
       setView: function (v) {
         Alpine.store('workbench').view = v;
         if (v === 'sequence') this.requestSequences();
+      },
+
+      // 0.3.67 回到顶部:平滑滚顶并立即藏按钮
+      backToTop: function () {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        Alpine.store('workbench').backTop = false;
       },
 
       setSeqTab: function (v) {

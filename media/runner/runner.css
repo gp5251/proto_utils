@@ -782,6 +782,26 @@ input[type="checkbox"] {
   border-top: 1px solid var(--border);
   padding: 8px 0;
 }
+
+/* 0.3.67 回到顶部浮动按钮:fixed 右下角,滚动超阈值才显示(x-show 控制) */
+.back-top {
+  position: fixed;
+  right: 20px;
+  bottom: 24px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-dim);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 30%);
+  z-index: 10;
+}
+.back-top:hover { color: var(--text); border-color: var(--accent); }
 .seq-report-title {
   color: var(--text);
   font-family: var(--mono);

@@ -44,6 +44,10 @@ export function escapeInlineJson(value: unknown): string {
 const COPY_ICON_SVG =
   '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2"/></svg>';
 
+/** 回到顶部浮动按钮图标(0.3.67):向上箭头 */
+const BACK_TOP_ICON_SVG =
+  '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3"/><path d="M3.5 7.5 8 3l4.5 4.5"/></svg>';
+
 export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
   // 静态串 host 侧就地翻译;webview 内 Alpine 表达式求值的串经 boot.strings 下发,
   // webview 通过 $store.str.* / runner.js str() 读取({name} 占位符运行时替换)。
@@ -143,6 +147,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     // 调用序列动态通知(0.3.59):经 boot.strings 下发,runner.js str() 读取
     seqNameRequired: l10n.t('Enter a sequence name to save'),
     seqAdded: l10n.t('Added to sequence: {method}'),
+    backTop: l10n.t('Back to top'),
     seqEmpty: l10n.t('Sequence has no steps'),
     seqLoadMiss: l10n.t('Sequence not found'),
     seqValidationFailed: l10n.t('{count} step(s) reference missing methods. Sequence not started.'),
@@ -992,6 +997,15 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
       </div>
       </div>
     </div>
+
+    <!-- 0.3.67 回到顶部浮动按钮:滚动超阈值才显示(fixed 右下角) -->
+    <button
+      type="button"
+      class="back-top"
+      x-show="$store.workbench.backTop"
+      :title="$store.str.backTop"
+      @click="backToTop()"
+    >${BACK_TOP_ICON_SVG}</button>
   </div>
 </body>
 </html>`;

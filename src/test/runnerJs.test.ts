@@ -205,6 +205,14 @@ test('加入序列(0.3.66):不切视图,仅瞬时提示已加入', () => {
   assert.ok(body.includes("str('seqAdded'"), '加入序列须弹瞬时提示');
 });
 
+test('回到顶部(0.3.67):滚动阈值监听 + backToTop 方法齐备', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  assert.ok(src.includes('BACK_TOP_THRESHOLD'), '缺滚动阈值常量');
+  assert.ok(src.includes("addEventListener('scroll'"), '缺滚动监听');
+  assert.ok(src.includes('backToTop: function'), '缺 backToTop 方法');
+  assert.ok(src.includes('backTop: false'), 'store 缺 backTop 初始态');
+});
+
 test('过滤命中面(0.3.58):fullName 只收子串/单段模糊,跨段散字子序列不得命中', () => {
   const src = fs.readFileSync(RUNNER_JS, 'utf8');
   // 提取 fuzzyMatch + matchServiceName 同源实跑(两函数相邻,位于 postMessage 注释块之前)
