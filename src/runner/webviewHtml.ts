@@ -901,14 +901,14 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
       </div>
 
       <div x-show="seqTab === 'report'">
-      <div class="seq-report-actions">
-        <button type="button" class="btn btn-secondary" x-show="hasSeqReport()" @click="copySeqReport()">${S.seqCopyReport}</button>
-      </div>
       <div class="empty-state" x-show="!hasSeqReport()">
         <p>${S.seqReportEmpty}</p>
       </div>
       <div class="card" x-show="hasSeqReport()">
-        <div class="card-title">${S.seqReportTitle}</div>
+        <div class="seq-report-actions">
+          <div class="card-title" style="margin-right: auto;">${S.seqReportTitle}</div>
+          <button type="button" class="btn btn-secondary" x-show="hasSeqReport()" @click="copySeqReport()">${S.seqCopyReport}</button>
+        </div>
         <template x-for="entry in seqReportEntries()" :key="entry.index">
           <div class="seq-report-row" x-show="entry.status !== 'pending'">
             <div class="result-header">
