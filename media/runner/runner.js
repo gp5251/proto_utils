@@ -32,6 +32,7 @@
     connProbeFail: 'Service unreachable',
     // 调用序列(0.3.59,ADR-0012)
     seqNameRequired: 'Enter a sequence name to save',
+    seqAdded: 'Added to sequence: {method}',
     seqEmpty: 'Sequence has no steps',
     seqLoadMiss: 'Sequence not found',
     seqValidationFailed: '{count} step(s) reference missing methods. Sequence not started.',
@@ -1282,8 +1283,9 @@
         this.formValues = Object.assign({}, this.formValues, { [id]: JSON.parse(JSON.stringify(this.formValues[srcKey] || {})) });
         this.editorMode = Object.assign({}, this.editorMode, { [id]: mode });
         this.jsonText = Object.assign({}, this.jsonText, { [id]: this.jsonText[srcKey] || '' });
-        this.seqTab = 'steps'; // 新加的步要可见
-        Alpine.store('workbench').view = 'sequence';
+        this.seqTab = 'steps'; // 新加的步在序列 tab 可见
+        // 0.3.66 加入后不切视图,仅瞬时提示;避免打断服务页浏览
+        showNotice(workbenchStore(), str('seqAdded', { method: m.name }));
       },
 
       removeStep: function (i) {

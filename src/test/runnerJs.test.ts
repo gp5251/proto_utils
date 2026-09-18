@@ -195,6 +195,16 @@ test('connState 跃迁提醒(0.3.57):fail→ok 提示恢复,ok→fail 提示断�
   assert.ok(src.includes('streamCapReached'), '缺收满自动停的通知文案键');
 });
 
+test('加入序列(0.3.66):不切视图,仅瞬时提示已加入', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const start = src.indexOf('addToSequence: function');
+  const end = src.indexOf('removeStep: function', start);
+  assert.ok(start >= 0 && end > start, '缺 addToSequence');
+  const body = src.slice(start, end);
+  assert.ok(!body.includes("view = 'sequence'"), '加入序列不得立即切换视图');
+  assert.ok(body.includes("str('seqAdded'"), '加入序列须弹瞬时提示');
+});
+
 test('过滤命中面(0.3.58):fullName 只收子串/单段模糊,跨段散字子序列不得命中', () => {
   const src = fs.readFileSync(RUNNER_JS, 'utf8');
   // 提取 fuzzyMatch + matchServiceName 同源实跑(两函数相邻,位于 postMessage 注释块之前)

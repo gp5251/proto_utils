@@ -142,6 +142,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     connProbeFail: l10n.t('Service unreachable'),
     // 调用序列动态通知(0.3.59):经 boot.strings 下发,runner.js str() 读取
     seqNameRequired: l10n.t('Enter a sequence name to save'),
+    seqAdded: l10n.t('Added to sequence: {method}'),
     seqEmpty: l10n.t('Sequence has no steps'),
     seqLoadMiss: l10n.t('Sequence not found'),
     seqValidationFailed: l10n.t('{count} step(s) reference missing methods. Sequence not started.'),
