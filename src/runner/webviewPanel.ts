@@ -4,7 +4,7 @@ import type { CallResultPayload, CallRunner } from './callHandler';
 import type { MetadataEntry, TlsSettings } from './config';
 import { SequenceRunner, type SequenceEvent } from './sequence';
 import { parseSequence, type Sequence, type SequenceStore } from './sequenceStore';
-import { resolveRunnerConfig as resolveRunnerConfigPure, DEFAULT_SEQ_STREAM_CHUNK_LIMIT, DEFAULT_CONN_PROBE_INTERVAL_MS } from './config';
+import { resolveRunnerConfig as resolveRunnerConfigPure, DEFAULT_CONN_PROBE_INTERVAL_MS } from './config';
 import { generateNonce, renderWorkbenchHtml } from './webviewHtml';
 import { parseProtoError, type ErrorSegment } from '../protoErrorMessage';
 
@@ -67,7 +67,7 @@ export interface WorkbenchHost {
 export interface WorkbenchSessionDeps {
   registry: Pick<ServiceRegistry, 'load' | 'invalidate'>;
   runner: CallRunner;
-  getConfig(): { server: string; protoDir: string; metadata: MetadataEntry[]; seqStreamChunkLimit?: number; connProbeIntervalMs?: number };
+  getConfig(): { server: string; protoDir: string; metadata: MetadataEntry[]; connProbeIntervalMs?: number };
   /** 0.3.40:proto 加载尘埃落定(成功/部分错误/抛错)后回调,activation 侧借此补诊断飘红。可选,测试不受影响。 */
   onLoadSettled?(): void;
   /** 0.3.54:后端连通性探测(顶栏状态点数据源);未注入则状态点保持未知态,不发 connState。 */
@@ -490,7 +490,7 @@ export class WorkbenchSession {
       registry: this.deps.registry,
       getConfig: () => {
         const c = this.deps.getConfig();
-        return { protoDir: c.protoDir, metadata: c.metadata, seqStreamChunkLimit: c.seqStreamChunkLimit };
+        return { protoDir: c.protoDir, metadata: c.metadata, connProbeIntervalMs: c.connProbeIntervalMs };
       },
       onEvent: (event) => {
         this.send({ type: 'seqEvent', event });
@@ -572,7 +572,6 @@ export function resolveRunnerConfig(): {
   tls: TlsSettings;
   metadata: MetadataEntry[];
   timeoutMs: number;
-  seqStreamChunkLimit: number;
   connProbeIntervalMs: number;
 } {
   const config = vscode.workspace.getConfiguration('protoUtils');
@@ -584,7 +583,6 @@ export function resolveRunnerConfig(): {
     tls: resolved.tls,
     metadata: resolved.metadata,
     timeoutMs: resolved.timeoutMs,
-    seqStreamChunkLimit: resolved.seqStreamChunkLimit,
     connProbeIntervalMs: resolved.connProbeIntervalMs,
   };
 }
@@ -667,7 +665,6 @@ export function createVscodePanelFactory(
       server: deps.getConfig().server,
       protoDir: deps.getConfig().protoDir,
       metadataDefault: deps.getConfig().metadata,
-      seqStreamChunkLimit: deps.getConfig().seqStreamChunkLimit ?? DEFAULT_SEQ_STREAM_CHUNK_LIMIT,
     });
     return {
       host: {

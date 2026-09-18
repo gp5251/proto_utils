@@ -121,3 +121,25 @@ test('filePath 指向 .proto-utils/sequences.json', () => {
   assert.equal(s.filePath, FILE);
   assert.equal(SEQUENCE_FILE, 'sequences.json');
 });
+
+test('步级 metadata/maxMessages 持久化往返(0.3.64):坏条目剔除,全空/负数不写字段', async () => {
+  const { s } = store();
+  await s.save({
+    name: 'md',
+    steps: [
+      {
+        service: 'S', method: 'M', mode: 'form', responseStream: false,
+        metadata: [{ key: 'a', value: '1' }, { junk: true }, { key: 2, value: 'x' }],
+        maxMessages: 7.8,
+      },
+      { service: 'S', method: 'M2', mode: 'form', responseStream: true, metadata: [], maxMessages: -1 },
+    ],
+  } as unknown as Sequence);
+  const all = await s.list();
+  const st0 = all[0].steps[0];
+  assert.deepEqual(st0.metadata, [{ key: 'a', value: '1' }], '坏条目逐条剔除');
+  assert.equal(st0.maxMessages, 7, '小数向下取整');
+  const st1 = all[0].steps[1];
+  assert.equal(st1.metadata, undefined, '全空不写字段(旧文件兼容)');
+  assert.equal(st1.maxMessages, undefined, '负数不写');
+});

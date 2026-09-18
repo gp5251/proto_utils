@@ -5,6 +5,7 @@ import type { CallRunner, CallResultPayload } from '../runner/callHandler';
 import type { CallResult, StreamHandlers } from '../runner/core/types';
 import type { SerializedMethod, SerializedService } from '../runner/serviceRegistry';
 import type { Sequence } from '../runner/sequenceStore';
+import type { MetadataEntry } from '../runner/config';
 
 /** 构造最小 SerializedService(校验只看 name/fullName/methods[].name)。 */
 function svc(name: string, ...methods: string[]): SerializedService {
@@ -238,11 +239,11 @@ test('stop() 停止整条:当前流步骤收尾后不再推进,end=stopped', asy
 
 /** cancel 不回任何事件的传输层(复现真实 grpc 取消后无 onEnd/onError 的卡死场景)。 */
 class SilentCancelRunner implements CallRunner {
-  unary: Array<{ service: string; method: string; values?: Record<string, unknown> }> = [];
+  unary: Array<{ service: string; method: string; values?: Record<string, unknown>; metadata?: MetadataEntry[] }> = [];
   lastStreamHandlers: StreamHandlers | null = null;
   cancelCount = 0;
-  async callUnary(service: string, method: string, values: Record<string, unknown>): Promise<CallResultPayload> {
-    this.unary.push({ service, method, values });
+  async callUnary(service: string, method: string, values: Record<string, unknown>, metadata?: MetadataEntry[]): Promise<CallResultPayload> {
+    this.unary.push({ service, method, values, metadata });
     return {
       service, method, requestType: 'Req', responseType: 'Res', fields: [], values: {},
       result: ok({}), resultBody: '{}',
@@ -313,13 +314,13 @@ test('序列流 chunk 上限即接收上限(0.3.63):收满自动结束该步并�
   const runner = new SequenceRunner({
     runner: fake,
     registry: { load: async () => ({ services: [svc('A', 'Watch', 'Y')], errors: [] }) },
-    getConfig: () => ({ protoDir: 'x', metadata: [], seqStreamChunkLimit: 2 }),
+    getConfig: () => ({ protoDir: 'x', metadata: [] }),
     onEvent: (e) => events.push(e),
   });
   const p = runner.run({
     name: 's',
     steps: [
-      { service: 'A', method: 'Watch', mode: 'form', responseStream: true },
+      { service: 'A', method: 'Watch', mode: 'form', responseStream: true, maxMessages: 2 },
       { service: 'A', method: 'Y', mode: 'form', values: { first: '{{step0.chunks[0].data.n}}' }, responseStream: false },
     ],
   });
@@ -343,13 +344,13 @@ test('序列流 chunk 上限 0 = 不限(0.3.63):全部保留,占位符可引最�
   const runner = new SequenceRunner({
     runner: fake,
     registry: { load: async () => ({ services: [svc('A', 'Watch', 'Y')], errors: [] }) },
-    getConfig: () => ({ protoDir: 'x', metadata: [], seqStreamChunkLimit: 0 }),
+    getConfig: () => ({ protoDir: 'x', metadata: [] }),
     onEvent: (e) => events.push(e),
   });
   const p = runner.run({
     name: 's',
     steps: [
-      { service: 'A', method: 'Watch', mode: 'form', responseStream: true },
+      { service: 'A', method: 'Watch', mode: 'form', responseStream: true, maxMessages: 0 },
       { service: 'A', method: 'Y', mode: 'form', values: { first: '{{step0.chunks[0].data.n}}' }, responseStream: false },
     ],
   });
@@ -358,4 +359,28 @@ test('序列流 chunk 上限 0 = 不限(0.3.63):全部保留,占位符可引最�
   fake.lastStreamHandlers!.onEnd(1);
   await p;
   assert.deepEqual(fake.unary[0].values, { first: 1 }, '0=不限时最早块仍可引用');
+});
+
+test('步级 metadata 按 key 合并全局(0.3.64):同 key 步级优先,异 key 追加,全局顺序保持', async () => {
+  const fake = new SilentCancelRunner();
+  const runner = new SequenceRunner({
+    runner: fake,
+    registry: { load: async () => ({ services: [svc('A', 'Y')], errors: [] }) },
+    getConfig: () => ({ protoDir: 'x', metadata: [{ key: 'auth', value: 'global' }, { key: 'trace', value: 'g' }] }),
+    onEvent: () => {},
+  });
+  await runner.run({
+    name: 's',
+    steps: [
+      {
+        service: 'A', method: 'Y', mode: 'form', responseStream: false,
+        metadata: [{ key: 'auth', value: 'step' }, { key: 'extra', value: 'e' }],
+      },
+    ],
+  });
+  assert.deepEqual(fake.unary[0].metadata, [
+    { key: 'auth', value: 'step' },
+    { key: 'trace', value: 'g' },
+    { key: 'extra', value: 'e' },
+  ]);
 });

@@ -11,7 +11,6 @@
   "config.runner.tlsClientKey": "双向 TLS 的 PEM 客户端私钥文件(需同时配置 tlsClientCert)",
   "config.runner.metadata": "RPC 工作台默认携带的请求 metadata(gRPC 头),每条一个 'Key: Value'(如 'authorization: Bearer xxx')。工作台内可按调用临时修改",
   "config.runner.timeoutMs": "一元调用超时(毫秒,0 = 不超时)。流式调用不设总超时",
-  "config.runner.seqStreamChunkLimit": "序列流步骤的 chunk 接收上限;收满即自动结束该流步骤(成功)并推进(0 = 不限)",
   "config.runner.connProbeIntervalMs": "连接自动探测间隔(毫秒,0 = 关闭周期自动探测;手动「刷新服务」仍会探测)",
   "config.codeGen.outputDir": "生成的 TypeScript 文件输出目录(相对 workspace 根)",
   "config.codeGen.enumStyle": "枚举生成方式:TypeScript enum 或联合类型(union)",

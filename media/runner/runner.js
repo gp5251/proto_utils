@@ -313,6 +313,8 @@
       seqTab: 'steps',
       // 0.3.63 步骤入参折叠态:step.id → bool,缺省(无记录) = 折叠
       seqStepOpen: {},
+      // 0.3.64 步级流接收上限输入值(step.id → 字符串);空 = 缺省 200
+      seqMaxMsgs: {},
 
       // ---- 响应 JSON 折叠树(0.3.41):行构建与可见性遍历在 TS(全局 ResultTree) ----
       // resultTrees: methodKey → 根行数组(一元,applyCallResult 一次构建)
@@ -326,10 +328,11 @@
 
       // ---- Headers(请求 metadata)行编辑器:初始行来自 boot.metadata(runner.metadata 配置) ----
 
-      getHeaders: function (key) {
+      getHeaders: function (key, noGlobal) {
         var rows = this.headers[key];
         if (!rows) {
-          var initial = Array.isArray(boot.metadata) ? boot.metadata : [];
+          // noGlobal(0.3.64 序列步级覆盖):初始为空,仅记覆盖项;服务页仍从全局 metadata 初始化
+          var initial = !noGlobal && Array.isArray(boot.metadata) ? boot.metadata : [];
           rows = initial.map(function (e) {
             return { key: String((e && e.key) || ''), value: String((e && e.value) || '') };
           });
@@ -338,8 +341,8 @@
         return rows;
       },
 
-      addHeaderRow: function (key) {
-        var rows = this.getHeaders(key).slice();
+      addHeaderRow: function (key, noGlobal) {
+        var rows = this.getHeaders(key, noGlobal).slice();
         rows.push({ key: '', value: '' });
         this.headers = Object.assign({}, this.headers, { [key]: rows });
       },
@@ -620,6 +623,12 @@
       streamIsCancelled: function (svcName, methodName) {
         var s = this.getStream(svcName, methodName);
         return Boolean(s && s.done && s.cancelled);
+      },
+
+      // 0.3.64 收满上限自动停:展示为「完成」而非「已取消」
+      streamIsCapped: function (svcName, methodName) {
+        var s = this.getStream(svcName, methodName);
+        return Boolean(s && s.capped);
       },
 
       streamDurationText: function (svcName, methodName) {
@@ -1128,6 +1137,15 @@
         });
         this.streamTrees = Object.assign({}, this.streamTrees, { [key]: rt.items });
         this.chunkSizes = Object.assign({}, this.chunkSizes, { [key]: rs.items });
+        // 0.3.64 服务页流方法收满上限自动停:cap>0 且总量达标 → 取消流并按「完成」态展示(capped)
+        var cap = this.seqMaxMsgsValue(key);
+        var total = rc.items.length + ((stream.dropped || 0) + rc.dropped);
+        var cur = this.streams[key];
+        if (cap > 0 && total >= cap && cur && !cur.done && !cur.capped) {
+          this.streams = Object.assign({}, this.streams, { [key]: Object.assign({}, cur, { capped: true }) });
+          showNotice(workbenchStore(), str('streamCapReached', { count: total }));
+          this.cancelStream(msg.service, msg.method);
+        }
       },
 
       applyStreamEnd: function (msg) {
@@ -1301,6 +1319,11 @@
             var step = { service: s.service, method: s.method, mode: mode, responseStream: s.responseStream };
             if (mode === 'json') step.jsonText = self.getJsonText(s.id);
             else step.values = self.formValues[s.id] || {};
+            // 0.3.64 步级 metadata 覆盖(编辑器初始空,故仅覆盖项)与流接收上限
+            var md = self.collectMetadata(s.id);
+            if (md.length) step.metadata = md;
+            var mm = self.seqMaxMsgsValue(s.id);
+            if (mm !== null) step.maxMessages = mm;
             return step;
           }),
         };
@@ -1377,6 +1400,11 @@
           self.seqSteps.push({ id: id, service: st.service, method: st.method, responseStream: !!st.responseStream });
           var mode = st.mode === 'json' ? 'json' : 'form';
           self.editorMode = Object.assign({}, self.editorMode, { [id]: mode });
+          // 0.3.64 还原步级 metadata 覆盖与流接收上限
+          self.headers = Object.assign({}, self.headers, {
+            [id]: (st.metadata || []).map(function (e) { return { key: e.key, value: e.value }; }),
+          });
+          self.seqMaxMsgs = Object.assign({}, self.seqMaxMsgs, { [id]: st.maxMessages == null ? '' : String(st.maxMessages) });
           if (mode === 'json') {
             self.jsonText = Object.assign({}, self.jsonText, { [id]: st.jsonText || '' });
             self.formValues = Object.assign({}, self.formValues, { [id]: m ? self.initFieldValues(m.requestFields) : {} });
@@ -1400,15 +1428,17 @@
             rep = Object.assign({}, this.seqReport);
             rep[ev.index] = {
               status: 'running', service: ev.service, method: ev.method,
-              responseStream: ev.responseStream, values: ev.values, chunks: [], dropped: 0, body: '', error: '', durationMs: 0,
+              responseStream: ev.responseStream, values: ev.values, chunks: [], dropped: 0,
+              maxMessages: typeof ev.maxMessages === 'number' ? ev.maxMessages : 200,
+              body: '', error: '', durationMs: 0,
             };
             this.seqReport = rep;
             break;
           case 'stepChunk':
             rep = Object.assign({}, this.seqReport);
             if (rep[ev.index]) {
-              // 0.3.63 与引擎同款有界窗口(boot.seqStreamChunkLimit,0=不限),防长流撑爆报告区
-              var rc = window.ResultTree.pushBounded(rep[ev.index].chunks || [], ev.data, this.seqChunkLimit());
+              // 0.3.64 按步上限有界(步级 maxMessages,0=不限),防长流撑爆报告区
+              var rc = window.ResultTree.pushBounded(rep[ev.index].chunks || [], ev.data, rep[ev.index].maxMessages);
               rep[ev.index] = Object.assign({}, rep[ev.index], {
                 chunks: rc.items,
                 dropped: (rep[ev.index].dropped || 0) + rc.dropped,
@@ -1487,10 +1517,13 @@
         return (chunks || []).map(function (c) { return JSON.stringify(c, null, 2); }).join('\n\n');
       },
 
-      // 0.3.63 序列流 chunk 保留上限:boot 下发(0=不限);缺省回退 200 与引擎默认一致
-      seqChunkLimit: function () {
-        var b = window.__PROTO_UTILS_BOOT__ || {};
-        return typeof b.seqStreamChunkLimit === 'number' ? b.seqStreamChunkLimit : 200;
+      // 0.3.64 步级 maxMessages 解析:空/非法 = null(不写字段,引擎缺省 200);0 = 不限
+      seqMaxMsgsValue: function (id) {
+        var raw = (this.seqMaxMsgs[id] || '').trim();
+        if (raw === '') return null;
+        var n = Number(raw);
+        if (!isFinite(n) || n < 0) return null;
+        return Math.floor(n);
       },
 
       // 报告行 chunk 计数:含被挤出的早期块,总量真实(与单调用 streamChunkCountText 同语义)

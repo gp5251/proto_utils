@@ -33,15 +33,13 @@ export interface RunnerConfig {
   metadata: MetadataEntry[];
   /** 一元调用超时毫秒数;0 = 不限(0.3.35) */
   timeoutMs: number;
-  /** 序列流步骤 chunk 接收上限;收满自动结束该流步骤(成功)并推进;0 = 不限(0.3.63) */
-  seqStreamChunkLimit: number;
   /** 连接自动探测间隔毫秒;0 = 关闭周期自动探测(0.3.63),手动「刷新服务」仍会探测 */
   connProbeIntervalMs: number;
 }
 
 const DEFAULT_SERVER = 'localhost:50051';
 const DEFAULT_TIMEOUT_MS = 15000;
-/** 序列流步骤 chunk 接收上限默认值(0.3.63);收满即停;0 = 不限 */
+/** 序列流步骤接收上限缺省值(0.3.64 起为步级 maxMessages 的缺省,不再走全局配置);收满即停;0 = 不限 */
 export const DEFAULT_SEQ_STREAM_CHUNK_LIMIT = 200;
 /** 连接自动周期复探间隔默认值(0.3.63);0 = 关闭 */
 export const DEFAULT_CONN_PROBE_INTERVAL_MS = 5000;
@@ -159,13 +157,6 @@ export function resolveRunnerConfig(
       ? rawTimeout
       : DEFAULT_TIMEOUT_MS;
 
-  // 0 = 不限;负数/非数字回退默认(0.3.63)
-  const rawSeqChunk = get('runner.seqStreamChunkLimit');
-  const seqStreamChunkLimit =
-    typeof rawSeqChunk === 'number' && Number.isFinite(rawSeqChunk) && rawSeqChunk >= 0
-      ? Math.floor(rawSeqChunk)
-      : DEFAULT_SEQ_STREAM_CHUNK_LIMIT;
-
   // 0 = 关闭周期自动探测;负数/非数字回退默认(0.3.63)
   const rawProbe = get('runner.connProbeIntervalMs');
   const connProbeIntervalMs =
@@ -180,7 +171,6 @@ export function resolveRunnerConfig(
     tls,
     metadata: parseMetadataEntries(get('runner.metadata')),
     timeoutMs,
-    seqStreamChunkLimit,
     connProbeIntervalMs,
   };
 }

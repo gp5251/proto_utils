@@ -28,8 +28,6 @@ export interface WorkbenchHtmlOptions {
   metadataDefault?: MetadataEntry[];
   /** 面板创建时已有缓存 services 可内嵌,避免闪烁;缺省走 loading 态等 postMessage */
   initialServices?: ServicesPayload;
-  /** 序列流步骤 chunk 保留上限(0.3.63);0 = 不限。报告区与引擎同款有界窗口 */
-  seqStreamChunkLimit: number;
 }
 
 export function generateNonce(): string {
@@ -118,6 +116,9 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     seqReportTitle: l10n.t('Run report'),
     seqCopyReport: l10n.t('Copy report'),
     seqMethodMissing: l10n.t('Method not found. Click Refresh'),
+    seqHeadersOverride: l10n.t('Headers overrides (same key wins over global)'),
+    seqMaxMessages: l10n.t('Max messages'),
+    streamCapReached: l10n.t('Reached {count} messages — auto-stopped'),
     seqStepsTab: l10n.t('Steps'),
     seqReportTab: l10n.t('Run report'),
     seqReportEmpty: l10n.t('Not run yet. Results appear here step by step after clicking Run sequence.'),
@@ -153,7 +154,6 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     protoDir: options.protoDir,
     metadata: options.metadataDefault ?? [],
     services: options.initialServices ?? null,
-    seqStreamChunkLimit: options.seqStreamChunkLimit,
     strings,
   };
   const csp = [
@@ -327,6 +327,18 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                         >×</button>
                       </div>
                     </template>
+                  </div>
+                  <!-- 0.3.64 服务页流方法接收上限:收满自动停并按「完成」展示;空 = 200,0 = 不限 -->
+                  <div class="seq-maxmsgs" x-show="m.responseStream">
+                    <span class="seq-maxmsgs-label">${S.seqMaxMessages}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      class="seq-maxmsgs-input"
+                      :value="seqMaxMsgs[methodKey(svcId(svc), m.name)] || ''"
+                      @input="seqMaxMsgs = Object.assign({}, seqMaxMsgs, { [methodKey(svcId(svc), m.name)]: $event.target.value })"
+                      placeholder="200"
+                    >
                   </div>
                   <div class="method-schema">
                     <div class="method-schema-block">
@@ -661,8 +673,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                           <template x-if="resultStatusIsNot(svcId(svc), m.name, 'error')">
                             <span>
                               <span x-show="streamIsLive(svcId(svc), m.name)" class="result-ok"><span class="stream-live-dot"></span> ${S.receiving}</span>
-                              <span x-show="streamIsCancelled(svcId(svc), m.name)" class="result-err">${S.cancelled}</span>
-                              <span x-show="streamIsDone(svcId(svc), m.name) && !streamIsCancelled(svcId(svc), m.name)" class="result-ok">${S.done}</span>
+                              <span x-show="streamIsCancelled(svcId(svc), m.name) && !streamIsCapped(svcId(svc), m.name)" class="result-err">${S.cancelled}</span>
+                              <span x-show="(streamIsDone(svcId(svc), m.name) && !streamIsCancelled(svcId(svc), m.name)) || streamIsCapped(svcId(svc), m.name)" class="result-ok">${S.done}</span>
                             </span>
                           </template>
                           <span x-show="streamIsDone(svcId(svc), m.name)" class="result-time" x-text="streamDurationText(svcId(svc), m.name)"></span>
@@ -820,6 +832,45 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
           <p x-show="!stepMethod(step)" class="unsupported-hint">${S.seqMethodMissing}</p>
           <template x-if="stepMethod(step)">
             <div class="method-panel" x-show="isSeqStepOpen(step.id)">
+              <!-- 0.3.64 步级 metadata 覆盖:初始空(不快照全局),同名 key 运行时覆盖全局 -->
+              <div class="headers-editor">
+                <div class="headers-editor-head">
+                  <span class="headers-title">${S.seqHeadersOverride}</span>
+                  <button type="button" class="btn btn-secondary btn-xs" @click="addHeaderRow(step.id, true)">${S.addHeader}</button>
+                </div>
+                <template x-for="(h, hIdx) in getHeaders(step.id, true)" :key="hIdx">
+                  <div class="header-row">
+                    <input
+                      type="text"
+                      class="header-key"
+                      :value="h.key"
+                      @input="setHeaderField(step.id, hIdx, 'key', $event.target.value)"
+                      placeholder="${S.headerKeyPlaceholder}"
+                      autocomplete="off"
+                    >
+                    <input
+                      type="text"
+                      class="header-value"
+                      :value="h.value"
+                      @input="setHeaderField(step.id, hIdx, 'value', $event.target.value)"
+                      placeholder="${S.headerValuePlaceholder}"
+                      autocomplete="off"
+                    >
+                    <button type="button" class="btn btn-secondary btn-xs header-remove" @click="removeHeaderRow(step.id, hIdx)">×</button>
+                  </div>
+                </template>
+              </div>
+              <div class="seq-maxmsgs" x-show="step.responseStream">
+                <span class="seq-maxmsgs-label">${S.seqMaxMessages}</span>
+                <input
+                  type="number"
+                  min="0"
+                  class="seq-maxmsgs-input"
+                  :value="seqMaxMsgs[step.id] || ''"
+                  @input="seqMaxMsgs = Object.assign({}, seqMaxMsgs, { [step.id]: $event.target.value })"
+                  placeholder="200"
+                >
+              </div>
               <div class="editor-tabs" x-show="stepMethod(step).requestFields.length > 0">
                 <button type="button" class="editor-tab" :class="{ 'editor-tab-active': getEditorMode(step.id) === 'form' }" @click="setEditorMode(step.id, 'form', stepMethod(step))">${S.formTab}</button>
                 <button type="button" class="editor-tab" :class="{ 'editor-tab-active': getEditorMode(step.id) === 'json' }" @click="setEditorMode(step.id, 'json', stepMethod(step))">JSON</button>

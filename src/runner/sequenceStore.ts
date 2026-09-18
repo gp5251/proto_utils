@@ -1,5 +1,6 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import type { MetadataEntry } from './config';
 
 /**
  * 命名调用序列的持久化(0.3.59,ADR-0012):存工作区文件 .proto-utils/sequences.json,
@@ -19,6 +20,10 @@ export interface SequenceStep {
   jsonText?: string;
   /** 该步是否服务端流(决定引擎走 callUnary 还是 callServerStream)。 */
   responseStream: boolean;
+  /** 步级 metadata 覆盖(0.3.64):运行时按 key 合并于全局 runner.metadata 之上,同 key 步级优先;空=纯全局。 */
+  metadata?: MetadataEntry[];
+  /** 流步骤接收上限(0.3.64):收满自动结束该步并推进;缺省 200;0 = 不限。仅 responseStream 步有效。 */
+  maxMessages?: number;
 }
 
 /** 一条命名调用序列。 */
@@ -69,6 +74,19 @@ function normalizeStep(raw: unknown): SequenceStep | null {
   };
   if (isRecord(raw.values)) step.values = raw.values;
   if (typeof raw.jsonText === 'string') step.jsonText = raw.jsonText;
+  // 0.3.64 步级 metadata 覆盖与流接收上限:坏条目逐条剔除,全空则不写字段(旧文件兼容)
+  if (Array.isArray(raw.metadata)) {
+    const md: MetadataEntry[] = [];
+    for (const item of raw.metadata) {
+      if (isRecord(item) && typeof item.key === 'string' && typeof item.value === 'string') {
+        md.push({ key: item.key, value: item.value });
+      }
+    }
+    if (md.length > 0) step.metadata = md;
+  }
+  if (typeof raw.maxMessages === 'number' && Number.isFinite(raw.maxMessages) && raw.maxMessages >= 0) {
+    step.maxMessages = Math.floor(raw.maxMessages);
+  }
   return step;
 }
 

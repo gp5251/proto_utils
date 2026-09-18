@@ -25,8 +25,8 @@ export interface MissingStep {
 export type SequenceEvent =
   /** 运行前整体校验失败:列出失效步,序列不启动。 */
   | { type: 'validationFailed'; missing: MissingStep[] }
-  /** 某步开始:values 为占位符已解析的实际入参(供报告展示"发出的请求")。 */
-  | { type: 'stepStart'; index: number; service: string; method: string; responseStream: boolean; values: Record<string, unknown> }
+  /** 某步开始:values 为占位符已解析的实际入参(供报告展示"发出的请求");maxMessages 为流步骤生效上限(0.3.64,报告区据此有界)。 */
+  | { type: 'stepStart'; index: number; service: string; method: string; responseStream: boolean; values: Record<string, unknown>; maxMessages: number }
   /** 流步骤实时 chunk。 */
   | { type: 'stepChunk'; index: number; data: unknown }
   /** 一元步骤结果(成功或 gRPC 错误都在 payload.result 里)。 */
@@ -49,6 +49,24 @@ export interface SequenceRunnerDeps {
 function methodExists(services: SerializedService[], service: string, method: string): boolean {
   const svc = services.find((s) => s.name === service || s.fullName === service);
   return Boolean(svc?.methods.some((m) => m.name === method));
+}
+
+/** 0.3.64 步级 metadata 按 key 合并于全局之上:同 key 步级覆盖,异 key 追加(全局顺序保持,步级新增接尾)。 */
+function mergeMetadata(global: MetadataEntry[], override?: MetadataEntry[]): MetadataEntry[] {
+  if (!override || override.length === 0) return global;
+  const out = global.map((g) => {
+    const hit = override.find((o) => o.key === g.key);
+    return hit ? { key: g.key, value: hit.value } : g;
+  });
+  for (const o of override) {
+    if (!global.some((g) => g.key === o.key)) out.push(o);
+  }
+  return out;
+}
+
+/** 流步骤接收上限:步级 maxMessages 优先,缺省 200,0 = 不限(0.3.64)。 */
+function stepMaxMessages(step: SequenceStep): number {
+  return step.maxMessages ?? DEFAULT_SEQ_STREAM_CHUNK_LIMIT;
 }
 
 /**
@@ -134,11 +152,14 @@ export class SequenceRunner {
         method: step.method,
         responseStream: step.responseStream,
         values,
+        maxMessages: stepMaxMessages(step),
       });
 
+      // 0.3.64 步级 metadata 覆盖全局(按 key 合并,步级优先)
+      const stepMeta = mergeMetadata(cfg.metadata, step.metadata);
       const ok = step.responseStream
-        ? await this.runStreamStep(i, step, values, cfg.metadata)
-        : await this.runUnaryStep(i, step, values, cfg.metadata);
+        ? await this.runStreamStep(i, step, values, stepMeta)
+        : await this.runUnaryStep(i, step, values, stepMeta);
 
       if (!ok) {
         this.deps.onEvent({ type: 'end', status: 'aborted' });
@@ -182,8 +203,8 @@ export class SequenceRunner {
     metadata: MetadataEntry[],
   ): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
-      // 0.3.63 上限即接收上限:收满 limit 条自动结束该流步骤(成功)并推进;0 = 不限(跑到自然结束/手动)
-      const limit = this.deps.getConfig().seqStreamChunkLimit ?? DEFAULT_SEQ_STREAM_CHUNK_LIMIT;
+      // 0.3.64 上限即接收上限:步级 maxMessages 优先(缺省 200,0=不限);收满自动结束该流步骤(成功)并推进
+      const limit = stepMaxMessages(step);
       let chunks: unknown[] = [];
       let dropped = 0;
       const startedAt = Date.now();
