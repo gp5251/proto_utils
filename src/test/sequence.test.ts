@@ -238,11 +238,11 @@ test('stop() 停止整条:当前流步骤收尾后不再推进,end=stopped', asy
 
 /** cancel 不回任何事件的传输层(复现真实 grpc 取消后无 onEnd/onError 的卡死场景)。 */
 class SilentCancelRunner implements CallRunner {
-  unary: Array<{ service: string; method: string }> = [];
+  unary: Array<{ service: string; method: string; values?: Record<string, unknown> }> = [];
   lastStreamHandlers: StreamHandlers | null = null;
   cancelCount = 0;
-  async callUnary(service: string, method: string): Promise<CallResultPayload> {
-    this.unary.push({ service, method });
+  async callUnary(service: string, method: string, values: Record<string, unknown>): Promise<CallResultPayload> {
+    this.unary.push({ service, method, values });
     return {
       service, method, requestType: 'Req', responseType: 'Res', fields: [], values: {},
       result: ok({}), resultBody: '{}',
@@ -305,4 +305,57 @@ test('回归:传输层 cancel 不回事件时,stop() 仍能终止(end=stopped)',
   await p;
   assert.equal(fake.unary.length, 0);
   assert.deepEqual(events[events.length - 1], { type: 'end', status: 'stopped' });
+});
+
+test('序列流 chunk 上限即接收上限(0.3.63):收满自动结束该步并推进+取消底层流,不再多收', async () => {
+  const fake = new SilentCancelRunner();
+  const events: SequenceEvent[] = [];
+  const runner = new SequenceRunner({
+    runner: fake,
+    registry: { load: async () => ({ services: [svc('A', 'Watch', 'Y')], errors: [] }) },
+    getConfig: () => ({ protoDir: 'x', metadata: [], seqStreamChunkLimit: 2 }),
+    onEvent: (e) => events.push(e),
+  });
+  const p = runner.run({
+    name: 's',
+    steps: [
+      { service: 'A', method: 'Watch', mode: 'form', responseStream: true },
+      { service: 'A', method: 'Y', mode: 'form', values: { first: '{{step0.chunks[0].data.n}}' }, responseStream: false },
+    ],
+  });
+  await waitFor(() => fake.lastStreamHandlers !== null);
+  fake.lastStreamHandlers!.onData({ n: 1 });
+  fake.lastStreamHandlers!.onData({ n: 2 }); // 收满 → 自动结束并推进,无需 onEnd
+  await p;
+  assert.equal(fake.cancelCount, 1, '收满须取消底层流');
+  assert.deepEqual(fake.unary[0].values, { first: 1 }, '已收 chunk 全保留,chunks[0] = 第一条');
+  const se = events.find((e) => e.type === 'stepStreamEnd');
+  assert.equal(se && (se as { chunkCount?: number }).chunkCount, 2, 'chunkCount = 实收条数');
+  // 收尾后底层残留不再上报/计入
+  const before = events.filter((e) => e.type === 'stepChunk').length;
+  fake.lastStreamHandlers!.onData({ n: 3 });
+  assert.equal(events.filter((e) => e.type === 'stepChunk').length, before, '收尾后残留 chunk 不得上报');
+});
+
+test('序列流 chunk 上限 0 = 不限(0.3.63):全部保留,占位符可引最早块', async () => {
+  const fake = new SilentCancelRunner();
+  const events: SequenceEvent[] = [];
+  const runner = new SequenceRunner({
+    runner: fake,
+    registry: { load: async () => ({ services: [svc('A', 'Watch', 'Y')], errors: [] }) },
+    getConfig: () => ({ protoDir: 'x', metadata: [], seqStreamChunkLimit: 0 }),
+    onEvent: (e) => events.push(e),
+  });
+  const p = runner.run({
+    name: 's',
+    steps: [
+      { service: 'A', method: 'Watch', mode: 'form', responseStream: true },
+      { service: 'A', method: 'Y', mode: 'form', values: { first: '{{step0.chunks[0].data.n}}' }, responseStream: false },
+    ],
+  });
+  await waitFor(() => fake.lastStreamHandlers !== null);
+  for (let n = 1; n <= 5; n++) fake.lastStreamHandlers!.onData({ n });
+  fake.lastStreamHandlers!.onEnd(1);
+  await p;
+  assert.deepEqual(fake.unary[0].values, { first: 1 }, '0=不限时最早块仍可引用');
 });

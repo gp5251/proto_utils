@@ -311,6 +311,8 @@
       seqReport: {},
       // 序列内二级 tab(0.3.62):'steps' 步骤编辑 | 'report' 运行报告
       seqTab: 'steps',
+      // 0.3.63 步骤入参折叠态:step.id → bool,缺省(无记录) = 折叠
+      seqStepOpen: {},
 
       // ---- 响应 JSON 折叠树(0.3.41):行构建与可见性遍历在 TS(全局 ResultTree) ----
       // resultTrees: methodKey → 根行数组(一元,applyCallResult 一次构建)
@@ -1220,6 +1222,15 @@
         this.seqTab = v;
       },
 
+      // 0.3.63 步骤入参默认折叠:缺省即折叠,点击展开
+      isSeqStepOpen: function (id) {
+        return this.seqStepOpen[id] === true;
+      },
+
+      toggleSeqStep: function (id) {
+        this.seqStepOpen = Object.assign({}, this.seqStepOpen, { [id]: !this.isSeqStepOpen(id) });
+      },
+
       lookupMethod: function (service, methodName) {
         var services = Alpine.store('workbench').services;
         for (var i = 0; i < services.length; i++) {
@@ -1389,14 +1400,19 @@
             rep = Object.assign({}, this.seqReport);
             rep[ev.index] = {
               status: 'running', service: ev.service, method: ev.method,
-              responseStream: ev.responseStream, values: ev.values, chunks: [], body: '', error: '', durationMs: 0,
+              responseStream: ev.responseStream, values: ev.values, chunks: [], dropped: 0, body: '', error: '', durationMs: 0,
             };
             this.seqReport = rep;
             break;
           case 'stepChunk':
             rep = Object.assign({}, this.seqReport);
             if (rep[ev.index]) {
-              rep[ev.index] = Object.assign({}, rep[ev.index], { chunks: rep[ev.index].chunks.concat([ev.data]) });
+              // 0.3.63 与引擎同款有界窗口(boot.seqStreamChunkLimit,0=不限),防长流撑爆报告区
+              var rc = window.ResultTree.pushBounded(rep[ev.index].chunks || [], ev.data, this.seqChunkLimit());
+              rep[ev.index] = Object.assign({}, rep[ev.index], {
+                chunks: rc.items,
+                dropped: (rep[ev.index].dropped || 0) + rc.dropped,
+              });
               this.seqReport = rep;
             }
             break;
@@ -1449,6 +1465,7 @@
             body: r ? r.body : '',
             error: r ? r.error : '',
             chunks: r ? r.chunks : [],
+            dropped: r ? (r.dropped || 0) : 0,
             responseStream: s.responseStream,
           };
         });
@@ -1468,6 +1485,18 @@
 
       seqChunkText: function (chunks) {
         return (chunks || []).map(function (c) { return JSON.stringify(c, null, 2); }).join('\n\n');
+      },
+
+      // 0.3.63 序列流 chunk 保留上限:boot 下发(0=不限);缺省回退 200 与引擎默认一致
+      seqChunkLimit: function () {
+        var b = window.__PROTO_UTILS_BOOT__ || {};
+        return typeof b.seqStreamChunkLimit === 'number' ? b.seqStreamChunkLimit : 200;
+      },
+
+      // 报告行 chunk 计数:含被挤出的早期块,总量真实(与单调用 streamChunkCountText 同语义)
+      seqChunkCountText: function (entry) {
+        var total = (entry.chunks ? entry.chunks.length : 0) + (entry.dropped || 0);
+        return str('chunkCount', { count: total });
       },
 
       copySeqReport: function () {

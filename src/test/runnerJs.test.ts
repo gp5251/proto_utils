@@ -189,6 +189,8 @@ test('connState 跃迁提醒(0.3.57):fail→ok 提示恢复,ok→fail 提示断�
   // 0.3.62 停止反馈:点击立即置 seqStopping,收尾事件清除
   assert.ok(src.includes('this.seqStopping = true'), '停止/结束点击须立即置 seqStopping');
   assert.ok(src.includes('this.seqStopping = false'), '收尾事件须清除 seqStopping');
+  // 0.3.63 序列流报告区有界窗口:与引擎同款 pushBounded,防长流撑爆
+  assert.ok(src.includes('ResultTree.pushBounded(rep[ev.index].chunks'), '序列报告 chunk 须走 pushBounded 有界窗口');
 });
 
 test('过滤命中面(0.3.58):fullName 只收子串/单段模糊,跨段散字子序列不得命中', () => {
@@ -228,6 +230,8 @@ test('序列消息路由与组件方法(0.3.59)齐备', () => {
     'addToSequence: function', 'buildSequencePayload: function', 'applySeqEvent: function',
     'runSequence: function', 'setView: function', 'hasSeqReport: function', 'stepRefProblems: function',
     'seqHasRunningStream: function', 'setSeqTab: function',
+    'seqChunkLimit: function', 'seqChunkCountText: function',
+    'isSeqStepOpen: function', 'toggleSeqStep: function',
   ]) {
     assert.ok(src.includes(fn), `缺序列方法 ${fn}`);
   }

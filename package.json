@@ -3,7 +3,7 @@
   "displayName": "Proto Utils",
   "l10n": "./l10n",
   "description": "%extension.description%",
-  "version": "0.3.62",
+  "version": "0.3.63",
   "publisher": "paulgui",
   "license": "MIT",
   "repository": {
@@ -134,6 +134,18 @@
           "default": 15000,
           "minimum": 0,
           "description": "%config.runner.timeoutMs%"
+        },
+        "protoUtils.runner.seqStreamChunkLimit": {
+          "type": "number",
+          "default": 200,
+          "minimum": 0,
+          "description": "%config.runner.seqStreamChunkLimit%"
+        },
+        "protoUtils.runner.connProbeIntervalMs": {
+          "type": "number",
+          "default": 5000,
+          "minimum": 0,
+          "description": "%config.runner.connProbeIntervalMs%"
         },
         "protoUtils.codeGen.outputDir": {
           "type": "string",

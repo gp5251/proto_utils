@@ -11,6 +11,8 @@
   "config.runner.tlsClientKey": "PEM client private key file for mutual TLS (requires tlsClientCert)",
   "config.runner.metadata": "Default request metadata (gRPC headers) sent by the RPC workbench, one 'Key: Value' per entry (e.g. 'authorization: Bearer xxx'). Editable per call inside the workbench",
   "config.runner.timeoutMs": "Unary call timeout in milliseconds (0 = no timeout). Streaming calls are not timed out",
+  "config.runner.seqStreamChunkLimit": "Max stream chunks received per sequence step; the step auto-ends (success) and advances once reached (0 = unlimited)",
+  "config.runner.connProbeIntervalMs": "Connection auto-probe interval in milliseconds (0 = disable periodic auto-probe; manual Refresh services still probes)",
   "config.codeGen.outputDir": "Output directory for generated TypeScript files (relative to workspace root)",
   "config.codeGen.enumStyle": "Generate enums as TypeScript enum or union type",
   "config.codeGen.optionalMessageFields": "Mark non-repeated message-typed fields as optional (?)",

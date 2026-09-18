@@ -2,6 +2,8 @@ import JSON5 from 'json5';
 import type { CallRunner, CallResultPayload } from './callHandler';
 import type { SerializedService, ServiceRegistry } from './serviceRegistry';
 import type { MetadataEntry } from './config';
+import { DEFAULT_SEQ_STREAM_CHUNK_LIMIT } from './config';
+import { pushBounded } from './utils/resultTree';
 import type { Sequence, SequenceStep } from './sequenceStore';
 import { resolveDeep, PlaceholderError } from './utils/placeholder';
 
@@ -39,7 +41,7 @@ export type SequenceEvent =
 export interface SequenceRunnerDeps {
   runner: CallRunner;
   registry: Pick<ServiceRegistry, 'load'>;
-  getConfig(): { protoDir: string; metadata: MetadataEntry[] };
+  getConfig(): { protoDir: string; metadata: MetadataEntry[]; seqStreamChunkLimit?: number };
   onEvent(event: SequenceEvent): void;
 }
 
@@ -180,31 +182,35 @@ export class SequenceRunner {
     metadata: MetadataEntry[],
   ): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
-      const chunks: unknown[] = [];
+      // 0.3.63 上限即接收上限:收满 limit 条自动结束该流步骤(成功)并推进;0 = 不限(跑到自然结束/手动)
+      const limit = this.deps.getConfig().seqStreamChunkLimit ?? DEFAULT_SEQ_STREAM_CHUNK_LIMIT;
+      let chunks: unknown[] = [];
+      let dropped = 0;
       const startedAt = Date.now();
       let settled = false;
       let manual = false;
+      let handle: { cancel(): void } | null = null;
 
       const finish = (ok: boolean, error?: string): void => {
         if (settled) return;
         settled = true;
         this.activeStream = null;
         if (ok) {
-          this.outputs[index] = { chunks: chunks.map((data) => ({ data })) };
+          this.outputs[index] = { chunks: chunks.map((data) => ({ data })), dropped, count: chunks.length + dropped };
         }
         this.deps.onEvent({
           type: 'stepStreamEnd',
           index,
           ok,
           error,
-          chunkCount: chunks.length,
+          chunkCount: chunks.length + dropped,
           durationMs: Date.now() - startedAt,
         });
         resolve(ok);
       };
 
       try {
-        const handle = this.deps.runner.callServerStream(
+        handle = this.deps.runner.callServerStream(
           step.service,
           step.method,
           values,
@@ -212,8 +218,16 @@ export class SequenceRunner {
             onData: (data: unknown) => {
               // 手动结束/停止后底层流残留数据不再上报:避免收尾后报告区继续 churn 观感“没停”(0.3.62)
               if (settled) return;
-              chunks.push(data);
+              const r = pushBounded(chunks, data, limit);
+              chunks = r.items;
+              dropped += r.dropped;
               this.deps.onEvent({ type: 'stepChunk', index, data });
+              // 0.3.63 收满即停:自动结束该流步骤(成功)并推进,取消底层流;后续残留由 settled 守卫忽略
+              if (limit > 0 && chunks.length >= limit) {
+                manual = true;
+                handle?.cancel();
+                finish(true);
+              }
             },
             onError: (message: string) => {
               // 手动结束常以 CANCELLED 错误收场:视作成功推进,不算失败
@@ -227,12 +241,12 @@ export class SequenceRunner {
         this.activeStream = {
           cancel: () => {
             manual = true;
-            handle.cancel();
+            handle?.cancel();
           },
           // 手动结束是用户决定:立即 finish(true) 推进;传输层后续事件由 settled 守卫忽略
           endNow: () => {
             manual = true;
-            handle.cancel();
+            handle?.cancel();
             finish(true);
           },
         };

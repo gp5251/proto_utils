@@ -15,6 +15,7 @@ const baseOptions = {
   alpineScriptUri: 'vscode-webview://test/alpine.min.js',
   server: 'localhost:50051',
   protoDir: 'D:/work/protos',
+  seqStreamChunkLimit: 200,
 };
 
 function render(extra: Partial<Parameters<typeof renderWorkbenchHtml>[0]> = {}): string {
@@ -289,4 +290,10 @@ test('序列视图锚点(0.3.59):视图切换/加入序列/运行控制/报告 +
   assert.ok(html.includes("seqTab === 'steps'") && html.includes("seqTab === 'report'"), '缺序列二级 tab 门控');
   assert.ok(html.includes("setSeqTab('report')"), '缺切到报告 tab 入口');
   assert.ok(html.includes('x-show="!hasSeqReport()"'), '缺运行报告空态');
+  // 0.3.63 boot 下发序列流 chunk 保留上限(报告区有界窗口与引擎同源)
+  assert.ok(html.includes('"seqStreamChunkLimit":200'), 'boot 须下发序列流 chunk 上限');
+  assert.ok(html.includes('seqChunkCountText(entry)'), '报告行缺 chunk 计数(含挤出)');
+  // 0.3.63 步骤入参默认折叠:入参区 x-show 折叠态 + 标题/图标可切换 + 占位符告警在折叠外
+  assert.ok(html.includes('x-show="isSeqStepOpen(step.id)"'), '步骤入参区须受折叠态门控');
+  assert.ok(html.includes('@click="toggleSeqStep(step.id)"'), '缺步骤折叠切换入口');
 });

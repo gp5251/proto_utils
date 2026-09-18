@@ -494,6 +494,25 @@ test('refresh → invalidate 后重载并推 services', async () => {
   );
 });
 
+test('connProbeIntervalMs=0(0.3.63):关闭周期自动复探,fail 后不再排期', async (t) => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(() => mock.timers.reset());
+
+  let calls = 0;
+  const { host, emit } = makeHost();
+  const { deps } = makeDeps({ probeConnection: async () => { calls++; return false; } });
+  const baseGet = deps.getConfig;
+  deps.getConfig = () => Object.assign(baseGet(), { connProbeIntervalMs: 0 });
+  new WorkbenchSession(deps).attach(host);
+  emit({ type: 'ready' });
+  for (let i = 0; i < 50 && calls < 1; i++) await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+  assert.equal(calls, 1, '首探仍应发生');
+  mock.timers.tick(20000);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(calls, 1, 'interval=0 不得自动周期复探');
+});
+
 test('refreshServices(0.3.62):仅 probe 一次,不 invalidate/不重载服务列表', async () => {
   let probes = 0;
   const { host, posted, emit } = makeHost();

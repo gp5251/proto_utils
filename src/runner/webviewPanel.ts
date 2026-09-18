@@ -4,7 +4,7 @@ import type { CallResultPayload, CallRunner } from './callHandler';
 import type { MetadataEntry, TlsSettings } from './config';
 import { SequenceRunner, type SequenceEvent } from './sequence';
 import { parseSequence, type Sequence, type SequenceStore } from './sequenceStore';
-import { resolveRunnerConfig as resolveRunnerConfigPure } from './config';
+import { resolveRunnerConfig as resolveRunnerConfigPure, DEFAULT_SEQ_STREAM_CHUNK_LIMIT, DEFAULT_CONN_PROBE_INTERVAL_MS } from './config';
 import { generateNonce, renderWorkbenchHtml } from './webviewHtml';
 import { parseProtoError, type ErrorSegment } from '../protoErrorMessage';
 
@@ -67,7 +67,7 @@ export interface WorkbenchHost {
 export interface WorkbenchSessionDeps {
   registry: Pick<ServiceRegistry, 'load' | 'invalidate'>;
   runner: CallRunner;
-  getConfig(): { server: string; protoDir: string; metadata: MetadataEntry[] };
+  getConfig(): { server: string; protoDir: string; metadata: MetadataEntry[]; seqStreamChunkLimit?: number; connProbeIntervalMs?: number };
   /** 0.3.40:proto 加载尘埃落定(成功/部分错误/抛错)后回调,activation 侧借此补诊断飘红。可选,测试不受影响。 */
   onLoadSettled?(): void;
   /** 0.3.54:后端连通性探测(顶栏状态点数据源);未注入则状态点保持未知态,不发 connState。 */
@@ -75,9 +75,6 @@ export interface WorkbenchSessionDeps {
   /** 0.3.59:命名序列持久化(ADR-0012);未注入(如无工作区)则存/载/删降级为不可用。 */
   store?: SequenceStore;
 }
-
-/** 探测失败后的自动重探间隔(0.3.56):后端重启后状态点自动转绿、按钮自动解禁,免手动刷新。 */
-const PROBE_RETRY_MS = 5000;
 
 interface CallTarget {
   service: string;
@@ -363,15 +360,19 @@ export class WorkbenchSession {
     this.scheduleRetry();
   }
 
-  /** 排下一次周期复探;同一时刻至多一个定时器(并发探测不重复排期)。 */
+  /** 排下一次周期复探;间隔取 runner.connProbeIntervalMs(0 = 关闭自动复探,0.3.63);同一时刻至多一个定时器。 */
   private scheduleRetry(): void {
+    const interval = this.deps.getConfig().connProbeIntervalMs ?? DEFAULT_CONN_PROBE_INTERVAL_MS;
+    if (interval <= 0) {
+      return; // 用户关闭周期自动探测:仅 ready/refresh/手动刷新服务 时探
+    }
     if (this.retryTimer) {
       return; // 并发探测只排一次
     }
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
       void this.probe();
-    }, PROBE_RETRY_MS);
+    }, interval);
     // 不挡进程退出:测试环境 fail 路径的挂起定时器不拖累 node:test 收尾
     this.retryTimer.unref?.();
   }
@@ -489,7 +490,7 @@ export class WorkbenchSession {
       registry: this.deps.registry,
       getConfig: () => {
         const c = this.deps.getConfig();
-        return { protoDir: c.protoDir, metadata: c.metadata };
+        return { protoDir: c.protoDir, metadata: c.metadata, seqStreamChunkLimit: c.seqStreamChunkLimit };
       },
       onEvent: (event) => {
         this.send({ type: 'seqEvent', event });
@@ -571,6 +572,8 @@ export function resolveRunnerConfig(): {
   tls: TlsSettings;
   metadata: MetadataEntry[];
   timeoutMs: number;
+  seqStreamChunkLimit: number;
+  connProbeIntervalMs: number;
 } {
   const config = vscode.workspace.getConfiguration('protoUtils');
   const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -581,6 +584,8 @@ export function resolveRunnerConfig(): {
     tls: resolved.tls,
     metadata: resolved.metadata,
     timeoutMs: resolved.timeoutMs,
+    seqStreamChunkLimit: resolved.seqStreamChunkLimit,
+    connProbeIntervalMs: resolved.connProbeIntervalMs,
   };
 }
 
@@ -662,6 +667,7 @@ export function createVscodePanelFactory(
       server: deps.getConfig().server,
       protoDir: deps.getConfig().protoDir,
       metadataDefault: deps.getConfig().metadata,
+      seqStreamChunkLimit: deps.getConfig().seqStreamChunkLimit ?? DEFAULT_SEQ_STREAM_CHUNK_LIMIT,
     });
     return {
       host: {

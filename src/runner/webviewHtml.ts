@@ -28,6 +28,8 @@ export interface WorkbenchHtmlOptions {
   metadataDefault?: MetadataEntry[];
   /** 面板创建时已有缓存 services 可内嵌,避免闪烁;缺省走 loading 态等 postMessage */
   initialServices?: ServicesPayload;
+  /** 序列流步骤 chunk 保留上限(0.3.63);0 = 不限。报告区与引擎同款有界窗口 */
+  seqStreamChunkLimit: number;
 }
 
 export function generateNonce(): string {
@@ -151,6 +153,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     protoDir: options.protoDir,
     metadata: options.metadataDefault ?? [],
     services: options.initialServices ?? null,
+    seqStreamChunkLimit: options.seqStreamChunkLimit,
     strings,
   };
   const csp = [
@@ -803,9 +806,11 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
         <div class="card seq-step">
           <div class="seq-step-head">
             <span class="seq-step-idx" x-text="'#' + (sIdx + 1)"></span>
-            <span class="seq-step-name" x-text="step.method"></span>
+            <!-- 0.3.63 步骤入参默认折叠:点方法名或折叠图标展开/收起 -->
+            <span class="seq-step-name seq-step-toggle" @click="toggleSeqStep(step.id)" x-text="step.method"></span>
             <span class="seq-step-svc" x-text="step.service"></span>
             <span x-show="step.responseStream" class="method-stream-badge">stream</span>
+            <span class="collapse-icon seq-step-toggle" @click="toggleSeqStep(step.id)" x-text="isSeqStepOpen(step.id) ? '▼' : '▶'"></span>
             <span class="seq-step-actions">
               <button type="button" class="btn btn-secondary btn-xs" :disabled="sIdx === 0" @click="moveStep(sIdx, -1)">${S.seqStepUp}</button>
               <button type="button" class="btn btn-secondary btn-xs" :disabled="sIdx === seqSteps.length - 1" @click="moveStep(sIdx, 1)">${S.seqStepDown}</button>
@@ -814,7 +819,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
           </div>
           <p x-show="!stepMethod(step)" class="unsupported-hint">${S.seqMethodMissing}</p>
           <template x-if="stepMethod(step)">
-            <div class="method-panel">
+            <div class="method-panel" x-show="isSeqStepOpen(step.id)">
               <div class="editor-tabs" x-show="stepMethod(step).requestFields.length > 0">
                 <button type="button" class="editor-tab" :class="{ 'editor-tab-active': getEditorMode(step.id) === 'form' }" @click="setEditorMode(step.id, 'form', stepMethod(step))">${S.formTab}</button>
                 <button type="button" class="editor-tab" :class="{ 'editor-tab-active': getEditorMode(step.id) === 'json' }" @click="setEditorMode(step.id, 'json', stepMethod(step))">JSON</button>
@@ -883,13 +888,14 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                 <div x-show="getJsonError(step.id)" class="json-error" x-text="getJsonError(step.id)"></div>
               </div>
               <div x-show="hasJsonWarnings(step.id)" class="json-warning" x-text="jsonWarningText(step.id)"></div>
-              <div x-show="stepRefProblems(step, sIdx).length > 0" class="json-error">
-                <template x-for="(prob, pIdx) in stepRefProblems(step, sIdx)" :key="pIdx">
-                  <div x-text="prob"></div>
-                </template>
-              </div>
             </div>
           </template>
+          <!-- 占位符告警留在折叠外:折叠态也能看到前向/自引用问题(0.3.63) -->
+          <div x-show="stepRefProblems(step, sIdx).length > 0" class="json-error">
+            <template x-for="(prob, pIdx) in stepRefProblems(step, sIdx)" :key="pIdx">
+              <div x-text="prob"></div>
+            </template>
+          </div>
         </div>
       </template>
       </div>
@@ -912,6 +918,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                 <span x-show="entry.status === 'error'" class="result-err">${S.failed}</span>
                 <span x-show="entry.status === 'running'" class="result-ok"><span class="stream-live-dot"></span> ${S.receiving}</span>
                 <span x-show="entry.durationMs" class="result-time" x-text="entry.durationMs + 'ms'"></span>
+                <span x-show="entry.responseStream" class="result-time" x-text="seqChunkCountText(entry)"></span>
                 <button
                   type="button"
                   class="btn btn-secondary btn-xs"

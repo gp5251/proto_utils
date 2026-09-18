@@ -80,6 +80,29 @@ test('timeoutMs 兜底:非有限数/负数/非 number → 15000;0 合法(不限)
   assert.equal(at(3000), 3000);
 });
 
+test('seqStreamChunkLimit(0.3.63):默认 200;0 合法(不限);负数/非数字回退 200;小数取整', () => {
+  assert.equal(resolveRunnerConfig(() => undefined, ROOT).seqStreamChunkLimit, 200);
+  const at = (v: unknown) =>
+    resolveRunnerConfig((k) => (k === 'runner.seqStreamChunkLimit' ? v : undefined), ROOT).seqStreamChunkLimit;
+  assert.equal(at(0), 0, '0 = 不限');
+  assert.equal(at(-1), 200);
+  assert.equal(at(Number.NaN), 200);
+  assert.equal(at('500'), 200);
+  assert.equal(at(500), 500);
+  assert.equal(at(500.7), 500, '小数向下取整');
+});
+
+test('connProbeIntervalMs(0.3.63):默认 5000;0 合法(关闭自动探测);负数/非数字回退 5000', () => {
+  assert.equal(resolveRunnerConfig(() => undefined, ROOT).connProbeIntervalMs, 5000);
+  const at = (v: unknown) =>
+    resolveRunnerConfig((k) => (k === 'runner.connProbeIntervalMs' ? v : undefined), ROOT).connProbeIntervalMs;
+  assert.equal(at(0), 0, '0 = 关闭周期自动探测');
+  assert.equal(at(-1), 5000);
+  assert.equal(at(Number.NaN), 5000);
+  assert.equal(at('1000'), 5000);
+  assert.equal(at(1000), 1000);
+});
+
 test('scan.excludeDirs:裸名进 names,相对/绝对路径进 paths(规范化)', () => {
   const abs = path.resolve('/elsewhere/protos');
   const ex = resolveScanExcludes(
