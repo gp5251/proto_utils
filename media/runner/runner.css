@@ -765,7 +765,7 @@ input[type="checkbox"] {
   gap: 8px;
   margin: 8px 0;
 }
-.seq-maxmsgs-label { color: var(--text-dim); font-size: 12px; }
+.seq-maxmsgs-label { color: var(--text-dim); font-size: 12px; white-space: nowrap; }
 .seq-maxmsgs-input {
   width: 96px;
   background: var(--bg);

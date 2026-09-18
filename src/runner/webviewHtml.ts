@@ -328,18 +328,6 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                       </div>
                     </template>
                   </div>
-                  <!-- 0.3.64 服务页流方法接收上限:收满自动停并按「完成」展示;空 = 200,0 = 不限 -->
-                  <div class="seq-maxmsgs" x-show="m.responseStream">
-                    <span class="seq-maxmsgs-label">${S.seqMaxMessages}</span>
-                    <input
-                      type="number"
-                      min="0"
-                      class="seq-maxmsgs-input"
-                      :value="seqMaxMsgs[methodKey(svcId(svc), m.name)] || ''"
-                      @input="seqMaxMsgs = Object.assign({}, seqMaxMsgs, { [methodKey(svcId(svc), m.name)]: $event.target.value })"
-                      placeholder="200"
-                    >
-                  </div>
                   <div class="method-schema">
                     <div class="method-schema-block">
                       <!-- 0.3.53:返回类型默认折叠,点标题行展开(resblk 作用域键,expandedRows 缺省即折叠) -->
@@ -563,12 +551,26 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                       class="json-warning"
                       x-text="jsonWarningText(methodKey(svcId(svc), m.name))"
                     ></div>
+
                     <!-- 0.3.44:表单模式发送前校验的问题清单;两个页签共用同一展示槽 -->
                     <div
                       x-show="getFormError(methodKey(svcId(svc), m.name))"
                       class="json-error"
                       x-text="getFormError(methodKey(svcId(svc), m.name))"
                     ></div>
+
+                    <!-- 0.3.64 服务页流方法接收上限:收满自动停并按「完成」展示;空 = 100,0 = 不限 -->
+                    <div class="seq-maxmsgs" x-show="m.responseStream">
+                      <span class="seq-maxmsgs-label">${S.seqMaxMessages}</span>
+                      <input
+                        type="number"
+                        min="0"
+                        class="seq-maxmsgs-input"
+                        :value="seqMaxMsgs[methodKey(svcId(svc), m.name)] || ''"
+                        @input="setSeqMaxMsgs(methodKey(svcId(svc), m.name), $event.target.value)"
+                        placeholder="100"
+                      >
+                    </div>
 
                     <div>
                       <button
@@ -860,17 +862,6 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                   </div>
                 </template>
               </div>
-              <div class="seq-maxmsgs" x-show="step.responseStream">
-                <span class="seq-maxmsgs-label">${S.seqMaxMessages}</span>
-                <input
-                  type="number"
-                  min="0"
-                  class="seq-maxmsgs-input"
-                  :value="seqMaxMsgs[step.id] || ''"
-                  @input="seqMaxMsgs = Object.assign({}, seqMaxMsgs, { [step.id]: $event.target.value })"
-                  placeholder="200"
-                >
-              </div>
               <div class="editor-tabs" x-show="stepMethod(step).requestFields.length > 0">
                 <button type="button" class="editor-tab" :class="{ 'editor-tab-active': getEditorMode(step.id) === 'form' }" @click="setEditorMode(step.id, 'form', stepMethod(step))">${S.formTab}</button>
                 <button type="button" class="editor-tab" :class="{ 'editor-tab-active': getEditorMode(step.id) === 'json' }" @click="setEditorMode(step.id, 'json', stepMethod(step))">JSON</button>
@@ -939,6 +930,19 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                 <div x-show="getJsonError(step.id)" class="json-error" x-text="getJsonError(step.id)"></div>
               </div>
               <div x-show="hasJsonWarnings(step.id)" class="json-warning" x-text="jsonWarningText(step.id)"></div>
+
+              <!-- 0.3.64 序列步级流接收上限:收满自动结束该步并推进;空 = 100,0 = 不限 -->
+              <div class="seq-maxmsgs" x-show="step.responseStream">
+                <span class="seq-maxmsgs-label">${S.seqMaxMessages}</span>
+                <input
+                  type="number"
+                  min="0"
+                  class="seq-maxmsgs-input"
+                  :value="seqMaxMsgs[step.id] || ''"
+                  @input="setSeqMaxMsgs(step.id, $event.target.value)"
+                  placeholder="100"
+                >
+              </div>
             </div>
           </template>
           <!-- 占位符告警留在折叠外:折叠态也能看到前向/自引用问题(0.3.63) -->

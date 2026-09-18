@@ -39,8 +39,8 @@ export interface RunnerConfig {
 
 const DEFAULT_SERVER = 'localhost:50051';
 const DEFAULT_TIMEOUT_MS = 15000;
-/** 序列流步骤接收上限缺省值(0.3.64 起为步级 maxMessages 的缺省,不再走全局配置);收满即停;0 = 不限 */
-export const DEFAULT_SEQ_STREAM_CHUNK_LIMIT = 200;
+/** 序列流步骤接收上限缺省值(0.3.65 起为 100;0.3.64 曾为 200);步级 maxMessages 优先;收满即停;0 = 不限 */
+export const DEFAULT_SEQ_STREAM_CHUNK_LIMIT = 100;
 /** 连接自动周期复探间隔默认值(0.3.63);0 = 关闭 */
 export const DEFAULT_CONN_PROBE_INTERVAL_MS = 5000;
 

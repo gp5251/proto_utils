@@ -22,7 +22,7 @@ export interface SequenceStep {
   responseStream: boolean;
   /** 步级 metadata 覆盖(0.3.64):运行时按 key 合并于全局 runner.metadata 之上,同 key 步级优先;空=纯全局。 */
   metadata?: MetadataEntry[];
-  /** 流步骤接收上限(0.3.64):收满自动结束该步并推进;缺省 200;0 = 不限。仅 responseStream 步有效。 */
+  /** 流步骤接收上限(0.3.64):收满自动结束该步并推进;缺省 100;0 = 不限。仅 responseStream 步有效。 */
   maxMessages?: number;
 }
 

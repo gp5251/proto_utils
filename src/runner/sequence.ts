@@ -64,7 +64,7 @@ function mergeMetadata(global: MetadataEntry[], override?: MetadataEntry[]): Met
   return out;
 }
 
-/** 流步骤接收上限:步级 maxMessages 优先,缺省 200,0 = 不限(0.3.64)。 */
+/** 流步骤接收上限:步级 maxMessages 优先,缺省 100,0 = 不限(0.3.64 起,0.3.65 默认改 100)。 */
 function stepMaxMessages(step: SequenceStep): number {
   return step.maxMessages ?? DEFAULT_SEQ_STREAM_CHUNK_LIMIT;
 }
@@ -203,7 +203,7 @@ export class SequenceRunner {
     metadata: MetadataEntry[],
   ): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
-      // 0.3.64 上限即接收上限:步级 maxMessages 优先(缺省 200,0=不限);收满自动结束该流步骤(成功)并推进
+      // 0.3.64 上限即接收上限:步级 maxMessages 优先(缺省 100,0=不限);收满自动结束该流步骤(成功)并推进
       const limit = stepMaxMessages(step);
       let chunks: unknown[] = [];
       let dropped = 0;

@@ -292,6 +292,8 @@ test('序列视图锚点(0.3.59):视图切换/加入序列/运行控制/报告 +
   // 0.3.64 步级 metadata 覆盖 + 步级/服务页流接收上限 + capped 完成态(全局 seqStreamChunkLimit 已移除)
   assert.ok(html.includes('getHeaders(step.id, true)'), '序列步级 Headers 覆盖编辑器须不初始化全局');
   assert.ok(html.includes('seqMaxMsgs[step.id]'), '序列步级缺最大消息数输入');
+  assert.ok(html.includes('setSeqMaxMsgs(step.id, $event.target.value)'), '上限输入须走组件方法(@alpinejs/csp 不支持内联赋值)');
+  assert.ok(!html.includes('seqMaxMsgs = Object.assign'), '模板不得内联 Object.assign 赋值(CSP 求值器不生效)');
   assert.ok(html.includes('seqMaxMsgs[methodKey(svcId(svc), m.name)]'), '服务页流方法缺最大消息数输入');
   assert.ok(html.includes('streamIsCapped('), '缺收满自动停的完成态判定');
   assert.ok(html.includes('seqChunkCountText(entry)'), '报告行缺 chunk 计数');

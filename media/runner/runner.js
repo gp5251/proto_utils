@@ -10,6 +10,9 @@
   var vscode = acquireVsCodeApi();
   var boot = window.__PROTO_UTILS_BOOT__ || {};
 
+  // 0.3.65 序列/服务页流接收上限缺省(与宿主 config.ts DEFAULT_SEQ_STREAM_CHUNK_LIMIT 同步);0 = 不限
+  var SEQ_STREAM_CAP_DEFAULT = 100;
+
   // UI 文案:host 在 boot.strings 里按显示语言下发,缺键回退英文默认;{name} 占位符运行时替换。
   var STRING_DEFAULTS = {
     copy: 'Copy',
@@ -313,7 +316,7 @@
       seqTab: 'steps',
       // 0.3.63 步骤入参折叠态:step.id → bool,缺省(无记录) = 折叠
       seqStepOpen: {},
-      // 0.3.64 步级流接收上限输入值(step.id → 字符串);空 = 缺省 200
+      // 0.3.64 步级流接收上限输入值(step.id → 字符串);空 = 缺省 100
       seqMaxMsgs: {},
 
       // ---- 响应 JSON 折叠树(0.3.41):行构建与可见性遍历在 TS(全局 ResultTree) ----
@@ -1138,7 +1141,9 @@
         this.streamTrees = Object.assign({}, this.streamTrees, { [key]: rt.items });
         this.chunkSizes = Object.assign({}, this.chunkSizes, { [key]: rs.items });
         // 0.3.64 服务页流方法收满上限自动停:cap>0 且总量达标 → 取消流并按「完成」态展示(capped)
+        // 0.3.65 空值 = 缺省上限(此前误为不限)
         var cap = this.seqMaxMsgsValue(key);
+        if (cap === null) cap = SEQ_STREAM_CAP_DEFAULT;
         var total = rc.items.length + ((stream.dropped || 0) + rc.dropped);
         var cur = this.streams[key];
         if (cap > 0 && total >= cap && cur && !cur.done && !cur.capped) {
@@ -1429,7 +1434,7 @@
             rep[ev.index] = {
               status: 'running', service: ev.service, method: ev.method,
               responseStream: ev.responseStream, values: ev.values, chunks: [], dropped: 0,
-              maxMessages: typeof ev.maxMessages === 'number' ? ev.maxMessages : 200,
+              maxMessages: typeof ev.maxMessages === 'number' ? ev.maxMessages : SEQ_STREAM_CAP_DEFAULT,
               body: '', error: '', durationMs: 0,
             };
             this.seqReport = rep;
@@ -1517,13 +1522,18 @@
         return (chunks || []).map(function (c) { return JSON.stringify(c, null, 2); }).join('\n\n');
       },
 
-      // 0.3.64 步级 maxMessages 解析:空/非法 = null(不写字段,引擎缺省 200);0 = 不限
+      // 0.3.64 步级 maxMessages 解析:空/非法 = null(不写字段,引擎缺省 100);0 = 不限
       seqMaxMsgsValue: function (id) {
         var raw = (this.seqMaxMsgs[id] || '').trim();
         if (raw === '') return null;
         var n = Number(raw);
         if (!isFinite(n) || n < 0) return null;
         return Math.floor(n);
+      },
+
+      // 0.3.64 写入上限输入值:@alpinejs/csp 模板不支持内联 Object.assign 赋值,必须走方法
+      setSeqMaxMsgs: function (id, value) {
+        this.seqMaxMsgs = Object.assign({}, this.seqMaxMsgs, { [id]: value });
       },
 
       // 报告行 chunk 计数:含被挤出的早期块,总量真实(与单调用 streamChunkCountText 同语义)

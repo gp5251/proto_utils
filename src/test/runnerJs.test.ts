@@ -233,6 +233,7 @@ test('序列消息路由与组件方法(0.3.59)齐备', () => {
     'runSequence: function', 'setView: function', 'hasSeqReport: function', 'stepRefProblems: function',
     'seqHasRunningStream: function', 'setSeqTab: function',
     'seqChunkCountText: function', 'seqMaxMsgsValue: function', 'streamIsCapped: function',
+    'setSeqMaxMsgs: function',
     'isSeqStepOpen: function', 'toggleSeqStep: function',
   ]) {
     assert.ok(src.includes(fn), `缺序列方法 ${fn}`);

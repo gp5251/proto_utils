@@ -361,6 +361,27 @@ test('序列流 chunk 上限 0 = 不限(0.3.63):全部保留,占位符可引最�
   assert.deepEqual(fake.unary[0].values, { first: 1 }, '0=不限时最早块仍可引用');
 });
 
+test('流步骤缺省接收上限 100(0.3.65):未配 maxMessages 时收满 100 自动停', async () => {
+  const fake = new SilentCancelRunner();
+  const events: SequenceEvent[] = [];
+  const runner = new SequenceRunner({
+    runner: fake,
+    registry: { load: async () => ({ services: [svc('A', 'Watch')], errors: [] }) },
+    getConfig: () => ({ protoDir: 'x', metadata: [] }),
+    onEvent: (e) => events.push(e),
+  });
+  const p = runner.run({
+    name: 's',
+    steps: [{ service: 'A', method: 'Watch', mode: 'form', responseStream: true }],
+  });
+  await waitFor(() => fake.lastStreamHandlers !== null);
+  for (let n = 1; n <= 150; n++) fake.lastStreamHandlers!.onData({ n });
+  await p;
+  assert.equal(fake.cancelCount, 1, '缺省上限收满须自动取消底层流');
+  const se = events.find((e) => e.type === 'stepStreamEnd');
+  assert.equal(se && (se as { chunkCount?: number }).chunkCount, 100, '缺省上限 = 100');
+});
+
 test('步级 metadata 按 key 合并全局(0.3.64):同 key 步级优先,异 key 追加,全局顺序保持', async () => {
   const fake = new SilentCancelRunner();
   const runner = new SequenceRunner({
