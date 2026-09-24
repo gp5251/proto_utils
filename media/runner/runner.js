@@ -136,6 +136,13 @@
         var prevConn = connStore.connState;
         var nextConn = msg.state === 'ok' ? 'ok' : 'fail';
         connStore.connState = nextConn;
+        // ponytail: 长寿 webview 会话里 conn-hint 的 x-show 效果偶发不收敛(实证:通知与状态点已转可达,
+        // 红字「服务器不可达」残留),在唯一写入点命令式同步显隐兜底;天花板:仅覆盖顶栏 .conn-hint,
+        // 其余同源 x-show(表单/序列区 svcUnavailable)仍依赖 Alpine 效果。健康效果随后 flush 写同值,不冲突。
+        var hintEl = document.querySelector('.conn-hint');
+        if (hintEl) {
+          hintEl.style.display = nextConn === 'fail' ? '' : 'none';
+        }
         // 0.3.57:跃迁瞬时提醒——fail→ok 恢复,ok→fail 断开;unknown 首探不打扰
         if (prevConn === 'fail' && nextConn === 'ok') showNotice(connStore, str('connRestored'));
         if (prevConn === 'ok' && nextConn === 'fail') showNotice(connStore, str('connLost'));

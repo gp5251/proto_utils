@@ -183,6 +183,8 @@ test('connState 跃迁提醒(0.3.57):fail→ok 提示恢复,ok→fail 提示断�
   assert.ok(src.includes('connRestored:') && src.includes('connLost:'), '缺跃迁文案默认串');
   // 提醒走 showNotice 瞬时通道(2.5s 自动消失),不得常驻 refreshNotice
   assert.ok(body.includes('showNotice('), '跃迁提醒必须走 showNotice');
+  // 0.3.69 显隐兜底:x-show 效果不收敛时红字残留,唯一写入点命令式同步 .conn-hint
+  assert.ok(body.includes("querySelector('.conn-hint')"), 'connState 写入点须命令式同步 conn-hint 显隐');
   // 0.3.62 手动「刷新服务」回执:仅手动探测才提醒,周期复探不打扰
   assert.ok(body.includes('probingServices'), '手动刷新服务回执须在 connState 路由内收尾');
   assert.ok(src.includes('refreshServices() {'), 'pageMeta 缺 refreshServices');
