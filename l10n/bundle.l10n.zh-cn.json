@@ -139,13 +139,14 @@
   "Invalid sequence": "序列无效",
   "A non-empty sequence name is required to save": "保存需要非空的序列名称",
   "Sequence persistence is unavailable without a workspace folder": "未打开工作区文件夹，序列持久化不可用",
-  "A sequence named \"{name}\" already exists. Overwrite it?": "已存在同名序列「{name}」，是否覆盖？",
-  "Delete sequence \"{name}\"? This cannot be undone.": "删除序列「{name}」？此操作不可恢复。",
   "Raw JSON": "原始 JSON",
   "Tree": "折叠树",
   "Reset": "重置",
   "Collapse all services": "全部收起服务",
   "Open": "打开",
+  "Overwrite": "覆盖",
+  "Proto Utils: A sequence named \"{0}\" already exists. Overwrite it?": "Proto Utils: 已存在同名序列「{0}」，是否覆盖？",
+  "Proto Utils: Delete sequence \"{0}\"? This cannot be undone.": "Proto Utils: 删除序列「{0}」？此操作不可恢复。",
   "Proto Utils: {0} is already up to date": "Proto Utils: {0} 已是最新，无需重新生成",
   "Proto Utils: Generated {0} files under {1}/ ({2} unchanged)": "Proto Utils: 已在 {1}/ 下生成 {0} 个文件（{2} 个未变更）"
 }

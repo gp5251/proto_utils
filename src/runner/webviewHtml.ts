@@ -160,9 +160,6 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     seqCompleted: l10n.t('Sequence completed'),
     seqAborted: l10n.t('Sequence aborted at a failed step'),
     seqStopped: l10n.t('Sequence stopped'),
-    // 0.3.70 序列保存/删除确认对话框文案
-    seqOverwriteConfirm: l10n.t('A sequence named "{name}" already exists. Overwrite it?'),
-    seqDeleteConfirm: l10n.t('Delete sequence "{name}"? This cannot be undone.'),
   };
   const boot = {
     server: options.server,

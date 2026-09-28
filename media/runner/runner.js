@@ -41,9 +41,6 @@
     seqCompleted: 'Sequence completed',
     seqAborted: 'Sequence aborted at a failed step',
     seqStopped: 'Sequence stopped',
-    // 0.3.70 序列保存/删除确认(sequences.json 团队共享,误点即抹掉别人的序列)
-    seqOverwriteConfirm: 'A sequence named "{name}" already exists. Overwrite it?',
-    seqDeleteConfirm: 'Delete sequence "{name}"? This cannot be undone.',
   };
 
   function str(key, vars) {
@@ -1521,11 +1518,8 @@
       saveSequence: function () {
         if (!(this.seqName || '').trim()) { this.showSeqNotice(str('seqNameRequired')); return; }
         if (this.seqSteps.length === 0) { this.showSeqNotice(str('seqEmpty')); return; }
-        // 同名保存此前静默覆盖,而 sequences.json 是进版本库、团队共享的文件:
-        // 一次误点就抹掉别人的序列。同名先确认(0.3.70)。
-        var name = this.seqName;
-        var exists = this.seqSaved.some(function (s) { return s.name === name; });
-        if (exists && !window.confirm(str('seqOverwriteConfirm', { name: name }))) return;
+        // 同名覆盖确认在宿主侧(0.3.72):webview 的 confirm() 在 VS Code 沙箱 iframe
+        // 被禁用(allow-modals 未设置),调用即抛错——这里只负责发消息
         sendMessage({ type: 'saveSequence', sequence: this.buildSequencePayload() });
       },
 
@@ -1534,8 +1528,7 @@
       },
 
       deleteSequence: function (name) {
-        // 删除即写盘、不可恢复:先确认(0.3.70)
-        if (!window.confirm(str('seqDeleteConfirm', { name: name }))) return;
+        // 删除确认在宿主侧(0.3.72):同上,webview 内 confirm() 不可用
         sendMessage({ type: 'deleteSequence', name: name });
       },
 

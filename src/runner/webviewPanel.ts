@@ -550,6 +550,19 @@ export class WorkbenchSession {
       return;
     }
     try {
+      // 同名覆盖前宿主侧确认(0.3.72):webview 的 confirm() 在 VS Code 沙箱 iframe 里
+      // 被禁用(allow-modals 未设置),调用即抛错致删除/覆盖永不生效——确认对话框
+      // 一律走宿主原生 showWarningMessage。
+      const existing = await this.deps.store.get(seq.name);
+      if (existing) {
+        const overwrite = vscode.l10n.t('Overwrite');
+        const choice = await vscode.window.showWarningMessage(
+          vscode.l10n.t('Proto Utils: A sequence named "{0}" already exists. Overwrite it?', seq.name),
+          { modal: true },
+          overwrite,
+        );
+        if (choice !== overwrite) return; // 用户取消:不写盘
+      }
       await this.deps.store.save(seq);
       this.send({ type: 'sequences', list: await this.deps.store.list() });
     } catch (err) {
@@ -575,6 +588,14 @@ export class WorkbenchSession {
       return;
     }
     try {
+      // 删除即写盘、不可恢复:宿主侧确认(0.3.72;webview confirm() 沙箱被禁,曾致点击无反应)
+      const del = vscode.l10n.t('Delete');
+      const choice = await vscode.window.showWarningMessage(
+        vscode.l10n.t('Proto Utils: Delete sequence "{0}"? This cannot be undone.', name),
+        { modal: true },
+        del,
+      );
+      if (choice !== del) return; // 用户取消:不删
       await this.deps.store.delete(name);
       this.send({ type: 'sequences', list: await this.deps.store.list() });
     } catch (err) {

@@ -169,6 +169,13 @@ export class WorkspaceEdit {
 export const window = {
   showErrorMessage: () => Promise.resolve(undefined),
   showInformationMessage: () => Promise.resolve(undefined),
+  // 0.3.72:宿主侧确认对话框(序列删除/同名覆盖)。VS Code webview 是沙箱 iframe,
+  // 未设 allow-modals,webview 里的 confirm() 被忽略并抛错——确认一律走宿主原生对话框。
+  // 测试经 PROTO_UTILS_STUB_CONFIRM=1 注入「点了第一项(确认)」,缺省 = 取消。
+  showWarningMessage: (_message: string, _options?: unknown, ...items: string[]) => {
+    const confirmed = process.env.PROTO_UTILS_STUB_CONFIRM === '1';
+    return Promise.resolve(confirmed ? items[0] : undefined);
+  },
 };
 
 let corpusRoot = '';

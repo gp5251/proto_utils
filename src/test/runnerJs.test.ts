@@ -338,26 +338,23 @@ test('流式中途出错保留已收 chunk(0.3.70):streamIsTreeable 不再因 er
   );
 });
 
-test('序列保存/删除前确认(0.3.70):同名覆盖与删除都须过 confirm 才发消息', () => {
+test('序列保存/删除不得在 webview 内 confirm(0.3.72):沙箱 iframe 未设 allow-modals,confirm() 被忽略且抛错', () => {
   const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  // 实证:点击删除报 "Ignored call to 'confirm()'. The document is sandboxed,
+  // and the 'allow-modals' keyword is not set." —— 确认一律走宿主原生对话框,
+  // webview 只负责发消息。
+  assert.ok(!src.includes('window.confirm'), 'webview 内不得再出现 confirm()(沙箱禁用,调用即抛错)');
+  assert.ok(!src.includes('seqOverwriteConfirm') && !src.includes('seqDeleteConfirm'), '失效的 webview 确认文案应已移除');
+
   const saveStart = src.indexOf('saveSequence: function');
   const saveEnd = src.indexOf('loadSequence: function', saveStart);
   const saveBody = src.slice(saveStart, saveEnd);
-  assert.ok(saveBody.includes('window.confirm'), '同名保存必须先确认');
-  assert.ok(
-    saveBody.indexOf('window.confirm') < saveBody.indexOf("type: 'saveSequence'"),
-    '确认必须在发 saveSequence 之前',
-  );
+  assert.ok(saveBody.includes("type: 'saveSequence'"), '保存须直接发消息(确认在宿主侧)');
 
   const delStart = src.indexOf('deleteSequence: function');
   const delEnd = src.indexOf('showSeqNotice: function', delStart);
   const delBody = src.slice(delStart, delEnd);
-  assert.ok(delBody.includes('window.confirm'), '删除前必须确认');
-  assert.ok(
-    delBody.indexOf('window.confirm') < delBody.indexOf("type: 'deleteSequence'"),
-    '确认必须在发 deleteSequence 之前',
-  );
-  assert.ok(src.includes('seqOverwriteConfirm:') && src.includes('seqDeleteConfirm:'), '缺确认对话框默认文案');
+  assert.ok(delBody.includes("type: 'deleteSequence'"), '删除须直接发消息(确认在宿主侧)');
 });
 
 test('原始 JSON / 树切换(0.3.70):toggleRaw + isRawOpen 齐备', () => {

@@ -826,7 +826,7 @@ test('listSequences/saveSequence/deleteSequence/loadSequence 走 store', async (
   assert.deepEqual((posted.find((m) => m.type === 'sequences') as { list: Sequence[] }).list, []);
 
   const seq: Sequence = { name: 'flow', steps: [{ service: 'Greeter', method: 'SayHello', mode: 'form', responseStream: false }] };
-  emit({ type: 'saveSequence', sequence: seq });
+  emit({ type: 'saveSequence', sequence: seq }); // 新名:无需确认
   await nextTick();
   assert.equal(data.length, 1, '已落库');
 
@@ -836,9 +836,76 @@ test('listSequences/saveSequence/deleteSequence/loadSequence 走 store', async (
   assert.deepEqual((posted.find((m) => m.type === 'sequenceLoaded') as { sequence: Sequence }).sequence?.name, 'flow');
 
   posted.length = 0;
-  emit({ type: 'deleteSequence', name: 'flow' });
-  await nextTick();
+  // 0.3.72 起删除走宿主侧确认:注入「用户点了确认」
+  process.env.PROTO_UTILS_STUB_CONFIRM = '1';
+  try {
+    emit({ type: 'deleteSequence', name: 'flow' });
+    await nextTick();
+  } finally {
+    delete process.env.PROTO_UTILS_STUB_CONFIRM;
+  }
   assert.equal(data.length, 0);
+});
+
+// ---- 序列删除/覆盖的宿主侧确认(0.3.72:webview confirm() 沙箱被禁,改宿主原生对话框) ----
+
+/** 注入/清除「用户在原生确认对话框点了第一项」的测试开关(vscodeStub 经 env 读取)。 */
+async function withConfirm<T>(fn: () => Promise<T>): Promise<T> {
+  process.env.PROTO_UTILS_STUB_CONFIRM = '1';
+  try {
+    return await fn();
+  } finally {
+    delete process.env.PROTO_UTILS_STUB_CONFIRM;
+  }
+}
+
+test('deleteSequence(0.3.72):用户取消 → 不删、不重推列表;确认 → 删掉并重推', async () => {
+  const seq: Sequence = { name: 'flow', steps: [{ service: 'Greeter', method: 'SayHello', mode: 'form', responseStream: false }] };
+
+  // 取消(缺省 env):删除不得发生
+  const cancelled = makeHost();
+  const { store, data } = fakeStore([seq]);
+  new WorkbenchSession(makeDeps({ store }).deps).attach(cancelled.host);
+  cancelled.emit({ type: 'deleteSequence', name: 'flow' });
+  await nextTick();
+  assert.equal(data.length, 1, '取消不得删除');
+  assert.ok(!cancelled.posted.some((m) => m.type === 'sequences'), '取消不得重推列表');
+
+  // 确认:删除并重推
+  const confirmed = makeHost();
+  const { store: store2, data: data2 } = fakeStore([seq]);
+  new WorkbenchSession(makeDeps({ store: store2 }).deps).attach(confirmed.host);
+  await withConfirm(async () => {
+    confirmed.emit({ type: 'deleteSequence', name: 'flow' });
+    await nextTick();
+  });
+  assert.equal(data2.length, 0, '确认后应删除');
+  assert.deepEqual((confirmed.posted.find((m) => m.type === 'sequences') as { list: Sequence[] }).list, []);
+});
+
+test('saveSequence(0.3.72):同名覆盖需确认——取消保留旧序列,确认才写盘', async () => {
+  const original: Sequence = { name: 'flow', steps: [{ service: 'Greeter', method: 'SayHello', mode: 'form', responseStream: false }] };
+  const replacement: Sequence = { name: 'flow', steps: [{ service: 'Greeter', method: 'Watch', mode: 'form', responseStream: true }] };
+
+  // 取消:旧序列原样保留
+  const cancelled = makeHost();
+  const { store, data } = fakeStore([original]);
+  new WorkbenchSession(makeDeps({ store }).deps).attach(cancelled.host);
+  cancelled.emit({ type: 'saveSequence', sequence: replacement });
+  await nextTick();
+  assert.equal(data.length, 1);
+  assert.equal(data[0].steps[0].method, 'SayHello', '取消覆盖:旧序列必须原样保留');
+
+  // 确认:覆盖写盘
+  const confirmed = makeHost();
+  const { store: store2, data: data2 } = fakeStore([original]);
+  new WorkbenchSession(makeDeps({ store: store2 }).deps).attach(confirmed.host);
+  await withConfirm(async () => {
+    confirmed.emit({ type: 'saveSequence', sequence: replacement });
+    await nextTick();
+  });
+  assert.equal(data2.length, 1);
+  assert.equal(data2[0].steps[0].method, 'Watch', '确认后应覆盖');
 });
 
 test('saveSequence 空名 → sequenceStoreError;无 store 时 save 降级报错、list 返空', async () => {
