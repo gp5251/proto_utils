@@ -33,6 +33,9 @@ export interface RpcMethodPoint {
   range: Range;
   requestStream: boolean;
   responseStream: boolean;
+  /** 源码原样书写的请求/响应类型引用(0.3.70:hover 展示用;扫描不到则缺省) */
+  requestType?: string;
+  responseType?: string;
 }
 
 /** A service definition point with its rpc methods */

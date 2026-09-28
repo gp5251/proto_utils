@@ -45,6 +45,8 @@ export type WorkbenchToWebview =
   | { type: 'streamTrailers'; service: string; method: string; trailers: MetadataEntry[] }
   | { type: 'streamEnd'; service: string; method: string; durationMs: number }
   | { type: 'prefill'; service: string; method: string }
+  /** 0.3.70:runner.* 配置改动(server/protoDir)实时纠正顶栏显示与空态提示,无需重开面板。 */
+  | { type: 'config'; server: string; protoDir: string }
   /** 顶栏连接状态点:ok=通道可达,fail=不可达/超时/配置错(0.3.54) */
   | { type: 'connState'; state: 'ok' | 'fail' }
   // ---- 调用序列(0.3.59,ADR-0012) ----
@@ -65,7 +67,7 @@ export interface WorkbenchHost {
 }
 
 export interface WorkbenchSessionDeps {
-  registry: Pick<ServiceRegistry, 'load' | 'invalidate'>;
+  registry: Pick<ServiceRegistry, 'load' | 'invalidate' | 'peek'>;
   runner: CallRunner;
   getConfig(): { server: string; protoDir: string; metadata: MetadataEntry[]; connProbeIntervalMs?: number };
   /** 0.3.40:proto 加载尘埃落定(成功/部分错误/抛错)后回调,activation 侧借此补诊断飘红。可选,测试不受影响。 */
@@ -188,6 +190,16 @@ export class WorkbenchSession {
     this.pendingPrefill = { service, method };
   }
 
+  /**
+   * runner.* 配置改动(0.3.70):把最新 server/protoDir 推给 webview。
+   * 顶栏地址此前在面板创建时烤进 HTML,改设置后要重开面板才更新;protoDir
+   * 空态提示同样陈旧。现读配置即推,探测/调用本就现读,天然一致。
+   */
+  notifyConfigChanged(): void {
+    const c = this.deps.getConfig();
+    this.send({ type: 'config', server: c.server, protoDir: c.protoDir });
+  }
+
   /** proto 文件变更时由 watcher 触发:invalidate 后重新推送。 */
   async reload(): Promise<void> {
     this.deps.registry.invalidate();
@@ -201,13 +213,12 @@ export class WorkbenchSession {
     switch (message.type) {
       case 'ready': {
         this.webviewReady = true;
+        // prefill 由 loadAndSend 的 finally 统一冲出(见其注释),此处不重复
         await this.loadAndSend();
-        this.flushPrefill();
         return;
       }
       case 'refresh': {
         await this.reload();
-        this.flushPrefill();
         return;
       }
       case 'refreshServices': {
@@ -313,7 +324,12 @@ export class WorkbenchSession {
       return;
     }
     this.loadInFlight = true;
-    this.send({ type: 'loading' });
+    // 缓存热时跳过 loading 推送(0.3.70):面板创建时已内嵌同一份服务列表,
+    // 再推一次 loading 会让首帧闪一下加载卡又跳回服务列表,反而更闹。
+    // 缓存冷(首次打开/目录变更)才走 loading 态。
+    if (!this.deps.registry.peek(this.deps.getConfig().protoDir)) {
+      this.send({ type: 'loading' });
+    }
     // 连通性探测走旁路:不阻塞 load 主链,结果异步推 connState。
     // 挂在 loadAndSend 一个点,ready/refresh/watcher 重载全覆盖。
     void this.probe();
@@ -328,6 +344,11 @@ export class WorkbenchSession {
       this.send({ type: 'loadError', errors: [message], segments: [parseProtoError(message).segments] });
     } finally {
       this.loadInFlight = false;
+      // 唯一 prefill 冲出点:ready / refresh / watcher reload 三条路径都汇入
+      // loadAndSend,在此收尾即全覆盖。此前只在 dispatch 的 ready/refresh 里
+      // flush,watcher 重载期间到达的 prefill 永不冲出——CodeLens「▶ 调用」
+      // 点了没反应(0.3.70 回归修复;workbenchSession 时代此处原有 flush)。
+      this.flushPrefill();
       // 诊断平面补充触发:runner 只发信号不解释错误串(ADR-0002 单语义解析器),
       // activation 侧重跑 ProtoFrontend 得出与保存路径一致的飘红
       this.deps.onLoadSettled?.();
@@ -488,9 +509,10 @@ export class WorkbenchSession {
     const engine = new SequenceRunner({
       runner: this.deps.runner,
       registry: this.deps.registry,
+      // 只透传引擎所需的两项(0.3.70 前还传 connProbeIntervalMs,引擎不用)
       getConfig: () => {
         const c = this.deps.getConfig();
-        return { protoDir: c.protoDir, metadata: c.metadata, connProbeIntervalMs: c.connProbeIntervalMs };
+        return { protoDir: c.protoDir, metadata: c.metadata };
       },
       onEvent: (event) => {
         this.send({ type: 'seqEvent', event });
@@ -634,6 +656,11 @@ export class WorkbenchPanelManager {
       await this.active.session.reload();
     }
   }
+
+  /** runner.* 配置改动入口(0.3.70):面板开着就推 config;protoDir/excludes 变动由调用方另行 reload。 */
+  pushConfig(): void {
+    this.active?.session.notifyConfigChanged();
+  }
 }
 
 /** 真实 Webview 面板工厂:retainContextWhenHidden 保住表单与结果状态,CSP nonce 每面板随机。 */
@@ -643,6 +670,8 @@ export function createVscodePanelFactory(
 ): WorkbenchPanelFactory {
   return () => {
     const mediaRoot = vscode.Uri.joinPath(extensionUri, 'media', 'runner');
+    // 0.3.70:protoDir 一致时内嵌已缓存的服务列表,重开面板首帧不再闪 loading
+    const cfg = deps.getConfig();
     const panel = vscode.window.createWebviewPanel(
       'protoUtils.rpcRunner',
       vscode.l10n.t('RPC Workbench'),
@@ -662,9 +691,10 @@ export function createVscodePanelFactory(
       resultTreeScriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'resultTree.js')).toString(),
       placeholderScriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'placeholder.js')).toString(),
       alpineScriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'alpine.min.js')).toString(),
-      server: deps.getConfig().server,
-      protoDir: deps.getConfig().protoDir,
-      metadataDefault: deps.getConfig().metadata,
+      server: cfg.server,
+      protoDir: cfg.protoDir,
+      metadataDefault: cfg.metadata,
+      initialServices: deps.registry.peek(cfg.protoDir) ?? undefined,
     });
     return {
       host: {

@@ -4,6 +4,7 @@ import { readProtoFile } from './runtime/protoEncoding';
 import { parseProtoError } from './protoErrorMessage';
 import { scanProto } from './index/scanner';
 import type { ScanResult } from './index/scanner';
+import type { TypeRef } from './index/symbols';
 import { toVsCodeRange } from './providers/definition';
 import {
   MISSING_IMPORT_CODE,
@@ -241,9 +242,15 @@ export function reportMissingImports(
 }
 
 /**
- * no such type 无位置:按类型短名反查全部引用处飘红(0.3.30)。
+ * no such type 无位置:按类型名反查全部引用处飘红(0.3.30)。
  * missingTypes 由 parseProtoError 提取(冒号形 + 引号形,0.3.40 起 Field 的
  * "no such Type or Enum 'X'" 也进这里,此前只能退 toast)。
+ * 0.3.70 两处修正:
+ * 1) 定位从「短名正则扫全文」改为 scanProto 的 typeRefs(与 duplicate-name /
+ *    missing-import 两条诊断同源)——声明点、注释里的同名不再被误飘;
+ * 2) 匹配从「短名任意出现」改为后缀判定:demo.v1.Foo 缺失时 Foo / v1.Foo /
+ *    demo.v1.Foo 都算,别的文件里合法的 other.v1.Foo 不算(它是另一个已存在的
+ *    类型)。飘红只盖短名段(与 IDE 对未解析引用的呈现一致)。
  */
 function reportUnresolvedTypeRefs(
   diagnostics: vscode.DiagnosticCollection,
@@ -251,39 +258,43 @@ function reportUnresolvedTypeRefs(
   missingTypes: string[],
   message: string,
 ): boolean {
-  const shortNames = new Set<string>();
-  for (const name of missingTypes) {
-    shortNames.add(name.slice(name.lastIndexOf('.') + 1));
-  }
-  if (shortNames.size === 0) return false;
+  const targets = [...new Set(missingTypes.filter((n) => n.length > 0))].map((name) => {
+    const segments = name.split('.');
+    return { segments, shortLength: segments[segments.length - 1].length };
+  });
+  if (targets.length === 0) return false;
+
   let found = false;
-  for (const shortName of shortNames) {
-    const refRe = new RegExp(`\\b${shortName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
-    for (const file of frontend.scan()) {
-      const text = readProtoFile(file);
-      const lineStarts: number[] = [0];
-      for (let i = 0; i < text.length; i++) {
-        if (text.charCodeAt(i) === 10) lineStarts.push(i + 1);
-      }
-      const diags = [...(diagnostics.get?.(vscode.Uri.file(file)) ?? [])];
-      refRe.lastIndex = 0;
-      let hit: RegExpExecArray | null;
-      while ((hit = refRe.exec(text))) {
-        let lo = 0;
-        let hi = lineStarts.length - 1;
-        while (lo < hi) {
-          const mid = (lo + hi + 1) >> 1;
-          if (lineStarts[mid] <= hit.index) lo = mid;
-          else hi = mid - 1;
-        }
-        const col = hit.index - lineStarts[lo];
-        const range = new vscode.Range(lo, col, lo, col + shortName.length);
-        diags.push(new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Error));
-      }
-      if (diags.length > 0) {
-        diagnostics.set(vscode.Uri.file(file), diags);
-        found = true;
-      }
+  for (const file of frontend.scan()) {
+    let refs: TypeRef[];
+    try {
+      refs = scanProto(readProtoFile(file)).typeRefs;
+    } catch {
+      continue; // 读不到/扫不出:该文件不飘( toast 兜底仍在)
+    }
+    const diags: vscode.Diagnostic[] = [];
+    for (const ref of refs) {
+      const written = ref.name.replace(/^\./, '').split('.');
+      const hit = targets.find(
+        (t) =>
+          written.length <= t.segments.length &&
+          t.segments.slice(t.segments.length - written.length).every((seg, i) => seg === written[i]),
+      );
+      if (!hit) continue;
+      const { start, end } = ref.range;
+      // 只盖短名段:demo.v1.Foo 引用飘 Foo,前缀不计入宽度
+      const from = Math.max(start.character, end.character - hit.shortLength);
+      diags.push(
+        new vscode.Diagnostic(
+          new vscode.Range(start.line, from, end.line, end.character),
+          message,
+          vscode.DiagnosticSeverity.Error,
+        ),
+      );
+    }
+    if (diags.length > 0) {
+      diagnostics.set(vscode.Uri.file(file), diags);
+      found = true;
     }
   }
   return found;

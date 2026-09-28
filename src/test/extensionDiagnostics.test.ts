@@ -136,6 +136,30 @@ test("Field 缺类型(引号形 no such Type or Enum)也精确飘红", () => {
   assert.equal(d.range.end.character, '  demo.v1.'.length + 'MissingField'.length);
 });
 
+test('no such type 精度(0.3.70):只飘真正缺失的引用,限定引用与声明点不误伤', () => {
+  const dir = path.resolve('testdata/unresolved-qualified');
+  const err = loadErrorOf(dir);
+  assert.match(err.message, /no such type: demo\.v1\.Foo/);
+
+  const fake = new FakeDiagnostics();
+  reportLoadError(fake as unknown as vscode.DiagnosticCollection, new ProtoFrontend([dir]), err);
+
+  // 缺失引用所在文件:恰好 1 处,只盖短名 Foo(demo.v1. 前缀不计入)
+  const bad = fake.calls.get(path.join(dir, 'missing_foo.proto'));
+  assert.ok(bad && bad.length === 1, 'missing_foo.proto 应恰好 1 处诊断');
+  assert.equal(bad[0].range.start.line, 6, 'rpc Do 位于第 7 行(0-based 6)');
+  assert.equal(bad[0].range.start.character, '  rpc Do (demo.v1.'.length);
+  assert.equal(bad[0].range.end.character, '  rpc Do (demo.v1.'.length + 'Foo'.length);
+
+  // 别的文件:合法的 other.v1.Foo 引用与 message Foo 声明都不得被飘
+  // (旧实现按短名 \bFoo\b 全仓匹配,这两处都会被误飘)
+  assert.equal(
+    fake.calls.get(path.join(dir, 'has_foo.proto')),
+    undefined,
+    'has_foo.proto(合法全限定引用 + 同名声明)不得产生诊断',
+  );
+});
+
 test("duplicate name:两处声明点飘红(Namespace 按全限定 container 匹配)", () => {
   const dir = path.resolve('testdata/duplicate');
   const err = loadErrorOf(dir);

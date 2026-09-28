@@ -89,6 +89,15 @@ export class ServiceRegistry {
     return loaded;
   }
 
+  /**
+   * 当前缓存的载荷(0.3.70 启用):仅当 protoDir 与入参一致时返回,否则 null。
+   * 不触发加载——供工作台面板创建时内嵌进 HTML,避免重开面板首帧闪 loading
+   * (retainContextWhenHidden 只保隐藏态;面板销毁后重开必然走创建路径)。
+   */
+  peek(protoDir: string): ServicesPayload | null {
+    return this.cached && this.cachedDir === protoDir ? this.cached.services : null;
+  }
+
   invalidate(): void {
     this.cached = null;
     this.cachedDir = null;

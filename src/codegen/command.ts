@@ -31,19 +31,30 @@ export function registerCodeGenCommand(
     }
   };
 
-  /** 单文件生成 + 落盘,返回相对 workspace 的输出路径;无产物返回 null。 */
+  /** 单文件生成 + 落盘,返回输出路径与是否真发生写入;无产物返回 null。 */
   const writeTypesFor = async (
     schema: ProtoSchema,
     filePath: string,
     config: CodeGenConfig,
     pathOptions: OutputPathOptions,
-  ): Promise<string | null> => {
+  ): Promise<{ outPath: string; relative: string; changed: boolean } | null> => {
     if (!hasEmittableTypes(schema, filePath)) return null;
     const output = emit(schema, filePath, config, createTypeResolver(schema, filePath, pathOptions));
     const outPath = createOutputPathResolver(schema, pathOptions)(filePath);
-    await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(outPath)));
-    await vscode.workspace.fs.writeFile(vscode.Uri.file(outPath), Buffer.from(output, 'utf-8'));
-    return path.relative(pathOptions.workspaceRoot, outPath);
+    const bytes = Buffer.from(output, 'utf-8');
+    // 内容未变则不落盘(0.3.70):免无谓写,批量报告也能区分「写入 / 未变」
+    let changed = true;
+    try {
+      const existing = await vscode.workspace.fs.readFile(vscode.Uri.file(outPath));
+      changed = Buffer.compare(existing, bytes) !== 0;
+    } catch {
+      changed = true; // 不存在或读不到 = 需要写
+    }
+    if (changed) {
+      await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(outPath)));
+      await vscode.workspace.fs.writeFile(vscode.Uri.file(outPath), bytes);
+    }
+    return { outPath, relative: path.relative(pathOptions.workspaceRoot, outPath), changed };
   };
 
   const cmd = vscode.commands.registerCommand('protoUtils.generateTypes', async (uri?: vscode.Uri) => {
@@ -80,10 +91,29 @@ export function registerCodeGenCommand(
       return;
     }
 
-    const relative = await writeTypesFor(schema, filePath, readConfig(), readPathOptions(workspaceRoot));
+    const outcome = await writeTypesFor(schema, filePath, readConfig(), readPathOptions(workspaceRoot));
     // 上游已拦截无产物情形,此处仅类型收窄
-    if (relative) {
-      vscode.window.showInformationMessage(vscode.l10n.t('Proto Utils: Generated {0}', relative));
+    if (outcome) {
+      if (outcome.changed) {
+        // 0.3.70:成功通知带「打开」动作,省去自己去目录里翻
+        const openLabel = vscode.l10n.t('Open');
+        vscode.window
+          .showInformationMessage(vscode.l10n.t('Proto Utils: Generated {0}', outcome.relative), openLabel)
+          .then(
+            (choice) => {
+              if (choice === openLabel) {
+                void vscode.window.showTextDocument(vscode.Uri.file(outcome.outPath));
+              }
+            },
+            () => {
+              /* 通知被关闭:无需处理 */
+            },
+          );
+      } else {
+        vscode.window.showInformationMessage(
+          vscode.l10n.t('Proto Utils: {0} is already up to date', outcome.relative),
+        );
+      }
     }
   });
 
@@ -122,11 +152,23 @@ export function registerCodeGenCommand(
     }
 
     let written = 0;
+    let unchanged = 0;
     for (const filePath of schema.files) {
-      if (await writeTypesFor(schema, filePath, config, pathOptions)) written++;
+      const outcome = await writeTypesFor(schema, filePath, config, pathOptions);
+      if (!outcome) continue;
+      if (outcome.changed) written++;
+      else unchanged++;
     }
+    // 0.3.70:报告区分「写入 / 未变」——未变的文件本就不该计入产出
     vscode.window.showInformationMessage(
-      vscode.l10n.t('Proto Utils: Generated {0} files under {1}/', written, pathOptions.outputDir),
+      unchanged > 0
+        ? vscode.l10n.t(
+            'Proto Utils: Generated {0} files under {1}/ ({2} unchanged)',
+            written,
+            pathOptions.outputDir,
+            unchanged,
+          )
+        : vscode.l10n.t('Proto Utils: Generated {0} files under {1}/', written, pathOptions.outputDir),
     );
   });
 

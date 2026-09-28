@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package app.v1;
+
+service BarService {
+  // 引用了不存在的 demo.v1.Foo:resolveAll 抛 no such type,应在此处飘红
+  rpc Do (demo.v1.Foo) returns (Empty);
+}
+
+message Empty {}

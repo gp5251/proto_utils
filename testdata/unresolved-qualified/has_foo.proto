@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package other.v1;
+
+message Foo {
+  string id = 1;
+}
+
+message Empty {}
+
+service FooService {
+  // 全限定引用已存在的 other.v1.Foo:不得因别处缺失 demo.v1.Foo 而被误飘(0.3.70)
+  rpc Get (other.v1.Foo) returns (other.v1.Empty);
+}

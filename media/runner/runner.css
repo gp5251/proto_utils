@@ -556,6 +556,36 @@ input[type="checkbox"] {
 .json-error { color: var(--danger); font-size: 12px; margin-top: 6px; }
 .json-warning { color: var(--warning); font-size: 12px; margin-top: 6px; }
 
+/* ---- 0.3.70 UX 增强 ---- */
+/* 搜索命中高亮:子串整段/模糊按序,与服务名、方法名同字体渲染 */
+.search-hit {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+/* 在途调用实时计时:等宽数字防抖动 */
+.elapsed-hint {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+/* 流式中途出错的错误横幅:与已收 chunk 折叠树并存(0.3.70) */
+.stream-error-banner {
+  background: var(--danger-bg);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin: 10px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 /* ---- Headers(请求 metadata)行编辑器 ---- */
 .headers-editor {
   display: flex;

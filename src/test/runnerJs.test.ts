@@ -64,7 +64,11 @@ test('流式发送态:startStream 置 loading,applyStreamEnd/applyCallResult 复
   const sEnd = src.indexOf('cancelStream: function', sStart);
   const sBody = src.slice(sStart, sEnd);
   assert.ok(sStart >= 0 && sEnd > sStart, '缺 startStream');
-  assert.ok(sBody.includes('this.setLoading(key, true)'), 'startStream 必须置 loading(按钮发送中态)');
+  // 0.3.70 起经 markLoading(key) 置位(内部即 setLoading(key, true) + 起计时器)
+  assert.ok(
+    sBody.includes('this.setLoading(key, true)') || sBody.includes('this.markLoading(key)'),
+    'startStream 必须置 loading(按钮发送中态)',
+  );
 
   const eStart = src.indexOf('applyStreamEnd: function');
   const eEnd = src.indexOf('getStreamBody: function', eStart);
@@ -271,4 +275,150 @@ test('runSequence 早退:不可达/运行中在发 runSequence 消息之前拦�
   assert.ok(body.indexOf('this.seqRunning') < body.indexOf('sendMessage'), '运行中早退必须在发消息前');
   assert.ok(body.includes("this.seqTab = 'report'"), '点运行必须切到报告 tab(0.3.62)');
   assert.ok(body.indexOf("this.seqTab = 'report'") < body.indexOf('sendMessage'), '切 tab 必须在发消息前');
+});
+
+// ---- 0.3.70 UX 增强守卫 ----
+
+test('流式中途出错保留已收 chunk(0.3.70):streamIsTreeable 不再因 error 隐藏,错误走独立横幅', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const start = src.indexOf('streamIsTreeable: function');
+  const end = src.indexOf('streamErrorText: function', start);
+  assert.ok(start >= 0 && end > start, '缺 streamIsTreeable/streamErrorText');
+  const body = src.slice(start, end);
+  // 树可见性只取决于有无 chunk:不再检查 result 是否 error
+  assert.ok(!body.includes("status !== 'error'"), 'streamIsTreeable 不得因结果出错而隐藏已收 chunk');
+  assert.ok(src.includes('streamErrorText: function'), '缺错误文本助手(横幅数据源)');
+
+  // getStreamBody 优先复制 chunk:出错时也只拷错误文本会把已收数据丢掉
+  const gStart = src.indexOf('getStreamBody: function');
+  const gEnd = src.indexOf('copyStreamResult: function', gStart);
+  const gBody = src.slice(gStart, gEnd);
+  assert.ok(
+    gBody.indexOf('stream.chunks') < gBody.indexOf("status === 'error'"),
+    'getStreamBody 必须先看 chunk,再退回错误文本',
+  );
+});
+
+test('序列保存/删除前确认(0.3.70):同名覆盖与删除都须过 confirm 才发消息', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const saveStart = src.indexOf('saveSequence: function');
+  const saveEnd = src.indexOf('loadSequence: function', saveStart);
+  const saveBody = src.slice(saveStart, saveEnd);
+  assert.ok(saveBody.includes('window.confirm'), '同名保存必须先确认');
+  assert.ok(
+    saveBody.indexOf('window.confirm') < saveBody.indexOf("type: 'saveSequence'"),
+    '确认必须在发 saveSequence 之前',
+  );
+
+  const delStart = src.indexOf('deleteSequence: function');
+  const delEnd = src.indexOf('showSeqNotice: function', delStart);
+  const delBody = src.slice(delStart, delEnd);
+  assert.ok(delBody.includes('window.confirm'), '删除前必须确认');
+  assert.ok(
+    delBody.indexOf('window.confirm') < delBody.indexOf("type: 'deleteSequence'"),
+    '确认必须在发 deleteSequence 之前',
+  );
+  assert.ok(src.includes('seqOverwriteConfirm:') && src.includes('seqDeleteConfirm:'), '缺确认对话框默认文案');
+});
+
+test('原始 JSON / 树切换(0.3.70):toggleRaw + isRawOpen 齐备', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  assert.ok(src.includes('rawOpen: {}'), '缺 rawOpen 状态字典');
+  assert.ok(src.includes('toggleRaw: function'), '缺 toggleRaw');
+  assert.ok(src.includes('isRawOpen: function'), '缺 isRawOpen');
+});
+
+test('表单重置(0.3.70):resetForm 复位表单值并同步 JSON 页', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const start = src.indexOf('resetForm: function');
+  const end = src.indexOf('filteredServices: function', start);
+  assert.ok(start >= 0 && end > start, '缺 resetForm');
+  const body = src.slice(start, end);
+  assert.ok(body.includes('initFieldValues'), '必须按 schema 重置为默认值');
+  assert.ok(body.includes('setJsonText'), '必须同步复位 JSON 页文本(否则切过去直接发出旧值)');
+  assert.ok(body.includes('setFormError'), '必须清掉旧校验问题');
+});
+
+test('在途调用实时计时(0.3.70):markLoading 记时 + tickElapsed 停表 + elapsedText 展示', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  assert.ok(src.includes('loadingSince: {}'), '缺 loadingSince 状态');
+  assert.ok(src.includes('markLoading: function'), '缺 markLoading(置 loading 并记起始时间)');
+  assert.ok(src.includes('tickElapsed: function'), '缺 tickElapsed(驱动重渲染 + 无在途即停表)');
+  assert.ok(src.includes('elapsedText: function'), '缺 elapsedText');
+  // 发送入口必须走 markLoading(而非裸 setLoading),否则不计时
+  const submitStart = src.indexOf('submitCall: function');
+  const submitEnd = src.indexOf('startStream: function', submitStart);
+  assert.ok(src.slice(submitStart, submitEnd).includes('this.markLoading(key)'), 'submitCall 必须走 markLoading');
+  const streamStart = src.indexOf('startStream: function');
+  const streamEnd = src.indexOf('cancelStream: function', streamStart);
+  assert.ok(src.slice(streamStart, streamEnd).includes('this.markLoading(key)'), 'startStream 必须走 markLoading');
+});
+
+test('搜索命中高亮 + 全部收起(0.3.70):nameSegments / collapseAllServices 齐备', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  assert.ok(src.includes('nameSegments: function'), '缺 nameSegments(高亮分段)');
+  assert.ok(src.includes('collapseAllServices: function'), '缺 collapseAllServices');
+  // 同源实跑:子串整段高亮 / 模糊按序高亮 / 未命中原样
+  const start = src.indexOf('nameSegments: function');
+  const end = src.indexOf('collapseAllServices: function', start);
+  const impl = new Function(`return {${src.slice(start, end)}};`)() as {
+    nameSegments(name: string, query: string): Array<{ text: string; hit: boolean }>;
+  };
+  assert.deepEqual(impl.nameSegments('ExecuteOpenLDProg', 'ldp'), [
+    { text: 'ExecuteOpen', hit: false },
+    { text: 'LDP', hit: true },
+    { text: 'rog', hit: false },
+  ]);
+  assert.deepEqual(impl.nameSegments('ClickEnter', 'ce'), [
+    { text: 'C', hit: true },
+    { text: 'lick', hit: false },
+    { text: 'E', hit: true },
+    { text: 'nter', hit: false },
+  ]);
+  assert.deepEqual(impl.nameSegments('Greeter', 'zzz'), [{ text: 'Greeter', hit: false }]);
+  assert.deepEqual(impl.nameSegments('Greeter', ''), [{ text: 'Greeter', hit: false }]);
+});
+
+test('config 消息路由(0.3.70):runner.* 改动实时纠正顶栏 server 与空态 protoDir', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  assert.ok(src.includes("case 'config':"), '缺 config 消息路由');
+  const start = src.indexOf("case 'config':");
+  const body = src.slice(start, src.indexOf('break;', start));
+  assert.ok(body.includes('cfgStore.server = msg.server'), '必须更新顶栏 server');
+  assert.ok(body.includes('cfgStore.protoDir = msg.protoDir'), '必须更新空态 protoDir');
+});
+
+test("str() 键必须有处可查:本地 STRING_DEFAULTS 或宿主 boot.strings 至少命中一处(0.3.70)", () => {  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+
+  // runner.js 里全部 str('key') 调用点
+  const used = new Set<string>();
+  const useRe = /\bstr\('([A-Za-z0-9_]+)'/g;
+  let m: RegExpExecArray | null;
+  while ((m = useRe.exec(src))) used.add(m[1]);
+  assert.ok(used.size > 10, `str() 调用点扫描失效?仅 ${used.size} 个`);
+
+  // 本地默认串(STRING_DEFAULTS 块)与宿主下发串(webviewHtml.ts 的 strings 对象)
+  // 的键提取:值形态不限('...' 或 l10n.t('...')),注释行以 // 开头不匹配
+  const defStart = src.indexOf('var STRING_DEFAULTS = {');
+  assert.ok(defStart >= 0, '缺 STRING_DEFAULTS');
+  const defEnd = src.indexOf('};', defStart);
+  const localKeys = new Set<string>();
+  const keyRe = /^\s{4}([A-Za-z0-9_]+):/gm;
+  while ((m = keyRe.exec(src.slice(defStart, defEnd)))) localKeys.add(m[1]);
+
+  // 宿主经 boot.strings 下发的键(webviewHtml.ts 的 strings 对象;静态 S 不进 webview,不算)
+  const htmlSrc = fs.readFileSync(path.resolve('src/runner/webviewHtml.ts'), 'utf8');
+  const strStart = htmlSrc.indexOf('const strings = {');
+  assert.ok(strStart >= 0, 'webviewHtml.ts 缺 strings 对象');
+  const strEnd = htmlSrc.indexOf('};', strStart);
+  const hostKeys = new Set<string>();
+  keyRe.lastIndex = 0;
+  while ((m = keyRe.exec(htmlSrc.slice(strStart, strEnd)))) hostKeys.add(m[1]);
+
+  const missing = [...used].filter((k) => !localKeys.has(k) && !hostKeys.has(k));
+  assert.deepEqual(
+    missing,
+    [],
+    `str() 键两处都查不到(webview 会显示原始键名): ${missing.join(', ')}`,
+  );
 });

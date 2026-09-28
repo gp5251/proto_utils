@@ -79,6 +79,23 @@ test('scalar type ref returns no hover', async () => {
   assert.equal(provider.provideHover(document, ref.range.start as vscode.Position), null);
 });
 
+test('rpc 方法定义处 hover:请求/响应类型摘要,流式标注 stream(0.3.70)', async () => {
+  const { provider, document, entry } = await setup();
+  const svc = entry.services.find((s) => s.name === 'UserService');
+  assert.ok(svc, 'expected UserService');
+  const [getUser, watchUser] = svc.methods;
+
+  const md = hoverMarkdown(provider.provideHover(document, getUser.range.start as vscode.Position));
+  assert.ok(md.includes('**rpc** `UserService.GetUser`'), md);
+  assert.ok(md.includes('- request: `GetUserRequest`'), md);
+  assert.ok(md.includes('- response: `GetUserResponse`'), md);
+  assert.ok(!md.includes('(stream)'), '一元方法不得标注 stream');
+
+  const streamMd = hoverMarkdown(provider.provideHover(document, watchUser.range.start as vscode.Position));
+  assert.ok(streamMd.includes('- response: `GetUserResponse` (stream)'), streamMd);
+  assert.ok(!streamMd.includes('- request: `GetUserRequest` (stream)'), '请求侧无 stream');
+});
+
 test('extractLeadingComment: single-line block and no-comment cases', () => {
   assert.deepEqual(extractLeadingComment('/* 单行块 */\nmessage A {', 1), ['单行块']);
   assert.deepEqual(extractLeadingComment('message A {', 0), []);

@@ -68,6 +68,7 @@ function makeDeps(overrides: {
       invalidate: () => {
         state.invalidated++;
       },
+      peek: (_protoDir: string) => null as ServicesPayload | null,
     },
     runner: {
       callUnary: async () => {
@@ -111,8 +112,20 @@ function fakeStore(initial: Sequence[] = []): { store: SequenceStore; data: Sequ
   return { store, data };
 }
 
-test('ready → loading 后推 services;protoDir 来自 getConfig', async () => {
+test('缓存热时跳过 loading 推送(0.3.70):面板已内嵌服务,首帧不再闪加载卡', async () => {
   const { host, posted, emit } = makeHost();
+  const { deps } = makeDeps();
+  deps.registry.peek = () => SERVICES; // 缓存热:面板创建时内嵌了同一份
+  const session = new WorkbenchSession(deps);
+  session.attach(host);
+
+  emit({ type: 'ready' });
+  await nextTick();
+  assert.ok(!posted.some((m) => m.type === 'loading'), '缓存热不得推 loading(首帧闪加载卡)');
+  assert.ok(posted.some((m) => m.type === 'services'), 'services 照常推送');
+});
+
+test('ready → loading 后推 services;protoDir 来自 getConfig', async () => {  const { host, posted, emit } = makeHost();
   const { deps } = makeDeps();
   let seenDir = '';
   const originalLoad = deps.registry.load;
@@ -481,8 +494,69 @@ test('prefill 在 ready 前排队,services 送达后按序冲出;就绪后直发
   assert.deepEqual(last, { type: 'prefill', service: 'c.Greeter', method: 'SayHello' });
 });
 
-test('refresh → invalidate 后重载并推 services', async () => {
+test('watcher reload 期间到达的 prefill 在加载完成后冲出,不滞留', async () => {
   const { host, posted, emit } = makeHost();
+  const { deps } = makeDeps();
+  const session = new WorkbenchSession(deps);
+  session.attach(host);
+
+  emit({ type: 'ready' });
+  await nextTick();
+  posted.length = 0;
+
+  // proto 变更 → watcher reload 在途(loadInFlight)时点 CodeLens:prefill 排队
+  const reloading = session.reload();
+  session.prefill('c.Greeter', 'Subscribe');
+  await reloading;
+  await nextTick();
+  assert.deepEqual(
+    posted.map((m) => m.type),
+    ['loading', 'services', 'prefill'],
+    'reload 收尾必须冲出排队 prefill(0.3.70 回归:曾只在 ready/refresh 里 flush,watcher 路径静默丢弃)',
+  );
+});
+
+test('notifyConfigChanged(0.3.70):runner.* 改动把最新 server/protoDir 推给 webview', () => {
+  const { host, posted } = makeHost();
+  const { deps, state } = makeDeps();
+  const session = new WorkbenchSession(deps);
+  session.attach(host);
+
+  session.notifyConfigChanged();
+  assert.deepEqual(posted[posted.length - 1], { type: 'config', server: 'localhost:50051', protoDir: state.protoDir });
+
+  // 配置现读:改 getConfig 返回值再推,内容跟随
+  state.protoDir = 'D:/other-protos';
+  session.notifyConfigChanged();
+  assert.deepEqual(posted[posted.length - 1], { type: 'config', server: 'localhost:50051', protoDir: 'D:/other-protos' });
+});
+
+test('WorkbenchPanelManager.pushConfig(0.3.70):委托当前会话;无面板时空操作不抛', () => {
+  const { deps } = makeDeps();
+  const manager = new WorkbenchPanelManager(deps, () => {
+    const { host } = makeHost();
+    return { host, reveal: () => {} };
+  });
+  manager.pushConfig(); // 无活动面板:不得抛
+  manager.reveal();
+  manager.pushConfig(); // 有面板:转发到会话(host 记录不到也不抛)
+});
+
+test('ServiceRegistry.peek(0.3.70):仅 protoDir 一致时返回缓存,不触发加载', async () => {
+  const { ServiceRegistry } = await import('../runner/serviceRegistry');
+  const registry = new ServiceRegistry();
+  // 未加载过:null
+  assert.equal(registry.peek('D:/protos'), null);
+
+  const loaded = await registry.load('D:/protos');
+  assert.deepEqual(registry.peek('D:/protos'), loaded.services, '同目录应返回缓存载荷');
+  assert.equal(registry.peek('D:/other'), null, '目录不一致不得返回陈旧载荷');
+
+  registry.invalidate();
+  assert.equal(registry.peek('D:/protos'), null, 'invalidate 后缓存清空');
+});
+
+test('refresh → invalidate 后重载并推 services', async () => {  const { host, posted, emit } = makeHost();
   const { deps, state } = makeDeps();
   new WorkbenchSession(deps).attach(host);
   emit({ type: 'refresh' });

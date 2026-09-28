@@ -38,8 +38,8 @@
 19. As a developer, I want `oneof` fields generated as simple optional fields by default, so that the common case stays simple.
 20. As a developer, I want to configure `oneof` generation as discriminated unions, so that mutual exclusivity is enforced at the type level when I need it.
 21. As a developer, I want the output directory configurable (default `generated/`), so that I can place generated files wherever my project structure requires.
-22. As a developer, I want the output file path derived from the proto `package` declaration by default (e.g. `package my.service` → `generated/my/service.ts`), so that namespace structure is preserved.
-23. As a developer, I want to configure path mapping to use the proto file path instead of the package, so that I can match my source layout.
+22. As a developer, I want the output file path to mirror the proto file's location relative to the common proto root by default (e.g. `protos/account/user.proto` → `generated/account/user.ts`), so that the output layout matches my source layout.
+23. As a developer, I want to configure path mapping to use the proto `package` declaration instead (e.g. `package my.service` → `generated/my/service.ts`), so that namespace structure is preserved when I prefer it.
 24. As a developer, I want cross-file type references in generated TS to produce correct import statements, so that the generated code compiles without manual fixup.
 25. As a developer, I want the plugin to have zero external dependencies (no protoc, no buf, no CLI tools), so that it works out of the box on any machine.
 26. As a developer, I want the workspace indexed on plugin activation with incremental updates on file change, so that go-to-definition and semantic tokens work across all proto files without manual refresh.
@@ -58,14 +58,18 @@
 
 6. **Code-gen is pure emission** — The emitter walks the AST and produces a TypeScript string. No intermediate representation beyond the AST. Configuration is read from VSCode settings at emission time.
 
-7. **Configuration surface** — Seven settings under `protoUtils.codeGen.*`:
-   - `outputDir` (string, default `"generated"`)
-   - `enumStyle` (`"enum"` | `"union"`, default `"enum"`)
-   - `optionalMessageFields` (boolean, default `true`)
-   - `optionalScalarFields` (boolean, default `false`)
-   - `fieldNaming` (`"camelCase"` | `"preserve"`, default `"camelCase"`)
-   - `pathMapping` (`"package"` | `"file"`, default `"package"`)
-   - `oneofStyle` (`"optional"` | `"union"`, default `"optional"`)
+7. **Configuration surface** — Settings under `protoUtils.codeGen.*` / `protoUtils.runner.*` / `protoUtils.scan.*`:
+   - `codeGen.outputDir` (string, default `"generated"`)
+   - `codeGen.enumStyle` (`"enum"` | `"union"`, default `"enum"`)
+   - `codeGen.optionalMessageFields` (boolean, default `true`)
+   - `codeGen.optionalScalarFields` (boolean, default `false`)
+   - `codeGen.fieldNaming` (`"camelCase"` | `"preserve"`, default `"camelCase"`)
+   - `codeGen.pathMapping` (`"file"` | `"package"`, default `"file"`)
+   - `codeGen.oneofStyle` (`"optional"` | `"union"`, default `"optional"`)
+   - `codeGen.importExtension` (`"ts"` | `"none"`, default `"ts"`)
+   - `codeGen.int64Style` (`"number"` | `"bigint"` | `"string"`, default `"number"`)
+   - `runner.server` / `runner.protoDir` / `runner.tls*` / `runner.metadata` / `runner.timeoutMs` / `runner.connProbeIntervalMs`(调用面,见 docs/adr 0001~0007)
+   - `scan.excludeDirs` (string[], default `[]`,runner 与 codegen 共用)
 
 8. **Trigger mechanisms** — Code-gen is triggered via: (a) right-click context menu on `.proto` files in the editor and explorer, (b) command palette command `protoUtils.generateTypes`.
 
@@ -77,19 +81,22 @@
 
 **What makes a good test here:** Test external behavior at module boundaries — given input text, assert output structure. No mocking of internal state. No testing VSCode API integration (validated manually).
 
-**Seam 1: Parser**
+**Seam 1: Semantic frontend (`ProtoFrontend`, ADR-0002)**
+- Input: proto3 files on disk (fixtures under `testdata/`)
+- Assert: schema shape (`declarations` map), located syntax errors, resolution errors collected all-at-once (every bad reference reported, not first-failure-only), import closure semantics, encoding awareness (UTF-8/GBK)
+- Coverage targets: all proto3 constructs, missing imports, duplicate names, unresolvable types
+
+**Seam 1b: Position index (`scanProto`, ADR-0003)**
 - Input: proto3 source strings of increasing complexity
-- Assert: AST shape, token positions, error recovery (malformed input produces partial AST + diagnostics, not a crash)
-- Coverage targets: all proto3 constructs (message, enum, oneof, map, repeated, nested messages, services, imports, options, reserved, comments)
+- Assert: definition points (name + range), package, imports, type refs, rpc method points — zero semantics; malformed input degrades to partial results, never throws
+- Coverage targets: all proto3 constructs, broken-input degradation
 
 **Seam 2: Emitter**
-- Input: AST (produced by parser from real proto text) + configuration object
+- Input: schema (produced by the frontend from real proto text) + configuration object
 - Assert: exact TypeScript output string for each configuration combination
-- Coverage targets: all 7 config toggles, cross-file imports producing correct TS import statements, edge cases (empty message, deeply nested, all field types)
+- Coverage targets: all config toggles, cross-file imports producing correct TS import statements, edge cases (empty message, deeply nested, all field types, multiple oneofs under union style)
 
-**Not unit-tested:**
-- Symbol Index (trivial reduce over ASTs, covered implicitly by parser + emitter tests)
-- VSCode providers (semantic tokens, definition) — validated via manual extension host debugging
+**Partially unit-tested:** VSCode providers (semantic tokens, definition, hover, CodeLens) — pure selection logic is tested against a `vscode` stub (`scripts/vscodeStub.ts`); full editor integration is validated via manual extension host debugging.
 
 **Test runner:** Node's built-in `node:test` + `assert`. No framework.
 
@@ -107,8 +114,8 @@
 
 ## Further Notes
 
-- The parser must produce token positions accurate enough for go-to-definition (line + character for every type reference and definition name). This is the hardest correctness requirement.
-- Error recovery matters: a half-typed proto file should still produce a usable partial AST so that highlighting and navigation degrade gracefully rather than disappearing.
+- The position index (ADR-0003) must produce token positions accurate enough for go-to-definition (line + character for every type reference and definition name). This is the hardest correctness requirement.
+- Error recovery matters: a half-typed proto file should still produce usable definition points and type references so that highlighting and navigation degrade gracefully rather than disappearing.
 - The TextMate grammar should be written first as it provides immediate value with zero parser dependency.
 - Generated files should include a header comment (`// Generated by proto-utils. Do not edit.`) for clarity.
 - Cross-file TS imports in generated code must use relative paths computed from the output locations of both the importing and imported proto files.

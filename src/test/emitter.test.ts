@@ -316,6 +316,46 @@ test('oneof style: union', () => {
   assert.ok(out.includes('count?: never'));
 });
 
+test('oneof style: union + 常规字段:交集基是对象字面量,产物可编译(0.3.70)', () => {
+  const out = generate(`
+    syntax = "proto3";
+    message Result {
+      string id = 1;
+      oneof value {
+        string error = 2;
+        int32 count = 3;
+      }
+    }
+  `, { oneofStyle: 'union' });
+  assert.ok(out.includes('export type Result = { id: string } & ('), '常规字段须作 { f: T } 对象字面量交集基');
+  // 旧写法 `(id: string) & (` 会被 TS 按函数类型解析,报 TS1005「'=>' expected」
+  assert.ok(!out.includes('(id: string)'), '不得把对象成员裸放进括号做交集(TS1005)');
+});
+
+test('oneof style: union + 多个 oneof:单一 export type,交集组合不丢变体(0.3.70)', () => {
+  const out = generate(`
+    syntax = "proto3";
+    message Multi {
+      string id = 1;
+      oneof a {
+        string error = 2;
+        int32 count = 3;
+      }
+      oneof b {
+        bool flag = 4;
+        string note = 5;
+      }
+    }
+  `, {oneofStyle: 'union'});
+  // 每条 message 只产出一条类型声明:两个以上 oneof 曾逐条 emit 同名 export type(TS2300)
+  assert.equal((out.match(/export type Multi =/g) ?? []).length, 1, '同名 export type 不得重复出现');
+  // 两个 oneof 的变体都要在,且以 & 交集组合
+  assert.ok(out.includes('{ id: string }'), '常规字段进交集基');
+  assert.ok(out.includes('error: string') && out.includes('count?: never'), 'oneof a 变体必须在');
+  assert.ok(out.includes('flag: boolean') && out.includes('note?: never'), 'oneof b 变体必须在');
+  assert.ok(out.includes(') & ('), '多个 oneof 应以 & 交集组合');
+});
+
 test('nested message and enum', () => {
   const out = generate(`
     syntax = "proto3";

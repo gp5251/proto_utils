@@ -110,8 +110,12 @@ test('响应折叠树锚点:一元/流式各一份树 + 原始 pre 兜底;chunk 
   }
   assert.ok(html.includes('Expand all'));
   assert.ok(html.includes('Collapse all'));
-  assert.equal(html.match(/Expand all/g)?.length, 2, '一元与流式各一个全部展开');
-  assert.equal(html.match(/Collapse all/g)?.length, 2, '一元与流式各一个全部收起');
+  // 按方法锚点计数(0.3.70:改按锚点而非英文文案——「Collapse all services」
+  // 按钮含 "Collapse all" 子串,按文案数会撞);一元/流式各一个全部展开、一个全部收起
+  assert.equal(html.match(/expandAllResult\(/g)?.length, 1, '一元区恰好一个全部展开');
+  assert.equal(html.match(/collapseAllResult\(/g)?.length, 1, '一元区恰好一个全部收起');
+  assert.equal(html.match(/expandAllChunks\(/g)?.length, 1, '流式区恰好一个全部展开');
+  assert.equal(html.match(/collapseAllChunks\(/g)?.length, 1, '流式区恰好一个全部收起');
 });
 
 test('内嵌 services 序列化防 </script> 注入', () => {
@@ -304,4 +308,23 @@ test('序列视图锚点(0.3.59):视图切换/加入序列/运行控制/报告 +
   // 0.3.63 步骤入参默认折叠:入参区 x-show 折叠态 + 标题/图标可切换 + 占位符告警在折叠外
   assert.ok(html.includes('x-show="isSeqStepOpen(step.id)"'), '步骤入参区须受折叠态门控');
   assert.ok(html.includes('@click="toggleSeqStep(step.id)"'), '缺步骤折叠切换入口');
+});
+
+test('0.3.70 UX 锚点:流错误横幅、原始 JSON 切换、表单重置、实时计时、搜索高亮、全部收起', () => {
+  const html = render();
+  // A2:流式中途出错,错误横幅与已收 chunk 树并存(不再互斥顶替)
+  assert.ok(html.includes('streamErrorText(svcId(svc), m.name)'), '缺流错误横幅数据源');
+  assert.ok(html.includes('class="json-error stream-error-banner"'), '缺流错误横幅节点');
+  // B5:一元/流式各一份原始 JSON 切换按钮
+  assert.equal(html.match(/toggleRaw\(methodKey\(svcId\(svc\), m\.name\)\)/g)?.length, 2, '一元与流式各一个 Raw 切换');
+  assert.ok(html.includes('$store.str.rawTab') && html.includes('$store.str.treeTab'), 'Raw/Tree 按钮文案走 boot.strings');
+  // B6:表单重置
+  assert.ok(html.includes('resetForm(methodKey(svcId(svc), m.name), m)'), '缺表单重置入口');
+  // B7:一元/流式在途实时计时
+  assert.equal(html.match(/elapsedText\(methodKey\(svcId\(svc\), m\.name\)\)/g)?.length, 2, '一元与流式各一处计时展示');
+  // C11:服务名/方法名搜索命中高亮 + 全部收起服务
+  assert.ok(html.includes('nameSegments(svc.name, query)'), '服务名缺搜索高亮');
+  assert.ok(html.includes('nameSegments(m.name, query)'), '方法名缺搜索高亮');
+  assert.ok(html.includes("'search-hit': seg.hit"), '缺高亮样式类绑定');
+  assert.ok(html.includes('collapseAllServices()'), '缺全部收起服务入口');
 });

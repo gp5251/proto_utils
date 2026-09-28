@@ -164,16 +164,18 @@ export function scanProto(source: string): ScanResult {
     if (at('punct', ';')) i++;
   }
 
-  /** Read a type reference: optional leading dot + dotted ident (single token) */
-  function readTypeRef(): void {
+  /** Read a type reference: optional leading dot + dotted ident (single token).
+   *  返回源码原样书写的名字(0.3.70:hover 展示请求/响应类型用);读不到返回 null。 */
+  function readTypeRef(): string | null {
     const dotted = at('punct', '.');
     const start = dotted ? tokens[i++].range.start : peek().range.start;
-    if (!at('ident')) return;
+    if (!at('ident')) return null;
     const t = tokens[i++];
     result.typeRefs.push({
       name: (dotted ? '.' : '') + t.text,
       range: { start, end: t.range.end },
     });
+    return t.text;
   }
 
   /** Read `message|enum|service Name {`; record the definition point, enter its scope */
@@ -220,23 +222,24 @@ export function scanProto(source: string): ScanResult {
     }
   }
 
-  /** Read one rpc type: `(stream? Type)`; tolerant of a missing '(' . 返回是否带 stream */
-  function readRpcType(): boolean {
+  /** Read one rpc type: `(stream? Type)`; tolerant of a missing '(' .
+   *  返回是否带 stream 与源码书写的类型名(0.3.70 起兼作 hover 数据源)。 */
+  function readRpcType(): { stream: boolean; type: string | null } {
     let sawStream = false;
     while (!at('eof') && !at('punct', '(') && !at('punct', ';') && !at('punct', '{') && !at('punct', '}')) {
-      if (atIdent('returns')) return false; // broken rpc without parens
+      if (atIdent('returns')) return { stream: false, type: null }; // broken rpc without parens
       i++;
     }
-    if (!at('punct', '(')) return false;
+    if (!at('punct', '(')) return { stream: false, type: null };
     i++;
     if (atIdent('stream')) {
       sawStream = true;
       i++;
     }
-    readTypeRef();
+    const type = readTypeRef();
     while (!at('eof') && !at('punct', ')')) i++;
     if (at('punct', ')')) i++;
-    return sawStream;
+    return { stream: sawStream, type };
   }
 
   function scanServiceScope(): void {
@@ -246,18 +249,20 @@ export function scanProto(source: string): ScanResult {
     }
     i++;
     const nameTok = at('ident') ? tokens[i++] : null;
-    const requestStream = readRpcType();
-    let responseStream = false;
+    const request = readRpcType();
+    let response = { stream: false, type: null as string | null };
     if (atIdent('returns')) {
       i++;
-      responseStream = readRpcType();
+      response = readRpcType();
     }
     if (nameTok && currentService) {
       currentService.methods.push({
         name: nameTok.text,
         range: nameTok.range,
-        requestStream,
-        responseStream,
+        requestStream: request.stream,
+        responseStream: response.stream,
+        ...(request.type ? { requestType: request.type } : {}),
+        ...(response.type ? { responseType: response.type } : {}),
       });
     }
     skipStatement();

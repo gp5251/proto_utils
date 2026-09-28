@@ -386,10 +386,13 @@ function emitMessageWithUnionOneof(
   // Regular fields as a base interface
   const rendered = regularFields.map((f) => renderField(f, config, use));
 
-  // Build union members for each oneof
-  for (const oneof of oneofs) {
-    const variants: string[] = [];
-    for (const field of oneof.fieldsArray) {
+  // 每个 oneof 产出一组互斥变体(选中字段必填、同组其余 ?: never);
+  // 多个 oneof 以交集组合:(A|B) & (C|D) 语义上即「每组各选其一」的笛卡尔积,
+  // 且输出规模随 oneof 数线性增长。
+  // 0.3.70 修:此前按 oneof 逐条 emit `export type X`,一个 message 带两个以上
+  // oneof 会产出同名重复声明(TS2300),且每条声明都丢了其他 oneof 的变体。
+  const unions = oneofs.map((oneof) => {
+    const variants = oneof.fieldsArray.map((field) => {
       const name = fieldName(field.name, config);
       const type = fieldTypeTs(field.type, field.resolvedType?.fullName.replace(/^\./, ''), use, config);
       // This variant has this field set, others in the oneof are never
@@ -397,19 +400,18 @@ function emitMessageWithUnionOneof(
         .filter((f) => f !== field)
         .map((f) => `${fieldName(f.name, config)}?: never`)
         .join('; ');
-      variants.push(`{ ${name}: ${type}; ${othersNever} }`);
-    }
+      return `{ ${name}: ${type}; ${othersNever} }`;
+    });
+    return `(\n${indent}  | ${variants.join(`\n${indent}  | `)}\n${indent})`;
+  });
 
-    if (rendered.length > 0) {
-      lines.push(`${indent}export type ${msg.name} = (${rendered.join(' & ')}) & (`);
-      lines.push(`${indent}  | ${variants.join(`\n${indent}  | `)}`);
-      lines.push(`${indent});`);
-    } else {
-      lines.push(`${indent}export type ${msg.name} =`);
-      lines.push(`${indent}  | ${variants.join(`\n${indent}  | `)};`);
-    }
-    lines.push('');
-  }
+  // 常规字段作交集基:必须是对象类型字面量 { f: T; ... }。
+  // (0.3.70 修:此前写成 `(${rendered.join(' & ')})` —— 把 `id: string` 这类
+  // 对象成员裸放进括号,TS 会按函数类型解析报 TS1005「'=>' expected」,
+  // 即「有常规字段 + oneof + union 风格」的产物从来编译不过。)
+  const base = rendered.length > 0 ? `{ ${rendered.join('; ')} } & ` : '';
+  lines.push(`${indent}export type ${msg.name} = ${base}${unions.join(' & ')};`);
+  lines.push('');
 }
 
 function renderField(field: protobuf.Field, config: CodeGenConfig, use: TypeUse): string {

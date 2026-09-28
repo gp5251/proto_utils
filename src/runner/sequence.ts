@@ -41,7 +41,8 @@ export type SequenceEvent =
 export interface SequenceRunnerDeps {
   runner: CallRunner;
   registry: Pick<ServiceRegistry, 'load'>;
-  getConfig(): { protoDir: string; metadata: MetadataEntry[]; seqStreamChunkLimit?: number };
+  /** 现读配置:protoDir 供运行前校验,metadata 作全局底(步级覆盖在其上合并)。 */
+  getConfig(): { protoDir: string; metadata: MetadataEntry[] };
   onEvent(event: SequenceEvent): void;
 }
 

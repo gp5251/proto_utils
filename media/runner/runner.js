@@ -30,6 +30,8 @@
     // 0.3.62 手动「刷新服务」回执
     connProbeOk: 'Service reachable',
     connProbeFail: 'Service unreachable',
+    // 0.3.64 服务页流收满上限瞬时通知(0.3.70 补默认串:曾两处都缺,toast 显示原始键名)
+    streamCapReached: 'Reached {count} messages — auto-stopped',
     // 调用序列(0.3.59,ADR-0012)
     seqNameRequired: 'Enter a sequence name to save',
     seqAdded: 'Added to sequence: {method}',
@@ -39,6 +41,9 @@
     seqCompleted: 'Sequence completed',
     seqAborted: 'Sequence aborted at a failed step',
     seqStopped: 'Sequence stopped',
+    // 0.3.70 序列保存/删除确认(sequences.json 团队共享,误点即抹掉别人的序列)
+    seqOverwriteConfirm: 'A sequence named "{name}" already exists. Overwrite it?',
+    seqDeleteConfirm: 'Delete sequence "{name}"? This cannot be undone.',
   };
 
   function str(key, vars) {
@@ -130,6 +135,13 @@
         pendingPrefill = { service: msg.service, method: msg.method };
         tryApplyPrefill();
         break;
+      case 'config': {
+        // 0.3.70 runner.* 配置改动:顶栏 server 与空态 protoDir 实时纠正(此前烤在 HTML 里,要重开面板)
+        var cfgStore = workbenchStore();
+        if (typeof msg.server === 'string') cfgStore.server = msg.server;
+        if (typeof msg.protoDir === 'string') cfgStore.protoDir = msg.protoDir;
+        break;
+      }
       case 'connState': {
         // host 侧连通性探测结果(0.3.54):顶栏状态点 unknown=灰/ok=绿/fail=红
         var connStore = workbenchStore();
@@ -305,6 +317,9 @@
       results: {},
       streams: {},
       loading: {},
+      // 0.3.70 实时计时:loadingSince(key → 起始 ms)与驱动重渲染的 elapsedNow
+      loadingSince: {},
+      elapsedNow: 0,
       copied: {},
       copiedMethodKey: null,
       copiedServiceName: null,
@@ -345,6 +360,8 @@
       streamTrees: {},
       chunkSizes: {},
       treeOpen: {},
+      // 0.3.70 原始 JSON/树切换态(methodKey → bool,缺省 false = 树)
+      rawOpen: {},
 
       // ---- Headers(请求 metadata)行编辑器:初始行来自 boot.metadata(runner.metadata 配置) ----
 
@@ -395,6 +412,7 @@
 
       init: function () {
         component = this;
+        this._elapsedTimer = null; // 0.3.70 实时计时器(非响应式,首个个在途调用时才起表)
         var self = this;
         var store = Alpine.store('search');
         this.query = store.query;
@@ -549,15 +567,22 @@
         });
       },
 
-      // 流式树可用:有 chunk 且不是错误结果
+      // 流式树可用:有 chunk 即可折叠(0.3.70 起不再因结果出错而隐藏——
+      // 此前流出错即整棵树被错误 <pre> 顶替,已收到的 chunk 在页面上彻底看不见,
+      // 而数据其实还在 stream.chunks 里;错误改由独立横幅展示)
       streamIsTreeable: function (svcName, methodName) {
         var key = this.methodKey(svcName, methodName);
         var stream = this.streams[key];
-        var result = this.results[key];
-        return Boolean(
-          stream && stream.chunks && stream.chunks.length > 0 &&
-          (!result || !result.result || result.result.status !== 'error'),
-        );
+        return Boolean(stream && stream.chunks && stream.chunks.length > 0);
+      },
+
+      // 流步骤的错误文本(有则渲染横幅;与折叠树并存,不再互斥)
+      streamErrorText: function (svcName, methodName) {
+        var result = this.getResult(svcName, methodName);
+        if (result && result.result && result.result.status === 'error') {
+          return result.resultBody || result.result.error || '';
+        }
+        return '';
       },
 
       // 全部展开/收起(0.3.42):展开 = 容器路径全集置 true;收起 = 清空(根行一并收合,只余根行)
@@ -606,6 +631,17 @@
         this.treeOpen = Object.assign({}, this.treeOpen, {
           [key]: { nodes: {}, chunks: {} },
         });
+      },
+
+      // ---- 原始 JSON / 折叠树切换(0.3.70):树可折叠后原始 <pre> 曾不可达,
+      // 长字符串截断到 500 字符后页内无法看全,只能整段 Copy 出去 ----
+
+      isRawOpen: function (key) {
+        return this.rawOpen[key] === true;
+      },
+
+      toggleRaw: function (key) {
+        this.rawOpen = Object.assign({}, this.rawOpen, { [key]: !this.rawOpen[key] });
       },
 
       // ---- @alpinejs/csp 表达式解析器不支持 ?. / ??,结果区取值收敛到这里(纯 JS,随便写) ----
@@ -665,6 +701,51 @@
 
       setLoading: function (key, value) {
         this.loading = Object.assign({}, this.loading, { [key]: value });
+      },
+
+      // ---- 进行中调用实时计时(0.3.70):发送中/接收中不再只是静态文案,
+      // 慢调用能看出在走还是卡死;250ms 一跳,无在途调用即停表 ----
+
+      markLoading: function (key) {
+        this.setLoading(key, true);
+        this.loadingSince = Object.assign({}, this.loadingSince, { [key]: Date.now() });
+        this.ensureElapsedTicker();
+      },
+
+      ensureElapsedTicker: function () {
+        if (this._elapsedTimer) return;
+        var self = this;
+        this._elapsedTimer = setInterval(function () { self.tickElapsed(); }, 250);
+      },
+
+      tickElapsed: function () {
+        this.elapsedNow = Date.now();
+        var anyLoading = false;
+        for (var k in this.loading) {
+          if (this.loading[k]) { anyLoading = true; break; }
+        }
+        if (!anyLoading && this._elapsedTimer) {
+          clearInterval(this._elapsedTimer);
+          this._elapsedTimer = null;
+        }
+      },
+
+      elapsedText: function (key) {
+        if (!this.loading[key]) return '';
+        var since = this.loadingSince[key];
+        return since ? (this.elapsedNow - since) + 'ms' : '';
+      },
+
+      // ---- 表单重置(0.3.70):长表单填错想重来,不必逐字段手删 ----
+
+      resetForm: function (key, method) {
+        var base = method.requestFields.length ? this.initFieldValues(method.requestFields) : {};
+        this.formValues = Object.assign({}, this.formValues, { [key]: base });
+        // JSON 页同步复位:否则切过去还是旧文本,可能直接发出
+        this.setJsonText(key, JSON.stringify(window.FormMapping.formValuesToJson(method.requestFields, base), null, 2));
+        this.setJsonError(key, null);
+        this.setJsonWarnings(key, []);
+        this.setFormError(key, '');
       },
 
       setJsonText: function (key, value) {
@@ -928,6 +1009,45 @@
         });
       },
 
+      // ---- 搜索命中高亮(0.3.70):子串命中整段高亮;模糊命中按序高亮命中
+      // 字符;未命中原样单段。返回 [{text, hit}] 供模板分段渲染 ----
+
+      nameSegments: function (name, query) {
+        var q = (query || '').trim().toLowerCase();
+        if (!q || !name) return [{ text: name, hit: false }];
+        var lower = name.toLowerCase();
+        var marks = new Array(name.length);
+        var i;
+        var idx = lower.indexOf(q);
+        if (idx > -1) {
+          for (i = 0; i < name.length; i++) marks[i] = i >= idx && i < idx + q.length;
+        } else {
+          // 与 fuzzyMatch 同规则:query 字符按序出现即算命中
+          for (i = 0; i < name.length; i++) marks[i] = false;
+          var qi = 0;
+          for (i = 0; i < name.length && qi < q.length; i++) {
+            if (lower[i] === q[qi]) { marks[i] = true; qi++; }
+          }
+          if (qi < q.length) return [{ text: name, hit: false }];
+        }
+        var segs = [];
+        for (i = 0; i < name.length; i++) {
+          var last = segs[segs.length - 1];
+          if (last && last.hit === marks[i]) last.text += name[i];
+          else segs.push({ text: name[i], hit: marks[i] });
+        }
+        return segs;
+      },
+
+      // 全部收起服务卡片(0.3.70):大工作区逐个收太慢
+      collapseAllServices: function () {
+        var services = Alpine.store('workbench').services;
+        var self = this;
+        var next = {};
+        services.forEach(function (svc) { next[self.svcId(svc)] = false; });
+        this.expandedServices = next;
+      },
+
       toggleService: function (name) {
         this.expandedServices = Object.assign({}, this.expandedServices, {
           [name]: !this.isServiceOpen(name),
@@ -1045,7 +1165,7 @@
           return;
         }
         var key = this.methodKey(svcName, methodName);
-        this.setLoading(key, true);
+        this.markLoading(key);
         this.setCopied(key, false);
         sendMessage({
           type: 'call',
@@ -1059,7 +1179,7 @@
       startStream: function (svcName, methodName) {
         var key = this.methodKey(svcName, methodName);
         // 流式发送态:按钮变「发送中...」并禁用,流结束/取消/出错经 applyStreamEnd/applyCallResult 复位
-        this.setLoading(key, true);
+        this.markLoading(key);
         this.setResult(key, null);
         this.setCopied(key, false);
         // 折叠树态随流重置:旧 chunk 行/字节缓存与展开态一并清零(0.3.41)
@@ -1183,19 +1303,21 @@
       },
 
       getStreamBody: function (svcName, methodName) {
+        // chunk 优先(0.3.70):此前 result 为 error 时只返回错误文本,复制流结果
+        // 会把已收到的 chunk 一并丢掉;现在有 chunk 就复制 chunk,无 chunk 才退回错误文本
+        var stream = this.getStream(svcName, methodName);
+        if (stream && stream.chunks && stream.chunks.length > 0) {
+          return stream.chunks
+            .map(function (chunk) {
+              return JSON.stringify(chunk, null, 2);
+            })
+            .join('\n\n');
+        }
         var result = this.getResult(svcName, methodName);
         if (result && result.result && result.result.status === 'error') {
           return result.resultBody || '';
         }
-        var stream = this.getStream(svcName, methodName);
-        if (!stream) {
-          return '';
-        }
-        return stream.chunks
-          .map(function (chunk) {
-            return JSON.stringify(chunk, null, 2);
-          })
-          .join('\n\n');
+        return '';
       },
 
       copyStreamResult: function (svcName, methodName) {
@@ -1399,6 +1521,11 @@
       saveSequence: function () {
         if (!(this.seqName || '').trim()) { this.showSeqNotice(str('seqNameRequired')); return; }
         if (this.seqSteps.length === 0) { this.showSeqNotice(str('seqEmpty')); return; }
+        // 同名保存此前静默覆盖,而 sequences.json 是进版本库、团队共享的文件:
+        // 一次误点就抹掉别人的序列。同名先确认(0.3.70)。
+        var name = this.seqName;
+        var exists = this.seqSaved.some(function (s) { return s.name === name; });
+        if (exists && !window.confirm(str('seqOverwriteConfirm', { name: name }))) return;
         sendMessage({ type: 'saveSequence', sequence: this.buildSequencePayload() });
       },
 
@@ -1407,6 +1534,8 @@
       },
 
       deleteSequence: function (name) {
+        // 删除即写盘、不可恢复:先确认(0.3.70)
+        if (!window.confirm(str('seqDeleteConfirm', { name: name }))) return;
         sendMessage({ type: 'deleteSequence', name: name });
       },
 

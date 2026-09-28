@@ -93,6 +93,11 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     done: l10n.t('Done'),
     expandAll: l10n.t('Expand all'),
     collapseAll: l10n.t('Collapse all'),
+    // 0.3.70:原始 JSON/树切换、表单重置、全部收起服务
+    rawTab: l10n.t('Raw JSON'),
+    treeTab: l10n.t('Tree'),
+    resetForm: l10n.t('Reset'),
+    collapseAllSvcs: l10n.t('Collapse all services'),
     cancel: l10n.t('Cancel'),
     headersTitle: l10n.t('Headers'),
     addHeader: l10n.t('Add header'),
@@ -122,7 +127,6 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     seqMethodMissing: l10n.t('Method not found. Click Refresh'),
     seqHeadersOverride: l10n.t('Headers overrides (same key wins over global)'),
     seqMaxMessages: l10n.t('Max messages'),
-    streamCapReached: l10n.t('Reached {count} messages — auto-stopped'),
     seqStepsTab: l10n.t('Steps'),
     seqReportTab: l10n.t('Run report'),
     seqReportEmpty: l10n.t('Not run yet. Results appear here step by step after clicking Run sequence.'),
@@ -144,6 +148,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     connLost: l10n.t('Connection lost'),
     connProbeOk: l10n.t('Service reachable'),
     connProbeFail: l10n.t('Service unreachable'),
+    // 0.3.64 服务页流收满上限的瞬时通知(0.3.70 修:曾误放在静态 S 里,webview 取不到 → toast 显示原始键名)
+    streamCapReached: l10n.t('Reached {count} messages — auto-stopped'),
     // 调用序列动态通知(0.3.59):经 boot.strings 下发,runner.js str() 读取
     seqNameRequired: l10n.t('Enter a sequence name to save'),
     seqAdded: l10n.t('Added to sequence: {method}'),
@@ -154,6 +160,9 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     seqCompleted: l10n.t('Sequence completed'),
     seqAborted: l10n.t('Sequence aborted at a failed step'),
     seqStopped: l10n.t('Sequence stopped'),
+    // 0.3.70 序列保存/删除确认对话框文案
+    seqOverwriteConfirm: l10n.t('A sequence named "{name}" already exists. Overwrite it?'),
+    seqDeleteConfirm: l10n.t('Delete sequence "{name}"? This cannot be undone.'),
   };
   const boot = {
     server: options.server,
@@ -215,6 +224,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
           <span x-show="!$store.workbench.refreshing">${S.refresh}</span>
           <span x-show="$store.workbench.refreshing"><span class="proto-loading-spinner"></span>${S.refreshing}</span>
         </button>
+        <!-- 0.3.70:全部收起服务卡片(大工作区逐个收太慢) -->
+        <button type="button" class="btn btn-secondary btn-xs" x-show="$store.workbench.services.length > 1" @click="collapseAllServices()">${S.collapseAllSvcs}</button>
         <span class="refresh-notice" x-show="$store.workbench.refreshNotice" x-text="$store.workbench.refreshNotice" x-transition.opacity></span>
       </div>
     </div>
@@ -253,7 +264,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
       <div class="card service-card">
         <div class="card-title card-title-toggle" @click="toggleService(svcId(svc))">
           <span>
-            <span x-text="svc.name"></span>
+            <!-- 0.3.70:搜索命中高亮(子串整段/模糊按序) -->
+            <template x-for="(seg, segIdx) in nameSegments(svc.name, query)" :key="segIdx"><span x-text="seg.text" :class="{ 'search-hit': seg.hit }"></span></template>
             <span
               class="copy-icon"
               role="button"
@@ -277,7 +289,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                 :class="{ 'method-row-active': isMethodOpen(svcId(svc), m.name) }"
               >
                 <span class="method-name" @click="toggleMethod(svcId(svc), m.name, m)">
-                  <span x-text="m.name"></span>
+                  <!-- 0.3.70:搜索命中高亮 -->
+                  <template x-for="(seg, segIdx) in nameSegments(m.name, query)" :key="segIdx"><span x-text="seg.text" :class="{ 'search-hit': seg.hit }"></span></template>
                   <span
                     class="copy-icon"
                     role="button"
@@ -578,7 +591,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                       >
                     </div>
 
-                    <div>
+                      <div>
                       <button
                         type="button"
                         class="btn"
@@ -588,6 +601,14 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                         <span x-show="!isLoading(svcId(svc), m.name)">${S.send}</span>
                         <span x-show="isLoading(svcId(svc), m.name)">${S.sending}</span>
                       </button>
+                      <!-- 0.3.70:在途实时计时 + 表单重置 -->
+                      <span class="elapsed-hint" x-show="isLoading(svcId(svc), m.name)" x-text="elapsedText(methodKey(svcId(svc), m.name))"></span>
+                      <button
+                        type="button"
+                        class="btn btn-secondary"
+                        :disabled="isLoading(svcId(svc), m.name)"
+                        @click="resetForm(methodKey(svcId(svc), m.name), m)"
+                      >${S.resetForm}</button>
                       <p x-show="m.requestStream" class="unsupported-hint">${S.unsupportedStream}</p>
                       <!-- 0.3.54:探测不可达时禁发并就地提示;unknown(探测中)不拦,可达服务不吃 1.5s 探测闪断 -->
                       <p x-show="$store.workbench.connState === 'fail'" class="unsupported-hint" x-text="$store.str.svcUnavailable"></p>
@@ -623,6 +644,14 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                           x-show="resultTreeAvailable(svcId(svc), m.name)"
                           @click="collapseAllResult(svcId(svc), m.name)"
                         >${S.collapseAll}</button>
+                        <!-- 0.3.70:原始 JSON / 折叠树切换(树可见时才出现) -->
+                        <button
+                          type="button"
+                          class="btn btn-secondary"
+                          x-show="resultTreeAvailable(svcId(svc), m.name)"
+                          @click="toggleRaw(methodKey(svcId(svc), m.name))"
+                          x-text="isRawOpen(methodKey(svcId(svc), m.name)) ? $store.str.treeTab : $store.str.rawTab"
+                        ></button>
                         <button
                           type="button"
                           class="btn btn-secondary"
@@ -646,8 +675,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                           </template>
                         </div>
                       </div>
-                      <!-- 0.3.41:响应数据 DevTools 风格折叠树;错误/缺 data 退化为原始 <pre> -->
-                      <div x-show="resultTreeAvailable(svcId(svc), m.name)" class="result-body result-tree">
+                      <!-- 0.3.41:响应数据 DevTools 风格折叠树;错误/缺 data 退化为原始 <pre>。0.3.70:Raw 开关可强制看原始 JSON -->
+                      <div x-show="resultTreeAvailable(svcId(svc), m.name) && !isRawOpen(methodKey(svcId(svc), m.name))" class="result-body result-tree">
                         <template x-for="row in resultTreeRows(svcId(svc), m.name)" :key="row.path">
                           <div
                             class="tree-row"
@@ -664,7 +693,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                           </div>
                         </template>
                       </div>
-                      <pre x-show="!resultTreeAvailable(svcId(svc), m.name)" class="result-body" x-text="resultBodyText(svcId(svc), m.name)"></pre>
+                      <pre x-show="!resultTreeAvailable(svcId(svc), m.name) || isRawOpen(methodKey(svcId(svc), m.name))" class="result-body" x-text="resultBodyText(svcId(svc), m.name)"></pre>
                     </div>
                   </template>
 
@@ -681,6 +710,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                           <template x-if="resultStatusIsNot(svcId(svc), m.name, 'error')">
                             <span>
                               <span x-show="streamIsLive(svcId(svc), m.name)" class="result-ok"><span class="stream-live-dot"></span> ${S.receiving}</span>
+                              <!-- 0.3.70:接收中实时计时 -->
+                              <span x-show="streamIsLive(svcId(svc), m.name)" class="result-time" x-text="elapsedText(methodKey(svcId(svc), m.name))"></span>
                               <span x-show="streamIsCancelled(svcId(svc), m.name) && !streamIsCapped(svcId(svc), m.name)" class="result-err">${S.cancelled}</span>
                               <span x-show="(streamIsDone(svcId(svc), m.name) && !streamIsCancelled(svcId(svc), m.name)) || streamIsCapped(svcId(svc), m.name)" class="result-ok">${S.done}</span>
                             </span>
@@ -707,6 +738,14 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                             x-show="streamIsTreeable(svcId(svc), m.name)"
                             @click="collapseAllChunks(svcId(svc), m.name)"
                           >${S.collapseAll}</button>
+                          <!-- 0.3.70:原始 JSON / 折叠树切换 -->
+                          <button
+                            type="button"
+                            class="btn btn-secondary"
+                            x-show="streamIsTreeable(svcId(svc), m.name)"
+                            @click="toggleRaw(methodKey(svcId(svc), m.name))"
+                            x-text="isRawOpen(methodKey(svcId(svc), m.name)) ? $store.str.treeTab : $store.str.rawTab"
+                          ></button>
                           <button
                             type="button"
                             class="btn btn-secondary"
@@ -715,6 +754,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                           ></button>
                         </div>
                       </div>
+                      <!-- 0.3.70:流出错时错误横幅与已收 chunk 树并存(此前互斥,出错即丢已收数据) -->
+                      <div x-show="streamErrorText(svcId(svc), m.name)" class="json-error stream-error-banner" x-text="streamErrorText(svcId(svc), m.name)"></div>
                       <div class="resp-meta" x-show="hasRespMeta(svcId(svc), m.name)">
                         <div class="resp-meta-toggle" @click="toggleRespMeta(svcId(svc), m.name)">
                           <span class="collapse-icon" x-text="isRespMetaOpen(svcId(svc), m.name) ? '▼' : '▶'"></span>
@@ -731,8 +772,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                           </template>
                         </div>
                       </div>
-                      <!-- 0.3.41:每 chunk 一条折叠条,条内同款折叠树;空/错误流退化为原始 <pre> -->
-                      <div x-show="streamIsTreeable(svcId(svc), m.name)" class="stream-tree">
+                      <!-- 0.3.41:每 chunk 一条折叠条,条内同款折叠树;无 chunk 的错误流退化为原始 <pre>。0.3.70:Raw 开关可强制看原始 JSON -->
+                      <div x-show="streamIsTreeable(svcId(svc), m.name) && !isRawOpen(methodKey(svcId(svc), m.name))" class="stream-tree">
                         <template x-for="sec in chunkSections(svcId(svc), m.name)" :key="sec.idx">
                           <div class="chunk-section">
                             <div class="chunk-toggle" @click="toggleChunkTree(svcId(svc), m.name, sec.idx)">
@@ -759,7 +800,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                           </div>
                         </template>
                       </div>
-                      <pre x-show="!streamIsTreeable(svcId(svc), m.name)" class="result-body" x-text="getStreamBody(svcId(svc), m.name)"></pre>
+                      <pre x-show="(getStream(svcId(svc), m.name) || getResult(svcId(svc), m.name)) && (!streamIsTreeable(svcId(svc), m.name) || isRawOpen(methodKey(svcId(svc), m.name)))" class="result-body" x-text="getStreamBody(svcId(svc), m.name)"></pre>
                     </div>
                   </template>
                 </div>

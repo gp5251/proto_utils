@@ -81,6 +81,22 @@ export class ProtoHoverProvider implements vscode.HoverProvider {
       return new vscode.Hover(buildHoverMarkdown(resolved.symbol, comments), toVsCodeRange(ref.range));
     }
 
+    // rpc 方法定义点命中(0.3.70):此前方法名上悬停空白,现显示请求/响应类型摘要
+    for (const service of entry.services) {
+      for (const method of service.methods) {
+        if (!positionInRange(method.range, position)) continue;
+        const md = new vscode.MarkdownString();
+        md.appendMarkdown(`**rpc** \`${service.name}.${method.name}\``);
+        if (method.requestType) {
+          md.appendMarkdown(`\n\n- request: \`${method.requestType}\`${method.requestStream ? ' (stream)' : ''}`);
+        }
+        if (method.responseType) {
+          md.appendMarkdown(`\n- response: \`${method.responseType}\`${method.responseStream ? ' (stream)' : ''}`);
+        }
+        return new vscode.Hover(md, toVsCodeRange(method.range));
+      }
+    }
+
     // 本文件定义点命中
     const symbol = entry.symbols.find((s) => positionInRange(s.range, position));
     if (!symbol) return null;

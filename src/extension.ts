@@ -91,6 +91,38 @@ export async function activate(context: vscode.ExtensionContext) {
       loadDiagnosticsTrigger.trigger();
     }),
   );
+
+  // runner.* / scan.excludeDirs 改动 → 工作台实时同步(0.3.70):server 等推 config
+  // 纠显示;protoDir/排除目录变了服务列表要重载(500ms 防抖吸收连续改动)。
+  let configReloadTimer: NodeJS.Timeout | undefined;
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (!e.affectsConfiguration('protoUtils')) return;
+      const needsReload =
+        e.affectsConfiguration('protoUtils.runner.protoDir') ||
+        e.affectsConfiguration('protoUtils.scan.excludeDirs');
+      if (needsReload) {
+        clearTimeout(configReloadTimer);
+        configReloadTimer = setTimeout(() => void workbench.notifyConfigChanged(true), 500);
+      } else {
+        void workbench.notifyConfigChanged(false);
+      }
+    }),
+    { dispose: () => clearTimeout(configReloadTimer) },
+  );
+
+  // 打开时同样触发(0.3.70):此前仅保存/工作台 settled 才飘红,打开一个带
+  // 缺失 import/语法错的文件看到的是干净编辑器,用户会以为文件没问题。
+  // 激活时当前文档已先于 onLanguage 打开(该事件不会为它再发),补触发一次。
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument((doc) => {
+      if (doc.languageId !== 'proto3') return;
+      loadDiagnosticsTrigger.trigger();
+    }),
+  );
+  if (vscode.window.activeTextEditor?.document.languageId === 'proto3') {
+    loadDiagnosticsTrigger.trigger();
+  }
 }
 
 /** 工作台单例的懒加载包装:首次使用时才 import ./runner/index,拖入 grpc 依赖 */
@@ -146,6 +178,25 @@ class LazyWorkbench {
       await manager.reload();
     } catch {
       // 构建失败不打断 watcher 链路;下次 reveal 时会报错并可重试
+    }
+  }
+
+  /**
+   * runner.* / scan.excludeDirs 配置改动(0.3.70):面板开着先推 config 纠显示
+   * (顶栏 server、空态 protoDir 此前烤在 HTML 里,要重开面板才更新);
+   * protoDir/排除目录变了服务列表必须重载——此前只有 proto 文件变动触发
+   * watcher,改目录后列表仍是旧目录的,用户以为设置没生效。
+   */
+  async notifyConfigChanged(needsReload: boolean): Promise<void> {
+    if (this.manager.started) {
+      try {
+        (await this.manager.get()).pushConfig();
+      } catch {
+        // 构建失败不打断配置链路;下次 reveal 时报错并可重试
+      }
+    }
+    if (needsReload) {
+      await this.reload();
     }
   }
 

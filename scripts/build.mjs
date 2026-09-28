@@ -1,5 +1,5 @@
 import * as esbuild from 'esbuild';
-import { copyFile, mkdir } from 'node:fs/promises';
+import { copyFile, mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 const production = process.argv.includes('--production');
@@ -78,6 +78,11 @@ async function copyRunnerAssets() {
   await mkdir('media/runner', { recursive: true });
   await copyFile('node_modules/@alpinejs/csp/dist/cdn.min.js', 'media/runner/alpine.min.js');
 }
+
+// 先清后建:out/ 不清理时,源文件已删/改名的陈旧编译产物会被 node --test
+// 继续执行——用例数虚增,且 esbuild 把被测代码内联进测试包,陈旧测试永远
+// 假绿(0.3.70 实证:out/test/workbenchSession.test.js 掩瞒了一次 prefill 回归)。
+await rm('out', { recursive: true, force: true });
 
 await copyRunnerAssets();
 

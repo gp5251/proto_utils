@@ -14,3 +14,10 @@ message GetUserResponse {
   common.User user = 1;
   int32 code = 2;
 }
+
+// 0.3.70:rpc 方法 hover 测试夹具(请求/响应类型摘要)
+service UserService {
+  // 获取用户
+  rpc GetUser (GetUserRequest) returns (GetUserResponse);
+  rpc WatchUser (GetUserRequest) returns (stream GetUserResponse);
+}
