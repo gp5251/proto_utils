@@ -320,6 +320,13 @@ test('0.3.70 UX 锚点:流错误横幅、原始 JSON 切换、表单重置、实
   assert.ok(html.includes('$store.str.rawTab') && html.includes('$store.str.treeTab'), 'Raw/Tree 按钮文案走 boot.strings');
   // B6:表单重置
   assert.ok(html.includes('resetForm(methodKey(svcId(svc), m.name), m)'), '缺表单重置入口');
+  // 0.3.71:重置须在 表单/JSON 同一行(此前在底部发送按钮列,长表单要滚到底)
+  const tabsBlock = html.slice(
+    html.indexOf('class="editor-tabs"'),
+    html.indexOf('showFormPane(methodKey(svcId(svc), m.name), m)'),
+  );
+  assert.ok(tabsBlock.includes('resetForm(methodKey(svcId(svc), m.name), m)'), '重置按钮须在 表单/JSON 同一行');
+  assert.ok(tabsBlock.includes('editor-tabs-group'), '两个 tab 须包 group(父级 space-between 否则被推向两端)');
   // B7:一元/流式在途实时计时
   assert.equal(html.match(/elapsedText\(methodKey\(svcId\(svc\), m\.name\)\)/g)?.length, 2, '一元与流式各一处计时展示');
   // C11:服务名/方法名搜索命中高亮 + 全部收起服务

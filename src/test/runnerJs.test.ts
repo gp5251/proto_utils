@@ -277,6 +277,45 @@ test('runSequence 早退:不可达/运行中在发 runSequence 消息之前拦�
   assert.ok(body.indexOf("this.seqTab = 'report'") < body.indexOf('sendMessage'), '切 tab 必须在发消息前');
 });
 
+test('固定 toast 居中不得依赖 transform(0.3.71):Alpine 过渡会内联写 transform 抵消 translateX', () => {
+  const css = fs.readFileSync(path.resolve('media/runner/runner.css'), 'utf8');
+  const start = css.indexOf('.refresh-notice {');
+  assert.ok(start >= 0, '缺 .refresh-notice 规则');
+  const end = css.indexOf('}', start);
+  const rule = css.slice(start, end);
+  // 进入过渡期间 Alpine 恒向内联写 transform:scale(...)(vendored alpine 实证),
+  // 任何以 transform 居中/定位的元素都会被抵消到过渡结束才跳正
+  assert.ok(!rule.includes('transform'), '.refresh-notice 不得用 transform 居中(toast 会延迟跳正)');
+  assert.ok(rule.includes('margin-inline: auto'), '应改 left/right:0 + auto margin 的 transform-free 居中');
+  assert.ok(rule.includes('position: fixed'), 'toast 须保持固定定位');
+});
+
+test('runner.css 结构完整:花括号配平且无复制粘贴残留的重复规则(0.3.71)', () => {
+  const css = fs.readFileSync(path.resolve('media/runner/runner.css'), 'utf8');
+  // 0.3.71 实证:文件尾部曾残留「孤立声明 + 多余 } + 三条重复规则」的编辑损坏,
+  // CSS 容错会静默丢弃畸形片段,无任何测试能发现——这里做最小守卫。
+  const opens = (css.match(/\{/g) ?? []).length;
+  const closes = (css.match(/\}/g) ?? []).length;
+  assert.equal(opens, closes, `花括号不配平(${opens} vs ${closes}):规则被截断或残留`);
+
+  // 同选择器 + 同声明体且相距不远 = 复制粘贴残留(层叠细化是正当的:
+  // 同选择器但声明体不同,如 .btn:disabled 后一条补 pointer-events)
+  const ruleRe = /([.#:&\[\]\w][^{}]*?)\s*\{([^{}]*)\}/g;
+  const seen: Array<{ sel: string; body: string; line: number }> = [];
+  const dups: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = ruleRe.exec(css))) {
+    const sel = m[1].trim();
+    if (sel.startsWith('@') || sel.startsWith('/*')) continue;
+    const body = m[2].replace(/\s+/g, ' ').trim();
+    const line = css.slice(0, m.index).split('\n').length;
+    const hit = seen.find((s) => s.sel === sel && s.body === body && Math.abs(s.line - line) < 40);
+    if (hit) dups.push(`${sel}(第 ${hit.line} 与 ${line} 行)`);
+    seen.push({ sel, body, line });
+  }
+  assert.deepEqual(dups, [], `复制粘贴残留的重复规则: ${dups.join(' | ')}`);
+});
+
 // ---- 0.3.70 UX 增强守卫 ----
 
 test('流式中途出错保留已收 chunk(0.3.70):streamIsTreeable 不再因 error 隐藏,错误走独立横幅', () => {

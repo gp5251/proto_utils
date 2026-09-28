@@ -400,20 +400,29 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                     </div>
                   </div>
                   <form class="form-section" @submit.prevent="sendFromEditor(svcId(svc), m.name, m)">
-                    <div class="editor-tabs" x-show="m.requestFields.length > 0">
-                      <button
-                        type="button"
-                        class="editor-tab"
-                        :class="{ 'editor-tab-active': getEditorMode(methodKey(svcId(svc), m.name)) === 'form' }"
-                        @click="setEditorMode(methodKey(svcId(svc), m.name), 'form', m)"
-                      >${S.formTab}</button>
-                      <button
-                        type="button"
-                        class="editor-tab"
-                        :class="{ 'editor-tab-active': getEditorMode(methodKey(svcId(svc), m.name)) === 'json' }"
-                        @click="setEditorMode(methodKey(svcId(svc), m.name), 'json', m)"
-                      >JSON</button>
-                    </div>
+                      <div class="editor-tabs" x-show="m.requestFields.length > 0">
+                        <span class="editor-tabs-group">
+                          <button
+                            type="button"
+                            class="editor-tab"
+                            :class="{ 'editor-tab-active': getEditorMode(methodKey(svcId(svc), m.name)) === 'form' }"
+                            @click="setEditorMode(methodKey(svcId(svc), m.name), 'form', m)"
+                          >${S.formTab}</button>
+                          <button
+                            type="button"
+                            class="editor-tab"
+                            :class="{ 'editor-tab-active': getEditorMode(methodKey(svcId(svc), m.name)) === 'json' }"
+                            @click="setEditorMode(methodKey(svcId(svc), m.name), 'json', m)"
+                          >JSON</button>
+                        </span>
+                        <!-- 0.3.71:重置移到 表单/JSON 同一行右侧(此前在底部发送按钮旁,长表单要滚到底) -->
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-xs"
+                          :disabled="isLoading(svcId(svc), m.name)"
+                          @click="resetForm(methodKey(svcId(svc), m.name), m)"
+                        >${S.resetForm}</button>
+                      </div>
                     <div x-show="showFormPane(methodKey(svcId(svc), m.name), m)">
                     <template x-for="(row, reqIdx) in flattenFormFields(m.requestFields)" :key="m.name + '-req-' + reqIdx">
                       <div>
@@ -601,14 +610,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                         <span x-show="!isLoading(svcId(svc), m.name)">${S.send}</span>
                         <span x-show="isLoading(svcId(svc), m.name)">${S.sending}</span>
                       </button>
-                      <!-- 0.3.70:在途实时计时 + 表单重置 -->
+                      <!-- 0.3.70:在途实时计时(重置按钮已移至上方 表单/JSON 行右侧) -->
                       <span class="elapsed-hint" x-show="isLoading(svcId(svc), m.name)" x-text="elapsedText(methodKey(svcId(svc), m.name))"></span>
-                      <button
-                        type="button"
-                        class="btn btn-secondary"
-                        :disabled="isLoading(svcId(svc), m.name)"
-                        @click="resetForm(methodKey(svcId(svc), m.name), m)"
-                      >${S.resetForm}</button>
                       <p x-show="m.requestStream" class="unsupported-hint">${S.unsupportedStream}</p>
                       <!-- 0.3.54:探测不可达时禁发并就地提示;unknown(探测中)不拦,可达服务不吃 1.5s 探测闪断 -->
                       <p x-show="$store.workbench.connState === 'fail'" class="unsupported-hint" x-text="$store.str.svcUnavailable"></p>
@@ -910,8 +913,11 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                 </template>
               </div>
               <div class="editor-tabs" x-show="stepMethod(step).requestFields.length > 0">
-                <button type="button" class="editor-tab" :class="{ 'editor-tab-active': getEditorMode(step.id) === 'form' }" @click="setEditorMode(step.id, 'form', stepMethod(step))">${S.formTab}</button>
-                <button type="button" class="editor-tab" :class="{ 'editor-tab-active': getEditorMode(step.id) === 'json' }" @click="setEditorMode(step.id, 'json', stepMethod(step))">JSON</button>
+                <!-- 0.3.71:两个 tab 包 group,避免父级 space-between 把 Form/JSON 推向两端 -->
+                <span class="editor-tabs-group">
+                  <button type="button" class="editor-tab" :class="{ 'editor-tab-active': getEditorMode(step.id) === 'form' }" @click="setEditorMode(step.id, 'form', stepMethod(step))">${S.formTab}</button>
+                  <button type="button" class="editor-tab" :class="{ 'editor-tab-active': getEditorMode(step.id) === 'json' }" @click="setEditorMode(step.id, 'json', stepMethod(step))">JSON</button>
+                </span>
               </div>
               <div x-show="showFormPane(step.id, stepMethod(step))">
                 <template x-for="(row, reqIdx) in flattenFormFields(stepMethod(step).requestFields)" :key="step.id + '-req-' + reqIdx">
