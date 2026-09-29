@@ -310,6 +310,17 @@ test('序列视图锚点(0.3.59):视图切换/加入序列/运行控制/报告 +
   assert.ok(html.includes('@click="toggleSeqStep(step.id)"'), '缺步骤折叠切换入口');
 });
 
+test('boot.strings 必须覆盖 HTML 里全部 $store.str.* 引用(漏键 = 空文案按钮,0.3.73)', () => {
+  const html = render();
+  const refs = [...new Set([...html.matchAll(/\$store\.str\.(\w+)/g)].map((m) => m[1]))];
+  assert.ok(refs.length > 0, '应至少引用若干 $store.str 键');
+  const m = /window\.__PROTO_UTILS_BOOT__ = (\{[\s\S]*?\});<\/script>/.exec(html);
+  assert.ok(m, '缺 boot 内嵌脚本');
+  const strings: Record<string, unknown> = JSON.parse(m![1]).strings;
+  const missing = refs.filter((key) => !(key in strings));
+  assert.deepEqual(missing, [], `boot.strings 缺键(引用处将渲染空文案): ${missing.join(', ')}`);
+});
+
 test('0.3.70 UX 锚点:流错误横幅、原始 JSON 切换、表单重置、实时计时、搜索高亮、全部收起', () => {
   const html = render();
   // A2:流式中途出错,错误横幅与已收 chunk 树并存(不再互斥顶替)

@@ -94,8 +94,6 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     expandAll: l10n.t('Expand all'),
     collapseAll: l10n.t('Collapse all'),
     // 0.3.70:原始 JSON/树切换、表单重置、全部收起服务
-    rawTab: l10n.t('Raw JSON'),
-    treeTab: l10n.t('Tree'),
     resetForm: l10n.t('Reset'),
     collapseAllSvcs: l10n.t('Collapse all services'),
     cancel: l10n.t('Cancel'),
@@ -134,6 +132,10 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
   const strings = {
     copy: l10n.t('Copy'),
     copied: l10n.t('Copied'),
+    // 0.3.73:Raw/折叠树切换按钮文案经 x-text 动态求值,必须走 boot.strings——
+    // 放在静态 S 里 webview 取不到($store.str.rawTab = undefined),按钮渲染为空。
+    rawTab: l10n.t('Raw JSON'),
+    treeTab: l10n.t('Tree'),
     refreshed: l10n.t('Refreshed · {count} services'),
     refreshedErrors: l10n.t('Refreshed · {count} services · {errors} parse errors'),
     chunkCount: l10n.t('{count} messages'),
