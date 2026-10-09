@@ -1,9 +1,5 @@
 # Proto Utils
 
-<p align="center">
-  <img src="media/icon.png" width="96" alt="Proto Utils">
-</p>
-
 English | [中文文档](https://github.com/gp5251/proto_utils/blob/main/README.zh-CN.md)
 
 An all-in-one Proto3 extension for VS Code: **syntax highlighting · go-to-definition · hover docs · TypeScript type generation · in-editor gRPC calls**.

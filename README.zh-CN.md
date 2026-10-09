@@ -1,9 +1,5 @@
 # Proto Utils
 
-<p align="center">
-  <img src="media/icon.png" width="96" alt="Proto Utils">
-</p>
-
 [English](https://github.com/gp5251/proto_utils/blob/main/README.md) | 中文
 
 面向 VS Code 的 Proto3 一体化插件:**语法高亮 · 跳转定义 · 悬停文档 · TypeScript 类型生成 · 编辑器内 gRPC 调用**。
