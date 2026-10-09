@@ -201,10 +201,13 @@ class LazyWorkbench {
   }
 
   private async buildManager(): Promise<WorkbenchPanelManager> {
-    // 动态 import 是刻意的:静态 import 会让 grpc-js/protobufjs 进入编辑器激活路径
-    // (用户 spec 的懒加载约定);esbuild 对本路径 external,产物 out/runner/index.js 独立加载。
-    // 必须带 .js:CJS 里的动态 import 走 ESM 解析器,无扩展名解析失败。
-    const runner = await import('./runner/index.js');
+    // require 而非动态 import(0.3.74):import() 走 ESM 加载器,当第三方扩展(实证 vue.volar 3.3.12)
+    // 在扩展宿主注册同步 load hook 时,import() 载入 CJS 产物会被 Node 钩子链校验
+    // 误判 source=null 而抛 ERR_INVALID_RETURN_PROPERTY_VALUE(nodejs/node#57327),
+    // 表现为工作台打不开;CJS require 通道不受该校验约束,且同样只在首次打开
+    // 工作台时才加载 runner bundle(grpc-js/protobufjs 不进激活路径的懒加载约定)。
+    // esbuild 对本路径 external,产物 out/runner/index.js 独立加载。
+    const runner = require('./runner/index.js') as typeof import('./runner/index');
     const registry = new runner.ServiceRegistry(this.scanExcludes);
     // 命名序列持久化(0.3.59,ADR-0012):存工作区文件 .proto-utils/sequences.json;
     // 无工作区则不注入 store,序列存/载/删降级为不可用(运行仍可用)。
