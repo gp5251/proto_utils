@@ -17,8 +17,6 @@ function errText(err: unknown): string {
 export type WebviewToWorkbench =
   | { type: 'ready' }
   | { type: 'refresh' }
-  /** 0.3.62:仅重探连接/服务可达性,不 invalidate/不重解析 proto;结果经 connState 回推。 */
-  | { type: 'refreshServices' }
   /** 0.3.75:顶栏原地编辑服务器地址确认:host 持久化后静默重探一次(配置项已移除,地址改走扩展状态)。 */
   | { type: 'setServer'; server: string }
   | { type: 'call'; service: string; method: string; values: Record<string, unknown>; metadata?: MetadataEntry[] }
@@ -225,15 +223,9 @@ export class WorkbenchSession {
         await this.reload();
         return;
       }
-      case 'refreshServices': {
-        // 0.3.62 刷新服务:只发一次探测(毫秒级),不动 proto 缓存与服务列表;
-        // 探测恒推 connState,webview 据此收尾手动探测态并给回执通知
-        void this.probe();
-        return;
-      }
       case 'setServer': {
         // 0.3.75 顶栏原地编辑:trim 非空才收(空串/纯空格视为取消,不脏写持久化);
-        // 持久化后静默探一次——probingServices 为 false 故 webview 不弹回执,仅状态点跟新地址
+        // 持久化后静默探一次(手动回执通道随刷新服务按钮移除),状态点跟新地址
         const raw = (message as { server?: unknown }).server;
         if (typeof raw !== 'string') {
           return;
@@ -404,7 +396,7 @@ export class WorkbenchSession {
   private scheduleRetry(): void {
     const interval = this.deps.getConfig().connProbeIntervalMs ?? DEFAULT_CONN_PROBE_INTERVAL_MS;
     if (interval <= 0) {
-      return; // 用户关闭周期自动探测:仅 ready/refresh/手动刷新服务 时探
+      return; // 用户关闭周期自动探测:仅 ready/refresh/地址改动 时探
     }
     if (this.retryTimer) {
       return; // 并发探测只排一次

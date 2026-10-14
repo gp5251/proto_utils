@@ -167,7 +167,7 @@ export interface User {
 | `protoUtils.runner.tlsClientKey` | `""` | 客户端私钥 PEM 路径(双向 TLS;须与 `tlsClientCert` 成对配置) |
 | `protoUtils.runner.metadata` | `[]` | 每次调用默认携带的请求头,一行一条 `"Key: Value"`;工作台 Headers 编辑器可在每次调用前增删 |
 | `protoUtils.runner.timeoutMs` | `15000` | 一元调用超时(毫秒),走 grpc deadline;`0` = 不限。服务端流始终不限时 |
-| `protoUtils.runner.connProbeIntervalMs` | `5000` | 连接自动探测间隔(毫秒);`0` = 关闭周期自动探测(仅打开/刷新/手动「刷新服务」时探测) |
+| `protoUtils.runner.connProbeIntervalMs` | `5000` | 连接自动探测间隔(毫秒);`0` = 关闭周期自动探测(仅打开/刷新/地址改动时探测) |
 
 #### TLS、请求头与超时
 

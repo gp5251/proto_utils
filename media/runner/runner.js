@@ -27,9 +27,6 @@
     svcUnavailable: 'Service unavailable — click Refresh to retry',
     connRestored: 'Connection restored',
     connLost: 'Connection lost',
-    // 0.3.62 手动「刷新服务」回执
-    connProbeOk: 'Service reachable',
-    connProbeFail: 'Service unreachable',
     // 0.3.64 服务页流收满上限瞬时通知(0.3.70 补默认串:曾两处都缺,toast 显示原始键名)
     streamCapReached: 'Reached {count} messages — auto-stopped',
     // 调用序列(0.3.59,ADR-0012)
@@ -155,11 +152,6 @@
         // 0.3.57:跃迁瞬时提醒——fail→ok 恢复,ok→fail 断开;unknown 首探不打扰
         if (prevConn === 'fail' && nextConn === 'ok') showNotice(connStore, str('connRestored'));
         if (prevConn === 'ok' && nextConn === 'fail') showNotice(connStore, str('connLost'));
-        // 0.3.62 手动「刷新服务」回执:仅手动探测才提醒,周期复探不打扰
-        if (connStore.probingServices) {
-          connStore.probingServices = false;
-          showNotice(connStore, str(nextConn === 'ok' ? 'connProbeOk' : 'connProbeFail'));
-        }
         break;
       }
       case 'seqEvent':
@@ -268,8 +260,6 @@
       protoDir: typeof boot.protoDir === 'string' ? boot.protoDir : '',
       refreshing: false,
       refreshNotice: '',
-      // 0.3.62 手动「刷新服务」(仅探测)进行中;connState 回执后收尾
-      probingServices: false,
       // 后端连通性:unknown=未探测(灰),host 推 connState 后转 ok(绿)/fail(红)
       connState: 'unknown',
       // 顶视图切换(0.3.59):'services' 方法浏览 | 'sequence' 调用序列
@@ -293,15 +283,6 @@
           store.refreshing = true;
           store.refreshNotice = '';
           sendMessage({ type: 'refresh' });
-        },
-        // 0.3.62 刷新服务:仅重探连接,不重解析 proto;回执走 connState
-        refreshServices() {
-          var store = workbenchStore();
-          if (store.probingServices) {
-            return;
-          }
-          store.probingServices = true;
-          sendMessage({ type: 'refreshServices' });
         },
         // 0.3.75 点击/回车进入编辑:草稿取当前地址,下一 tick 聚焦全选
         startEditServer() {

@@ -198,10 +198,9 @@ test('交互结构:搜索、刷新按钮、流式徽标、取消按钮、prefill
   // 刷新走 Alpine.data 组件方法(csp Alpine 见不到 window 全局,postRefresh 入口已移除)
   assert.ok(html.includes('x-data="pageMeta"'));
   assert.ok(html.includes('@click="refresh()"'));
-  // 0.3.62 刷新拆分:「刷新服务」仅探测 / 「刷新 proto」才重解析,双按钮文案与状态绑定须区分
-  assert.ok(html.includes('@click="refreshServices()"'), '缺刷新服务按钮');
-  assert.ok(html.includes('Refresh proto') && html.includes('Refresh services'), '两个刷新按钮文案须区分');
-  assert.ok(html.includes('$store.workbench.probingServices'), '刷新服务按钮须绑定 probingServices');
+  // 0.3.76 刷新服务按钮移除:探测由打开首探/编辑地址后静默探/周期复探三路覆盖
+  assert.ok(!html.includes('refreshServices()'), '刷新服务按钮须已移除');
+  assert.ok(!html.includes('probingServices'), 'probingServices 绑定须随按钮移除');
   assert.ok(html.includes("$store.workbench.refreshing"));
   assert.ok(html.includes('method-stream-badge'));
   assert.ok(html.includes('copyServiceName(svc)'), '服务名旁复制 icon');

@@ -189,9 +189,10 @@ test('connState 跃迁提醒(0.3.57):fail→ok 提示恢复,ok→fail 提示断�
   assert.ok(body.includes('showNotice('), '跃迁提醒必须走 showNotice');
   // 0.3.69 显隐兜底:x-show 效果不收敛时红字残留,唯一写入点命令式同步 .conn-hint
   assert.ok(body.includes("querySelector('.conn-hint')"), 'connState 写入点须命令式同步 conn-hint 显隐');
-  // 0.3.62 手动「刷新服务」回执:仅手动探测才提醒,周期复探不打扰
-  assert.ok(body.includes('probingServices'), '手动刷新服务回执须在 connState 路由内收尾');
-  assert.ok(src.includes('refreshServices() {'), 'pageMeta 缺 refreshServices');
+  // 0.3.76 刷新服务按钮移除:手动回执通道(probingServices/connProbeOk/Fail)随删
+  assert.ok(!body.includes('probingServices'), 'connState 路由须移除 probingServices 回执');
+  assert.ok(!src.includes('refreshServices'), 'pageMeta 不得残留 refreshServices');
+  assert.ok(!src.includes('connProbeOk'), '手动探测回执文案须随删');
   // 0.3.62 停止反馈:点击立即置 seqStopping,收尾事件清除
   assert.ok(src.includes('this.seqStopping = true'), '停止/结束点击须立即置 seqStopping');
   assert.ok(src.includes('this.seqStopping = false'), '收尾事件须清除 seqStopping');

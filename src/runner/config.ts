@@ -33,7 +33,7 @@ export interface RunnerConfig {
   metadata: MetadataEntry[];
   /** 一元调用超时毫秒数;0 = 不限(0.3.35) */
   timeoutMs: number;
-  /** 连接自动探测间隔毫秒;0 = 关闭周期自动探测(0.3.63),手动「刷新服务」仍会探测 */
+  /** 连接自动探测间隔毫秒;0 = 关闭周期自动探测(0.3.63;刷新服务按钮 0.3.76 移除,探测触发=打开/刷新/地址改动) */
   connProbeIntervalMs: number;
 }
 

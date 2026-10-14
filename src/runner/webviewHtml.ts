@@ -56,8 +56,6 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     searchPlaceholder: l10n.t('Search services or methods...'),
     heading: l10n.t('RPC Services'),
     refresh: l10n.t('Refresh proto'),
-    refreshServices: l10n.t('Refresh services'),
-    probing: l10n.t('Probing…'),
     refreshing: l10n.t('Refreshing…'),
     loadingTitle: l10n.t('Parsing proto files…'),
     loadingDetail: l10n.t(
@@ -150,8 +148,6 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     svcUnavailable: l10n.t('Service unavailable — click Refresh to retry'),
     connRestored: l10n.t('Connection restored'),
     connLost: l10n.t('Connection lost'),
-    connProbeOk: l10n.t('Service reachable'),
-    connProbeFail: l10n.t('Service unreachable'),
     // 0.3.64 服务页流收满上限的瞬时通知(0.3.70 修:曾误放在静态 S 里,webview 取不到 → toast 显示原始键名)
     streamCapReached: l10n.t('Reached {count} messages — auto-stopped'),
     // 调用序列动态通知(0.3.59):经 boot.strings 下发,runner.js str() 读取
@@ -217,11 +213,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
         <!-- 0.3.54:状态点绑定真实连通性(connState 由 host 探测推送;unknown=灰/ok=绿/fail=红) -->
         <!-- 0.3.75:地址可点击原地编辑(Enter/失焦确认、Esc 取消),确认经 setServer 消息持久化;赋值全走组件方法(@alpinejs/csp) -->
         <span><span class="dot" :class="$store.workbench.connState"></span><span class="server-addr" role="button" tabindex="0" title="${S.serverEditHint}" x-show="!editingServer" x-text="$store.workbench.server" @click="startEditServer()" @keydown.enter="startEditServer()"></span><input class="server-edit" type="text" spellcheck="false" autocomplete="off" x-show="editingServer" x-ref="serverInput" x-model="serverDraft" @keydown.enter="commitEditServer()" @keydown.escape="cancelEditServer()" @blur="commitEditServer()"><span class="conn-hint" x-show="$store.workbench.connState === 'fail'" x-text="$store.str.connUnreachable"></span></span>
-        <!-- 0.3.62 刷新拆分为二:「刷新服务」仅重探连接(毫秒级),「刷新 proto」才 invalidate+重解析 -->
-        <button type="button" class="btn btn-secondary btn-xs" :disabled="$store.workbench.probingServices" @click="refreshServices()">
-          <span x-show="!$store.workbench.probingServices">${S.refreshServices}</span>
-          <span x-show="$store.workbench.probingServices"><span class="proto-loading-spinner"></span>${S.probing}</span>
-        </button>
+        <!-- 0.3.76 刷新服务按钮移除:探测由打开首探/编辑地址后静默探/周期复探三路覆盖;「刷新 proto」保留 invalidate+重解析 -->
         <button type="button" class="btn btn-secondary btn-xs" :disabled="$store.workbench.refreshing" @click="refresh()">
           <span x-show="!$store.workbench.refreshing">${S.refresh}</span>
           <span x-show="$store.workbench.refreshing"><span class="proto-loading-spinner"></span>${S.refreshing}</span>

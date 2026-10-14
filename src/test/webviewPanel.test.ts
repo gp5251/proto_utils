@@ -622,28 +622,6 @@ test('connProbeIntervalMs=0(0.3.63):关闭周期自动复探,fail 后不再排�
   assert.equal(calls, 1, 'interval=0 不得自动周期复探');
 });
 
-test('refreshServices(0.3.62):仅 probe 一次,不 invalidate/不重载服务列表', async () => {
-  let probes = 0;
-  const { host, posted, emit } = makeHost();
-  const { deps, state } = makeDeps({ probeConnection: async () => { probes++; return true; } });
-  let loads = 0;
-  const origLoad = deps.registry.load;
-  deps.registry.load = async (d: string) => {
-    loads++;
-    return origLoad(d);
-  };
-  new WorkbenchSession(deps).attach(host);
-  emit({ type: 'refreshServices' });
-  for (let i = 0; i < 50 && probes < 1; i++) await new Promise((r) => setImmediate(r));
-  // 探测的 connState 在 probeConnection 续体里发送,先刷微任务再断言
-  await nextTick();
-  assert.equal(probes, 1, '刷新服务必须触发一次探测');
-  assert.equal(loads, 0, '刷新服务不得重载服务列表');
-  assert.equal(state.invalidated, 0, '刷新服务不得 invalidate proto 缓存');
-  assert.ok(posted.some((m) => m.type === 'connState'), '探测结果须经 connState 回推');
-  assert.ok(!posted.some((m) => m.type === 'services'), '刷新服务不得重推服务列表');
-});
-
 test('面板单例:两次 reveal 只建一次,销毁后重建', () => {
   let created = 0;
   let revealed = 0;
