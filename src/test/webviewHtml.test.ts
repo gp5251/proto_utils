@@ -230,6 +230,16 @@ test('prefill miss 反馈锚点:通知卡片 + host 文案 + services 到达即�
   assert.ok(tsSrc.includes('prefillMiss: l10n.t('), 'host 侧必须下发 prefillMiss 文案');
 });
 
+test('服务器地址原地编辑(0.3.75):顶栏地址可点击切输入框,编辑提示走 host l10n', () => {
+  const html = render();
+  assert.ok(html.includes('class="server-addr"'), '缺可点击地址节点');
+  assert.ok(html.includes('Click to edit server address'), '缺编辑提示 tooltip(host 侧 l10n 源串)');
+  assert.ok(html.includes('x-show="!editingServer"'), '地址文本须受编辑态门控');
+  assert.ok(html.includes('x-model="serverDraft"'), '输入框须绑定草稿');
+  // 状态点原有绑定不得被编辑改造破坏
+  assert.ok(html.includes('class="dot" :class="$store.workbench.connState"'), '状态点绑定须保留');
+});
+
 test('顶栏连接状态点(0.3.54):绑定 connState 三态,不可达提示文案进 boot.strings', () => {
   const html = render();
   // 状态点颜色走 :class 绑定(unknown=灰/ok=绿/fail=红),不再是静态绿点

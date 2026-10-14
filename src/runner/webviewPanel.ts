@@ -19,6 +19,8 @@ export type WebviewToWorkbench =
   | { type: 'refresh' }
   /** 0.3.62:仅重探连接/服务可达性,不 invalidate/不重解析 proto;结果经 connState 回推。 */
   | { type: 'refreshServices' }
+  /** 0.3.75:顶栏原地编辑服务器地址确认:host 持久化后静默重探一次(配置项已移除,地址改走扩展状态)。 */
+  | { type: 'setServer'; server: string }
   | { type: 'call'; service: string; method: string; values: Record<string, unknown>; metadata?: MetadataEntry[] }
   | { type: 'callStream'; service: string; method: string; values: Record<string, unknown>; metadata?: MetadataEntry[] }
   | { type: 'cancelStream'; service: string; method: string }
@@ -74,6 +76,8 @@ export interface WorkbenchSessionDeps {
   onLoadSettled?(): void;
   /** 0.3.54:后端连通性探测(顶栏状态点数据源);未注入则状态点保持未知态,不发 connState。 */
   probeConnection?(): Promise<boolean>;
+  /** 0.3.75:顶栏编辑的服务器地址持久化(extension workspaceState);未注入则编辑仅当次会话有效。 */
+  persistServer?(server: string): void;
   /** 0.3.59:命名序列持久化(ADR-0012);未注入(如无工作区)则存/载/删降级为不可用。 */
   store?: SequenceStore;
 }
@@ -224,6 +228,21 @@ export class WorkbenchSession {
       case 'refreshServices': {
         // 0.3.62 刷新服务:只发一次探测(毫秒级),不动 proto 缓存与服务列表;
         // 探测恒推 connState,webview 据此收尾手动探测态并给回执通知
+        void this.probe();
+        return;
+      }
+      case 'setServer': {
+        // 0.3.75 顶栏原地编辑:trim 非空才收(空串/纯空格视为取消,不脏写持久化);
+        // 持久化后静默探一次——probingServices 为 false 故 webview 不弹回执,仅状态点跟新地址
+        const raw = (message as { server?: unknown }).server;
+        if (typeof raw !== 'string') {
+          return;
+        }
+        const server = raw.trim();
+        if (server === '') {
+          return;
+        }
+        this.deps.persistServer?.(server);
         void this.probe();
         return;
       }
@@ -608,8 +627,9 @@ export class WorkbenchSession {
 
 export type WorkbenchPanelDeps = WorkbenchSessionDeps;
 
-/** 读取 protoUtils.runner.* 全量配置;protoDir 为空 = 工作区根,相对路径相对 workspace folder。 */
-export function resolveRunnerConfig(): {
+/** 读取 protoUtils.runner.* 全量配置;protoDir 为空 = 工作区根,相对路径相对 workspace folder。
+ *  persistedServer(0.3.75):顶栏编辑持久化值,优先于老配置项 runner.server。 */
+export function resolveRunnerConfig(persistedServer?: string | null): {
   server: string;
   protoDir: string;
   tls: TlsSettings;
@@ -619,7 +639,7 @@ export function resolveRunnerConfig(): {
 } {
   const config = vscode.workspace.getConfiguration('protoUtils');
   const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  const resolved = resolveRunnerConfigPure((key) => config.get(key), root);
+  const resolved = resolveRunnerConfigPure((key) => config.get(key), root, persistedServer);
   return {
     server: resolved.server,
     protoDir: resolved.protoDir ?? '',

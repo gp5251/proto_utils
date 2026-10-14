@@ -57,6 +57,7 @@ function makeDeps(overrides: {
   onLoadSettled?: () => void;
   probeConnection?: () => Promise<boolean>;
   store?: SequenceStore;
+  persistServer?: (server: string) => void;
 } = {}) {
   const state = { invalidated: 0, protoDir: 'D:/protos' };
   const deps = {
@@ -83,6 +84,7 @@ function makeDeps(overrides: {
     ...(overrides.onLoadSettled ? { onLoadSettled: overrides.onLoadSettled } : {}),
     ...(overrides.probeConnection ? { probeConnection: overrides.probeConnection } : {}),
     ...(overrides.store ? { store: overrides.store } : {}),
+    ...(overrides.persistServer ? { persistServer: overrides.persistServer } : {}),
   };
   return { deps, state };
 }
@@ -529,6 +531,39 @@ test('notifyConfigChanged(0.3.70):runner.* 改动把最新 server/protoDir 推�
   state.protoDir = 'D:/other-protos';
   session.notifyConfigChanged();
   assert.deepEqual(posted[posted.length - 1], { type: 'config', server: 'localhost:50051', protoDir: 'D:/other-protos' });
+});
+
+test('setServer(0.3.75):trim 后持久化并静默重探;空串/非字符串忽略不脏写', async () => {
+  const { host, posted, emit } = makeHost();
+  const persisted: string[] = [];
+  let probes = 0;
+  const { deps } = makeDeps({
+    persistServer: (s) => persisted.push(s),
+    probeConnection: async () => {
+      probes++;
+      return true;
+    },
+  });
+  const session = new WorkbenchSession(deps);
+  session.attach(host);
+  emit({ type: 'ready' });
+  await untilPosted(posted, 'connState'); // ready 主链旁路探测收尾
+  probes = 0;
+  posted.length = 0;
+
+  emit({ type: 'setServer', server: ' 10.0.0.9:9000 ' });
+  await untilPosted(posted, 'connState');
+  assert.deepEqual(persisted, ['10.0.0.9:9000'], '持久化值须 trim');
+  assert.equal(probes, 1, '确认后静默重探一次(状态点跟新地址)');
+
+  // 空串/纯空格/非字符串/缺字段:不持久化不探测
+  emit({ type: 'setServer', server: '   ' });
+  emit({ type: 'setServer', server: 42 });
+  emit({ type: 'setServer' });
+  await nextTick();
+  assert.deepEqual(persisted, ['10.0.0.9:9000'], '空值不得脏写持久化');
+  assert.equal(probes, 1, '空值不得触发探测');
+  session.dispose();
 });
 
 test('WorkbenchPanelManager.pushConfig(0.3.70):委托当前会话;无面板时空操作不抛', () => {

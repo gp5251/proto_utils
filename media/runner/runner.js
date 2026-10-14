@@ -282,6 +282,9 @@
     // 与 homePage 同约定,组件经 Alpine.data 注册,方法体可自由访问 window
     Alpine.data('pageMeta', function () {
       return {
+        // 0.3.75 顶栏服务器地址原地编辑态:editingServer 切输入框,serverDraft 为编辑副本
+        editingServer: false,
+        serverDraft: '',
         refresh() {
           var store = workbenchStore();
           if (store.refreshing) {
@@ -299,6 +302,37 @@
           }
           store.probingServices = true;
           sendMessage({ type: 'refreshServices' });
+        },
+        // 0.3.75 点击/回车进入编辑:草稿取当前地址,下一 tick 聚焦全选
+        startEditServer() {
+          var store = workbenchStore();
+          this.serverDraft = store.server;
+          this.editingServer = true;
+          var self = this;
+          this.$nextTick(function () {
+            var el = self.$refs.serverInput;
+            if (el) {
+              el.focus();
+              el.select();
+            }
+          });
+        },
+        // Enter/失焦确认:空串或未变更视为取消;变更则更新顶栏并发 setServer 由 host 持久化
+        commitEditServer() {
+          if (!this.editingServer) {
+            return; // Esc/Enter 收尾后 blur 兜底再触达:不重复提交
+          }
+          this.editingServer = false;
+          var store = workbenchStore();
+          var next = (this.serverDraft || '').trim();
+          if (!next || next === store.server) {
+            return;
+          }
+          store.server = next;
+          sendMessage({ type: 'setServer', server: next });
+        },
+        cancelEditServer() {
+          this.editingServer = false;
         },
       };
     });

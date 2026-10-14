@@ -415,6 +415,33 @@ test('搜索命中高亮 + 全部收起(0.3.70):nameSegments / collapseAllServic
   assert.deepEqual(impl.nameSegments('Greeter', ''), [{ text: 'Greeter', hit: false }]);
 });
 
+test('服务器地址原地编辑(0.3.75):pageMeta 编辑三方法 + setServer 消息 + 模板锚点齐备', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  for (const fn of ['startEditServer() {', 'commitEditServer() {', 'cancelEditServer() {']) {
+    assert.ok(src.includes(fn), `pageMeta 缺 ${fn}`);
+  }
+  assert.ok(src.includes('editingServer: false') && src.includes("serverDraft: ''"), '缺编辑态初始值');
+  assert.ok(src.includes("sendMessage({ type: 'setServer', server: next })"), '确认须发 setServer 消息由 host 持久化');
+  // Esc/Enter 收尾后 blur 兜底会再触达:commit 须早退防重复提交
+  const cStart = src.indexOf('commitEditServer() {');
+  const cBody = src.slice(cStart, src.indexOf('cancelEditServer() {', cStart));
+  assert.ok(cBody.includes('if (!this.editingServer)'), 'commit 须按 editingServer 早退');
+  assert.ok(cBody.includes('.trim()'), '提交值须 trim');
+
+  const htmlSrc = fs.readFileSync(path.resolve('src/runner/webviewHtml.ts'), 'utf8');
+  for (const anchor of [
+    'class="server-addr"',
+    'class="server-edit"',
+    '@click="startEditServer()"',
+    '@keydown.enter="commitEditServer()"',
+    '@keydown.escape="cancelEditServer()"',
+    '@blur="commitEditServer()"',
+    'x-ref="serverInput"',
+  ]) {
+    assert.ok(htmlSrc.includes(anchor), `模板缺锚点 ${anchor}`);
+  }
+});
+
 test('config 消息路由(0.3.70):runner.* 改动实时纠正顶栏 server 与空态 protoDir', () => {
   const src = fs.readFileSync(RUNNER_JS, 'utf8');
   assert.ok(src.includes("case 'config':"), '缺 config 消息路由');

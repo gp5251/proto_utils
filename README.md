@@ -47,7 +47,7 @@ Workbench colors automatically follow VS Code light/dark theme (GitHub Dark for 
 
 1. Open a workspace containing `.proto` files — the extension indexes automatically.
 2. **Generate types**: right-click a `.proto` file → *Generate TypeScript Types*, or `Ctrl+Shift+P` to run batch generation.
-3. **Call gRPC**: click the "▶ Call" CodeLens above any rpc method, fill the form and send — just point `protoUtils.runner.server` to your gRPC address and `protoUtils.runner.protoDir` to your proto directory in settings.
+3. **Call gRPC**: click the "▶ Call" CodeLens above any rpc method, fill the form and send — click the server address in the workbench header to edit it in place (remembered per workspace), and point `protoUtils.runner.protoDir` to your proto directory in settings.
 
 ## Features
 
@@ -159,7 +159,6 @@ Workbench settings:
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `protoUtils.runner.server` | `"localhost:50051"` | gRPC server address (host:port) |
 | `protoUtils.runner.protoDir` | `""` | Proto directory — **must point to the directory containing .proto files** (imports resolve relative to it; pointing to a parent causes cross-file type resolution failures); empty = workspace root; relative paths resolve against workspace folder. **When explicitly set, code generation also scans only this directory** |
 | `protoUtils.runner.tls` | `false` | Use TLS channel (plaintext by default) |
 | `protoUtils.runner.tlsRootCert` | `""` | Root certificate PEM path; empty = system default CA; relative paths resolve against workspace folder |
@@ -176,9 +175,9 @@ Workbench settings:
 - **Timeout**: unary calls return `DEADLINE_EXCEEDED` after `timeoutMs` without response (0 = unlimited); server streams are unaffected and can be cancelled manually at any time.
 - **int64 round-trip**: `int64`/`uint64`/`sint64`/`fixed64`/`sfixed64` fields round-trip as strings (text input in forms, string in responses) to avoid truncation beyond 2^53; fill decimal strings on the request side. 32-bit integers remain numbers.
 
-**Migrating from rpc_runner**: copy `server` and `protoDir` values from `rpc.config.json` to the VS Code settings above. `port` and `generatedDir` are removed (no more HTTP server or proto-loader-gen-types generation). The workbench and gRPC dependencies (@grpc/grpc-js) use lazy loading — loaded only on first workbench open, not affecting extension activation speed.
+**Migrating from rpc_runner**: copy the `protoDir` value from `rpc.config.json` to the VS Code settings above, and click the server address in the workbench header to enter the `server` value (a leftover `protoUtils.runner.server` in settings.json still works as the initial default). `port` and `generatedDir` are removed (no more HTTP server or proto-loader-gen-types generation). The workbench and gRPC dependencies (@grpc/grpc-js) use lazy loading — loaded only on first workbench open, not affecting extension activation speed.
 
-After modifying `protoUtils.runner.*` settings, the next call/refresh uses the new configuration without reopening the workbench (since 0.3.44; the server address in the top bar updates after panel reopen).
+After modifying `protoUtils.runner.*` settings, the next call/refresh uses the new configuration without reopening the workbench (since 0.3.44). The server address is no longer a setting (0.3.75): click it in the workbench header to edit in place — the new address takes effect on the next call/probe and is remembered per workspace.
 
 ## Configuration
 
@@ -302,7 +301,7 @@ If a file has no package, it falls back to `"file"` mode path rules.
 
 1. 打开包含 `.proto` 文件的工作区,插件自动索引。
 2. **生成类型**:右键 `.proto` 文件 → *Generate TypeScript Types*,或 `Ctrl+Shift+P` 运行全量生成。
-3. **调用 gRPC**:rpc 方法上方点击「▶ 调用」,在工作台填表发送——只需在设置里把 `protoUtils.runner.server` 指向你的 gRPC 服务地址,`protoUtils.runner.protoDir` 指向 proto 目录。
+3. **调用 gRPC**:rpc 方法上方点击「▶ 调用」,在工作台填表发送——点击工作台顶栏的服务器地址可原地编辑并自动记住(按工作区隔离,默认 `localhost:50051`),`protoUtils.runner.protoDir` 仍在设置里指向 proto 目录。
 
 ## 功能
 
@@ -415,7 +414,6 @@ export interface User {
 
 | 配置项 | 默认值 | 作用 |
 | --- | --- | --- |
-| `protoUtils.runner.server` | `"localhost:50051"` | gRPC 服务器地址(host:port) |
 | `protoUtils.runner.protoDir` | `""` | proto 目录,**必须指向 .proto 文件所在目录本身**(import 相对它解析,指到父目录会导致跨文件类型解析失败);空 = 工作区根;相对路径相对 workspace folder 解析。**显式配置后,代码生成也只扫描该目录**(不再扫工作区) |
 | `protoUtils.runner.tls` | `false` | 是否使用 TLS 通道(默认明文) |
 | `protoUtils.runner.tlsRootCert` | `""` | 根证书 PEM 路径;空 = 系统默认 CA;相对路径相对 workspace folder 解析 |
@@ -432,9 +430,9 @@ export interface User {
 - **超时**:一元调用在 `timeoutMs` 后未响应即返回 `DEADLINE_EXCEEDED`(0 = 不限);服务端流不受此限,可随时手动取消。
 - **int64 往返**:`int64`/`uint64`/`sint64`/`fixed64`/`sfixed64` 字段以字符串往返(表单用文本输入,响应里也是字符串),避免超过 2^53 的数值被截断;请求侧直接填十进制字符串即可。32 位整型仍为数字。
 
-**从 rpc_runner 迁移**:把 `rpc.config.json` 里的 `server` 与 `protoDir` 两个值抄到上述 VS Code 设置即可。`port` 与 `generatedDir` 已删除(不再有 HTTP 服务与 proto-loader-gen-types 生成)。工作台与 gRPC 依赖(@grpc/grpc-js)采用懒加载,只在首次打开工作台时载入,不影响编辑功能激活速度。
+**从 rpc_runner 迁移**:把 `rpc.config.json` 里的 `protoDir` 值抄到上述 VS Code 设置,`server` 值点击工作台顶栏的服务器地址原地填入(settings.json 里残留的老 `protoUtils.runner.server` 也仍作初始默认生效)。`port` 与 `generatedDir` 已删除(不再有 HTTP 服务与 proto-loader-gen-types 生成)。工作台与 gRPC 依赖(@grpc/grpc-js)采用懒加载,只在首次打开工作台时载入,不影响编辑功能激活速度。
 
-修改 `protoUtils.runner.*` 设置后,下一次调用/刷新即按新配置执行,无需重开工作台(0.3.44 起;顶栏显示的服务器地址在重开面板后更新)。
+修改 `protoUtils.runner.*` 设置后,下一次调用/刷新即按新配置执行,无需重开工作台(0.3.44 起)。服务器地址自 0.3.75 起不再是配置项:点击工作台顶栏地址原地编辑,下一次调用/探测立即生效并按工作区记住。
 
 ## 配置
 

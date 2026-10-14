@@ -131,8 +131,12 @@ export function parseMetadataEntries(raw: unknown): MetadataEntry[] {
 export function resolveRunnerConfig(
   get: (key: string) => unknown,
   workspaceRoot: string | undefined,
+  persistedServer?: string | null,
 ): RunnerConfig {
-  const rawServer = get('runner.server');
+  // 服务器地址三层回退(0.3.75):顶栏编辑持久化值 ?? 老配置项 runner.server ?? 默认。
+  // 配置项声明移除后 settings.json 残值仍作老用户迁移默认,新安装直接落默认。
+  const rawServer =
+    typeof persistedServer === 'string' && persistedServer.trim() !== '' ? persistedServer : get('runner.server');
   const server = typeof rawServer === 'string' && rawServer.trim() !== '' ? rawServer.trim() : DEFAULT_SERVER;
 
   const rawDir = get('runner.protoDir');

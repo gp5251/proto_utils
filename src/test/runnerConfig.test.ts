@@ -20,6 +20,18 @@ test('explicit values pass through; relative protoDir resolves against workspace
   assert.equal(cfg.protoDirExplicit, true);
 });
 
+test('服务器地址三层回退(0.3.75):持久化值 ?? 老配置项残值 ?? 默认', () => {
+  const legacy = (k: string) => (k === 'runner.server' ? '10.0.0.1:9000' : undefined);
+  // 顶栏编辑持久化值优先于老配置项
+  assert.equal(resolveRunnerConfig(legacy, ROOT, '192.168.1.9:7000').server, '192.168.1.9:7000');
+  // 持久化空/纯空格/null → 回退老配置项(老用户 settings.json 残值即迁移默认)
+  assert.equal(resolveRunnerConfig(legacy, ROOT, '  ').server, '10.0.0.1:9000');
+  assert.equal(resolveRunnerConfig(legacy, ROOT, null).server, '10.0.0.1:9000');
+  assert.equal(resolveRunnerConfig(legacy, ROOT, undefined).server, '10.0.0.1:9000');
+  // 新安装(两者皆无)→ 默认
+  assert.equal(resolveRunnerConfig(() => undefined, ROOT, null).server, 'localhost:50051');
+});
+
 test('absolute protoDir is used as-is', () => {
   const abs = path.resolve('/elsewhere/protos');
   const cfg = resolveRunnerConfig((k) => (k === 'runner.protoDir' ? abs : undefined), ROOT);

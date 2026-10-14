@@ -209,6 +209,11 @@ class LazyWorkbench {
     // esbuild 对本路径 external,产物 out/runner/index.js 独立加载。
     const runner = require('./runner/index.js') as typeof import('./runner/index');
     const registry = new runner.ServiceRegistry(this.scanExcludes);
+    // 服务器地址持久化(0.3.75):顶栏原地编辑值存 workspaceState(按工作区隔离,与老配置项
+    // window 作用域同语义);内存变量同步更新保证后续 getConfig/probe 立即读到新值,
+    // 配置项声明已移除,settings.json 残值仅由 resolveRunnerConfig 作迁移默认回退。
+    const SERVER_STATE_KEY = 'runner.server';
+    let persistedServer: string | null = this.context.workspaceState.get<string>(SERVER_STATE_KEY) ?? null;
     // 命名序列持久化(0.3.59,ADR-0012):存工作区文件 .proto-utils/sequences.json;
     // 无工作区则不注入 store,序列存/载/删降级为不可用(运行仍可用)。
     const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -216,14 +221,18 @@ class LazyWorkbench {
       registry,
       // 配置经 getConfig 每次调用现读(0.3.44):server/protoDir/TLS/超时改动即时生效,
       // 服务列表与实际调用两条路径读同一份配置,不再出现「列表新目录、调用旧目录」的劈叉。
-      runner: new runner.GrpcCallRunner(() => runner.resolveRunnerConfig(), registry),
-      getConfig: () => runner.resolveRunnerConfig(),
+      runner: new runner.GrpcCallRunner(() => runner.resolveRunnerConfig(persistedServer), registry),
+      getConfig: () => runner.resolveRunnerConfig(persistedServer),
       onLoadSettled: this.onLoadSettled,
       // 顶栏连接状态点(0.3.54):与调用路径读同一份现读配置(server+TLS),配置改动即时生效;
       // TLS 配置错会在此抛错,session 按不可达处理(状态点转红),精确错误仍由实际调用面报出。
       probeConnection: () => {
-        const cfg = runner.resolveRunnerConfig();
+        const cfg = runner.resolveRunnerConfig(persistedServer);
         return runner.probeServerConnectivity(cfg.server, runner.buildChannelCredentials(cfg.tls));
+      },
+      persistServer: (server: string) => {
+        persistedServer = server;
+        void this.context.workspaceState.update(SERVER_STATE_KEY, server);
       },
       ...(wsRoot ? { store: new runner.SequenceStore(wsRoot) } : {}),
     };

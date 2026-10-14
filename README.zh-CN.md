@@ -47,7 +47,7 @@
 
 1. 打开包含 `.proto` 文件的工作区,插件自动索引。
 2. **生成类型**:右键 `.proto` 文件 → *Generate TypeScript Types*,或 `Ctrl+Shift+P` 运行全量生成。
-3. **调用 gRPC**:rpc 方法上方点击「▶ 调用」,在工作台填表发送——只需在设置里把 `protoUtils.runner.server` 指向你的 gRPC 服务地址,`protoUtils.runner.protoDir` 指向 proto 目录。
+3. **调用 gRPC**:rpc 方法上方点击「▶ 调用」,在工作台填表发送——点击工作台顶栏的服务器地址可原地编辑并自动记住(按工作区隔离,默认 `localhost:50051`),`protoUtils.runner.protoDir` 仍在设置里指向 proto 目录。
 
 ## 功能
 
@@ -160,7 +160,6 @@ export interface User {
 
 | 配置项 | 默认值 | 作用 |
 | --- | --- | --- |
-| `protoUtils.runner.server` | `"localhost:50051"` | gRPC 服务器地址(host:port) |
 | `protoUtils.runner.protoDir` | `""` | proto 目录,**必须指向 .proto 文件所在目录本身**(import 相对它解析,指到父目录会导致跨文件类型解析失败);空 = 工作区根;相对路径相对 workspace folder 解析。**显式配置后,代码生成也只扫描该目录**(不再扫工作区) |
 | `protoUtils.runner.tls` | `false` | 是否使用 TLS 通道(默认明文) |
 | `protoUtils.runner.tlsRootCert` | `""` | 根证书 PEM 路径;空 = 系统默认 CA;相对路径相对 workspace folder 解析 |
@@ -177,9 +176,9 @@ export interface User {
 - **超时**:一元调用在 `timeoutMs` 后未响应即返回 `DEADLINE_EXCEEDED`(0 = 不限);服务端流不受此限,可随时手动取消。
 - **int64 往返**:`int64`/`uint64`/`sint64`/`fixed64`/`sfixed64` 字段以字符串往返(表单用文本输入,响应里也是字符串),避免超过 2^53 的数值被截断;请求侧直接填十进制字符串即可。32 位整型仍为数字。
 
-**从 rpc_runner 迁移**:把 `rpc.config.json` 里的 `server` 与 `protoDir` 两个值抄到上述 VS Code 设置即可。`port` 与 `generatedDir` 已删除(不再有 HTTP 服务与 proto-loader-gen-types 生成)。工作台与 gRPC 依赖(@grpc/grpc-js)采用懒加载,只在首次打开工作台时载入,不影响编辑功能激活速度。
+**从 rpc_runner 迁移**:把 `rpc.config.json` 里的 `protoDir` 值抄到上述 VS Code 设置,`server` 值点击工作台顶栏的服务器地址原地填入(settings.json 里残留的老 `protoUtils.runner.server` 也仍作初始默认生效)。`port` 与 `generatedDir` 已删除(不再有 HTTP 服务与 proto-loader-gen-types 生成)。工作台与 gRPC 依赖(@grpc/grpc-js)采用懒加载,只在首次打开工作台时载入,不影响编辑功能激活速度。
 
-修改 `protoUtils.runner.*` 设置后,下一次调用/刷新即按新配置执行,无需重开工作台(0.3.44 起;顶栏显示的服务器地址在重开面板后更新)。
+修改 `protoUtils.runner.*` 设置后,下一次调用/刷新即按新配置执行,无需重开工作台(0.3.44 起)。服务器地址自 0.3.75 起不再是配置项:点击工作台顶栏地址原地编辑,下一次调用/探测立即生效并按工作区记住。
 
 ## 配置
 

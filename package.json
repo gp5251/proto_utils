@@ -3,7 +3,7 @@
   "displayName": "Proto Utils",
   "l10n": "./l10n",
   "description": "%extension.description%",
-  "version": "0.3.74",
+  "version": "0.3.75",
   "publisher": "paulgui",
   "license": "MIT",
   "repository": {
@@ -91,11 +91,6 @@
     "configuration": {
       "title": "Proto Utils",
       "properties": {
-        "protoUtils.runner.server": {
-          "type": "string",
-          "default": "localhost:50051",
-          "description": "%config.runner.server%"
-        },
         "protoUtils.runner.protoDir": {
           "type": "string",
           "default": "",

@@ -68,7 +68,8 @@
    - `codeGen.oneofStyle` (`"optional"` | `"union"`, default `"optional"`)
    - `codeGen.importExtension` (`"ts"` | `"none"`, default `"ts"`)
    - `codeGen.int64Style` (`"number"` | `"bigint"` | `"string"`, default `"number"`)
-   - `runner.server` / `runner.protoDir` / `runner.tls*` / `runner.metadata` / `runner.timeoutMs` / `runner.connProbeIntervalMs`(调用面,见 docs/adr 0001~0007)
+   - `runner.protoDir` / `runner.tls*` / `runner.metadata` / `runner.timeoutMs` / `runner.connProbeIntervalMs`(调用面,见 docs/adr 0001~0007)
+   - 服务器地址(0.3.75 起非配置项):工作台顶栏原地编辑,存 extension workspaceState(按工作区隔离);回退链 = 持久化值 ?? 老 `runner.server` 设置残值 ?? `localhost:50051`
    - `scan.excludeDirs` (string[], default `[]`,runner 与 codegen 共用)
 
 8. **Trigger mechanisms** — Code-gen is triggered via: (a) right-click context menu on `.proto` files in the editor and explorer, (b) command palette command `protoUtils.generateTypes`.

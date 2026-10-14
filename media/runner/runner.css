@@ -86,6 +86,14 @@ body {
 .dot.fail { background: var(--danger); }
 .conn-hint { color: var(--danger); }
 
+/* 0.3.75 顶栏服务器地址原地编辑:文本态可点击(点状下划线暗示),编辑态为等宽小输入框。
+   选择器带 .page-meta 前缀压过 .page-meta span 的 display:flex——flex 容器的下划线
+   不会跨 flex item 传播到文本,须回落 inline(作为 flex item 会被块化,下划线生效)。 */
+.page-meta .server-addr { display: inline; cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-decoration-color: var(--text-faint); text-underline-offset: 3px; }
+.server-addr:hover { color: var(--text); text-decoration-color: var(--text); }
+.server-addr:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; border-radius: var(--radius); }
+.server-edit { width: 160px; padding: 1px 6px; font-size: 12px; font-family: var(--mono); color: var(--text); background: var(--bg); border: 1px solid var(--accent); border-radius: var(--radius); outline: none; box-shadow: 0 0 0 2px var(--accent-ring); }
+
 .topbar-search { flex: 0 1 960px; max-width: 100%; }
 .topbar-search input {
   width: 100%;

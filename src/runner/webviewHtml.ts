@@ -97,6 +97,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     resetForm: l10n.t('Reset'),
     collapseAllSvcs: l10n.t('Collapse all services'),
     cancel: l10n.t('Cancel'),
+    // 0.3.75:顶栏服务器地址原地编辑提示
+    serverEditHint: l10n.t('Click to edit server address'),
     headersTitle: l10n.t('Headers'),
     addHeader: l10n.t('Add header'),
     headerKeyPlaceholder: l10n.t('Header name'),
@@ -213,7 +215,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
 
       <div class="page-meta" x-data="pageMeta" x-cloak>
         <!-- 0.3.54:状态点绑定真实连通性(connState 由 host 探测推送;unknown=灰/ok=绿/fail=红) -->
-        <span><span class="dot" :class="$store.workbench.connState"></span><span x-text="$store.workbench.server"></span><span class="conn-hint" x-show="$store.workbench.connState === 'fail'" x-text="$store.str.connUnreachable"></span></span>
+        <!-- 0.3.75:地址可点击原地编辑(Enter/失焦确认、Esc 取消),确认经 setServer 消息持久化;赋值全走组件方法(@alpinejs/csp) -->
+        <span><span class="dot" :class="$store.workbench.connState"></span><span class="server-addr" role="button" tabindex="0" title="${S.serverEditHint}" x-show="!editingServer" x-text="$store.workbench.server" @click="startEditServer()" @keydown.enter="startEditServer()"></span><input class="server-edit" type="text" spellcheck="false" autocomplete="off" x-show="editingServer" x-ref="serverInput" x-model="serverDraft" @keydown.enter="commitEditServer()" @keydown.escape="cancelEditServer()" @blur="commitEditServer()"><span class="conn-hint" x-show="$store.workbench.connState === 'fail'" x-text="$store.str.connUnreachable"></span></span>
         <!-- 0.3.62 刷新拆分为二:「刷新服务」仅重探连接(毫秒级),「刷新 proto」才 invalidate+重解析 -->
         <button type="button" class="btn btn-secondary btn-xs" :disabled="$store.workbench.probingServices" @click="refreshServices()">
           <span x-show="!$store.workbench.probingServices">${S.refreshServices}</span>

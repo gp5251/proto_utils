@@ -20,6 +20,7 @@
   "RPC Services": "RPC 服务",
   "Refresh proto": "刷新 proto",
   "Refresh services": "刷新服务",
+  "Click to edit server address": "点击编辑服务器地址",
   "Probing…": "探测中…",
   "Refreshing…": "刷新中…",
   "Parsing proto files…": "正在解析 proto 文件…",
