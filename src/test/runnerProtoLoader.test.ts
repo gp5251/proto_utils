@@ -135,6 +135,28 @@ test('cross-package same-name messages/enums resolve within the service package'
   assert.deepEqual(mode?.enumValues?.map((v) => v.name), ['NEW_UNSPECIFIED', 'NEW_A']);
 });
 
+test('loadProtoDefinitions:被 import 的枚举文件变更须反映到 enumValues(0.3.77 现场回归)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'loader-import-stale-'));
+  const enumFile = path.join(dir, 'z_enum.proto');
+  const svcFile = path.join(dir, 'a_svc.proto');
+  fs.writeFileSync(enumFile, 'syntax = "proto3";\npackage p;\nenum View { VIEW_UNSPECIFIED = 0; }\n');
+  fs.writeFileSync(
+    svcFile,
+    'syntax = "proto3";\npackage p;\nimport "z_enum.proto";\nmessage Req { string id = 1; }\nmessage Res { View view = 1; }\nservice Svc { rpc M(Req) returns (Res); }\n',
+  );
+
+  // 服务文件排扫描序首位:修复前它内嵌的旧枚举拷贝会被 findTypeDef 先命中
+  const files = [svcFile, enumFile];
+  const before = loadProtoDefinitions(files, dir);
+  const viewBefore = before.services[0].methods[0].responseFields.find((f) => f.name === 'view');
+  assert.deepEqual(viewBefore?.enumValues?.map((v) => v.name), ['VIEW_UNSPECIFIED']);
+
+  fs.writeFileSync(enumFile, 'syntax = "proto3";\npackage p;\nenum View { VIEW_UNSPECIFIED = 0; VIEW_SYS = 64; }\n');
+  const after = loadProtoDefinitions(files, dir);
+  const viewAfter = after.services[0].methods[0].responseFields.find((f) => f.name === 'view');
+  assert.deepEqual(viewAfter?.enumValues?.map((v) => v.name), ['VIEW_UNSPECIFIED', 'VIEW_SYS']);
+});
+
 test('serializeServicesForClient keeps frozen field names plus stream flags', () => {
   const result = loadProtoDefinitions(scanProtoFiles(FRONTEND_DIR), FRONTEND_DIR);
   const payload = serializeServicesForClient(result.services);

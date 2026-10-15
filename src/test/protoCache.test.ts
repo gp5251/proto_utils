@@ -31,3 +31,26 @@ test('getPackageDefinition:内容变化后自动重析,无需手动清缓存', (
   // 未变化的再次调用回到缓存恒等
   assert.equal(getPackageDefinition(file, dir), def2);
 });
+
+test('getPackageDefinition:被 import 文件变更也失效顶层 def(0.3.77 闭包指纹)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proto-cache-closure-'));
+  const imp = path.join(dir, 'b.proto');
+  const file = path.join(dir, 'a.proto');
+  fs.writeFileSync(imp, 'syntax = "proto3";\npackage p;\nenum E { E_UNSPECIFIED = 0; }\n');
+  fs.writeFileSync(
+    file,
+    'syntax = "proto3";\npackage p;\nimport "b.proto";\nmessage A { E e = 1; }\nservice Svc { rpc M(A) returns (A); }\n',
+  );
+
+  const def1 = getPackageDefinition(file, dir);
+  assert.ok(JSON.stringify(def1).includes('E_UNSPECIFIED'), '初载应内嵌导入的枚举');
+
+  // 只改被 import 文件:顶层 mtime:size 不变,旧指纹门会漏掉这次变更
+  fs.writeFileSync(imp, 'syntax = "proto3";\npackage p;\nenum E { E_UNSPECIFIED = 0; E_ADDED = 1; }\n');
+  const def2 = getPackageDefinition(file, dir);
+  assert.ok(JSON.stringify(def2).includes('E_ADDED'), '被 import 文件变更必须重析顶层');
+  assert.notEqual(def1, def2);
+
+  // 重析后无变更回到缓存恒等(热路径只 stat 闭包,不重复 loadSync)
+  assert.equal(getPackageDefinition(file, dir), def2);
+});
