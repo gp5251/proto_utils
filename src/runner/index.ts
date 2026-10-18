@@ -7,4 +7,7 @@ export { WorkbenchPanelManager, createVscodePanelFactory, resolveRunnerConfig } 
 export { ServiceRegistry } from './serviceRegistry';
 export { GrpcCallRunner } from './callHandler';
 export { SequenceStore } from './sequenceStore';
+export { Environments } from './environments';
+export { CallHistory } from './history';
+export { resolveVars } from './utils/placeholder';
 export { probeServerConnectivity, buildChannelCredentials } from './core/grpcClient';

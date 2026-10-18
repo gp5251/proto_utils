@@ -25,11 +25,12 @@ let lastStreamMetadata: grpc.Metadata | null = null;
 
 type UnaryImpl = (call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<unknown>) => void;
 type StreamImpl = (call: grpc.ServerWritableStream<unknown, unknown>) => void;
+type ClientStreamImpl = (call: grpc.ServerReadableStream<unknown, unknown>, cb: grpc.sendUnaryData<unknown>) => void;
 
 /** 以 proto 声明名建 impl,按 originalName 挂到 grpc-js 期望的键上 */
 function buildHandlers(
   def: grpc.ServiceDefinition,
-  impls: Record<string, UnaryImpl | StreamImpl>,
+  impls: Record<string, UnaryImpl | StreamImpl | ClientStreamImpl>,
 ): grpc.UntypedServiceImplementation {
   const handlers: grpc.UntypedServiceImplementation = {};
   for (const [protoName, methodDef] of Object.entries(def)) {
@@ -84,7 +85,17 @@ before(async () => {
   server.addService(
     grpcObj.c.Acronym.service,
     buildHandlers(grpcObj.c.Acronym.service, {
-      ListFBVariableRequest: (_call, cb) => cb(null, { names: ['fb1', 'fb2'] }),
+      ListFBVariableRequest: (_call: grpc.ServerUnaryCall<unknown, unknown>, cb: grpc.sendUnaryData<unknown>) =>
+        cb(null, { names: ['fb1', 'fb2'] }),
+      UploadFBData: (call: grpc.ServerReadableStream<unknown, unknown>, cb: grpc.sendUnaryData<unknown>) => {
+        const names: string[] = [];
+        call.on('data', (req: { fbName?: string }) => { if (req.fbName) names.push(req.fbName); });
+        call.on('end', () => {
+          const trailers = new grpc.Metadata();
+          trailers.add('x-upload-count', String(names.length));
+          cb(null, { names }, trailers);
+        });
+      },
       WatchFBVariable: (call: grpc.ServerWritableStream<unknown, unknown>) => {
         // 写一块后永不主动 end:只为 cancel 测试提供「活着但不结束」的流,无需定时器
         call.write({ names: ['tick'] });
@@ -285,6 +296,28 @@ test('callUnary refuses client-streaming methods with a clear error', async () =
   });
   assert.equal(result.status, 'error');
   if (result.status === 'error') assert.match(result.error, /uses client streaming/);
+});
+
+test('client-streaming:openDuplex 逐条写入并在 half-close 后收到单条响应与 trailers', async () => {
+  const chunks: unknown[] = [];
+  let trailers: Array<{ key: string; value: string }> = [];
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  const handle = client.openDuplex(
+    FRONTEND_DIR,
+    { service: 'Acronym', method: 'UploadFBData' },
+    {
+      onData: (data) => chunks.push(data),
+      onTrailers: (value) => { trailers = value; },
+      onError: (message) => reject(new Error(message)),
+      onEnd: () => resolve(),
+    },
+  );
+  handle.write({ fbName: 'a' });
+  handle.write({ fbName: 'b' });
+  handle.end();
+  await promise;
+  assert.deepEqual(chunks, [{ names: ['a', 'b'] }]);
+  assert.deepEqual(trailers.filter((e) => e.key === 'x-upload-count'), [{ key: 'x-upload-count', value: '2' }]);
 });
 
 test('callUnary refuses server-streaming methods and points at the stream API', async () => {

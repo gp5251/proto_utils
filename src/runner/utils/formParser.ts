@@ -1,5 +1,6 @@
 import { FieldInfo } from '../core/types';
 import JSON5 from 'json5';
+import { wktKind, wktToWire } from './formMapping';
 
 export function parseFormValue(field: FieldInfo, val: unknown): unknown {
   // repeated 非 message 字段:接受真数组或 JSON/JSON5 数组字符串("[1,2,3]"),逐项按标量规则转换。
@@ -74,6 +75,20 @@ export function buildRequestFromValues(
   for (const field of fields) {
     const raw = values[field.name];
 
+    // WKT(0.3.78):显示串 → 线上对象;非法文本原样下发,由序列化报错而不是静默丢弃
+    const wkt = wktKind(field);
+    if (wkt) {
+      if (field.label === 'repeated') {
+        const parsed = parseFormValue(field, raw);
+        if (Array.isArray(parsed)) request[field.name] = parsed.map(item => wktToWire(wkt, item) ?? item);
+        else if (parsed !== undefined) request[field.name] = parsed;
+      } else {
+        const w = wktToWire(wkt, raw);
+        if (w !== undefined) request[field.name] = w;
+        else if (raw !== undefined && raw !== null && raw !== '') request[field.name] = raw;
+      }
+      continue;
+    }
     if (field.protoType === 'TYPE_MESSAGE' && field.label !== 'repeated' && field.nestedFields?.length) {
       const nestedValues: Record<string, unknown> =
         typeof raw === 'object' && raw !== null && !Array.isArray(raw)

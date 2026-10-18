@@ -38,7 +38,29 @@
     seqCompleted: 'Sequence completed',
     seqAborted: 'Sequence aborted at a failed step',
     seqStopped: 'Sequence stopped',
+    // 0.3.78 环境/历史/grpcurl/WKT/断言/client·bidi 流
+    envFileError: 'environments.json: {error}',
+    grpcurlCopied: 'grpcurl command copied',
+    grpcurlFailed: 'Copy as grpcurl failed: {error}',
+    historyRestored: 'Restored from history',
+    duplexSent: '{count} sent',
+    assertActual: 'actual: {value}',
+    wktTimestamp: 'RFC 3339, e.g. 2024-01-01T00:00:00Z',
+    wktDuration: 'e.g. 1.5s',
+    wktBool: 'true / false',
+    wktValue: 'Value (empty = unset)',
   };
+
+  // 0.3.78 序列断言运算符(与宿主 sequenceStore.ts ASSERT_OPS 同步);exists 类不需要期望值
+  var ASSERT_OPS = [
+    { op: 'eq', label: '==' },
+    { op: 'neq', label: '!=' },
+    { op: 'contains', label: 'contains' },
+    { op: 'exists', label: 'exists' },
+    { op: 'notExists', label: 'not exists' },
+    { op: 'lt', label: '<' },
+    { op: 'gt', label: '>' },
+  ];
 
   function str(key, vars) {
     var store = typeof Alpine !== 'undefined' ? Alpine.store('str') : null;
@@ -166,6 +188,27 @@
       case 'sequenceStoreError':
         if (component) component.showSeqNotice(msg.message);
         break;
+      case 'environments': {
+        // 0.3.78 环境快照:无工作区时宿主不推,envSupported 保持 false(顶栏不显示环境选择)
+        var envStore = workbenchStore();
+        envStore.envSupported = true;
+        envStore.envNames = Array.isArray(msg.names) ? msg.names : [];
+        envStore.envActive = typeof msg.active === 'string' ? msg.active : null;
+        envStore.envVars = msg.variables && typeof msg.variables === 'object' ? msg.variables : {};
+        envStore.envError = typeof msg.error === 'string' ? msg.error : '';
+        break;
+      }
+      case 'history':
+        if (component) component.applyHistory(msg.entries);
+        break;
+      case 'grpcurl':
+        if (typeof msg.command === 'string') {
+          navigator.clipboard.writeText(msg.command);
+          showNotice(workbenchStore(), str('grpcurlCopied'));
+        } else {
+          showNotice(workbenchStore(), str('grpcurlFailed', { error: msg.error || '' }));
+        }
+        break;
     }
   }
 
@@ -266,6 +309,12 @@
       view: 'services',
       // 0.3.67 回到顶部浮动按钮显隐
       backTop: false,
+      // 0.3.78 环境与变量(宿主 environments 快照)
+      envSupported: false,
+      envNames: [],
+      envActive: null,
+      envVars: {},
+      envError: '',
     });
 
     // 顶栏刷新区:@alpinejs/csp 表达式见不到 window 全局(0.3.19 前的 postRefresh 全局入口因此从未生效),
@@ -315,6 +364,25 @@
         cancelEditServer() {
           this.editingServer = false;
         },
+        // 0.3.78 环境切换:空值 = 不使用环境
+        setEnvironment(name) {
+          sendMessage({ type: 'setEnvironment', name: name ? name : null });
+        },
+        editEnvironments() {
+          sendMessage({ type: 'editEnvironments' });
+        },
+        // 地址含 {{var}} 时显示替换后的实际地址;未引用变量不显示
+        resolvedServerText() {
+          var store = workbenchStore();
+          var s = store.server || '';
+          if (s.indexOf('{{') < 0 || typeof window.Placeholder === 'undefined') return '';
+          var r = window.Placeholder.resolveVars(s, store.envVars);
+          return r !== s ? '\u2192 ' + r : '';
+        },
+        envErrorText() {
+          var e = workbenchStore().envError;
+          return e ? str('envFileError', { error: e }) : '';
+        },
       };
     });
 
@@ -362,6 +430,12 @@
       seqStepOpen: {},
       // 0.3.64 步级流接收上限输入值(step.id → 字符串);空 = 缺省 100
       seqMaxMsgs: {},
+      // 0.3.78 步骤断言编辑态:step.id → [{path, op, expected}]
+      seqAsserts: {},
+
+      // ---- 请求历史(0.3.78):宿主 workspaceState 持久化,全量推送;方法面板按 service+method 过滤 ----
+      history: [],
+      historyOpen: {},
 
       // ---- 响应 JSON 折叠树(0.3.41):行构建与可见性遍历在 TS(全局 ResultTree) ----
       // resultTrees: methodKey → 根行数组(一元,applyCallResult 一次构建)
@@ -857,7 +931,11 @@
         for (var i = 0; i < fields.length; i++) {
           var f = fields[i];
           var path = prefix ? prefix + '.' + f.name : f.name;
-          if (f.protoType === 'TYPE_MESSAGE' && f.nestedFields && f.nestedFields.length && f.label !== 'repeated') {
+          // 0.3.78 Timestamp/Duration/wrappers 收为单个文本输入(wkt 标记),不再展开 seconds/nanos 子字段
+          var wkt = f.label !== 'repeated' ? window.FormMapping.wktKind(f) : null;
+          if (wkt) {
+            rows.push({ kind: 'input', field: f, path: path, depth: depth, wkt: wkt });
+          } else if (f.protoType === 'TYPE_MESSAGE' && f.nestedFields && f.nestedFields.length && f.label !== 'repeated') {
             rows.push({ kind: 'group', field: f, path: path, depth: depth });
             rows.push.apply(rows, this.flattenFormFields(f.nestedFields, path, depth + 1));
           } else {
@@ -871,7 +949,9 @@
         var values = {};
         for (var i = 0; i < fields.length; i++) {
           var f = fields[i];
-          if (f.protoType === 'TYPE_MESSAGE' && f.nestedFields && f.nestedFields.length && f.label !== 'repeated') {
+          if (f.label !== 'repeated' && window.FormMapping.wktKind(f)) {
+            values[f.name] = '';
+          } else if (f.protoType === 'TYPE_MESSAGE' && f.nestedFields && f.nestedFields.length && f.label !== 'repeated') {
             values[f.name] = this.initFieldValues(f.nestedFields);
           } else if (f.protoType === 'TYPE_BOOL') {
             values[f.name] = false;
@@ -908,6 +988,17 @@
         // 用户改动即清除旧的表单校验问题(重新发送时会再算)
         if (this.formErrors[key]) this.setFormError(key, '');
         this.formValues = Object.assign({}, this.formValues, { [key]: this.formValues[key] });
+      },
+
+      wktPlaceholder: function (kind) {
+        if (kind === 'Timestamp') return str('wktTimestamp');
+        if (kind === 'Duration') return str('wktDuration');
+        if (kind === 'BoolValue') return str('wktBool');
+        return str('wktValue');
+      },
+
+      setTimestampNow: function (key, path) {
+        this.setFieldValue(key, path, new Date().toISOString());
       },
 
       // ---- 表单|JSON 双模式编辑器(同步自 rpc_runner 702879a;映射逻辑在 window.FormMapping) ----
@@ -1164,13 +1255,16 @@
         if (workbenchStore().connState === 'fail') {
           return;
         }
+        // 0.3.78(ADR-0013):client/bidi 流的「发送」= 往已打开的流里写一条;须在 isLoading 早退之前
+        // (流打开期间 loading 恒为 true)
+        if (method && method.requestStream) {
+          if (this.duplexCanSend(svcName, methodName)) this.sendDuplex(svcName, methodName);
+          return;
+        }
         // 发送中早退:Enter 表单提交经 @submit.prevent 直连这里,绕过按钮 disabled,
         // 在唯一 choke point 拦下(一元/流式共用),与按钮禁用态契约一致
         if (this.isLoading(svcName, methodName)) {
           return;
-        }
-        if (method && method.requestStream) {
-          return; // client/bidi 流不支持(ADR-0007),按钮已禁用,双保险
         }
         if (method && method.responseStream) {
           this.startStream(svcName, methodName);
@@ -1190,6 +1284,18 @@
 
       startStream: function (svcName, methodName) {
         var key = this.methodKey(svcName, methodName);
+        this.beginStream(key, {});
+        sendMessage({
+          type: 'callStream',
+          service: svcName,
+          method: methodName,
+          values: this.formValues[key] || {},
+          metadata: this.collectMetadata(key),
+        });
+      },
+
+      // 流结果区复位(服务端流与 client·bidi 共用);extra 并入初始流状态
+      beginStream: function (key, extra) {
         // 流式发送态:按钮变「发送中...」并禁用,流结束/取消/出错经 applyStreamEnd/applyCallResult 复位
         this.markLoading(key);
         this.setResult(key, null);
@@ -1200,15 +1306,97 @@
         this.treeOpen = Object.assign({}, this.treeOpen, { [key]: { nodes: {}, chunks: {} } });
         this.setRespMeta(key, { headers: [], trailers: [], open: false });
         this.streams = Object.assign({}, this.streams, {
-          [key]: { chunks: [], done: false, cancelled: false, durationMs: 0, dropped: 0 },
+          [key]: Object.assign({ chunks: [], done: false, cancelled: false, durationMs: 0, dropped: 0 }, extra),
         });
+      },
+
+      // ---- client-stream / bidi 会话(0.3.78,ADR-0013):打开 → 逐条发送 → 结束发送;取消复用 cancelStream ----
+
+      openDuplex: function (svcName, methodName) {
+        if (workbenchStore().connState === 'fail' || this.streamIsLive(svcName, methodName)) return;
+        var key = this.methodKey(svcName, methodName);
+        this.beginStream(key, { duplex: true, sent: 0, halfClosed: false });
+        sendMessage({ type: 'streamOpen', service: svcName, method: methodName, metadata: this.collectMetadata(key) });
+      },
+
+      duplexCanSend: function (svcName, methodName) {
+        var s = this.getStream(svcName, methodName);
+        return Boolean(s && s.duplex && !s.done && !s.halfClosed);
+      },
+
+      sendDuplex: function (svcName, methodName) {
+        var key = this.methodKey(svcName, methodName);
+        var s = this.streams[key];
+        sendMessage({ type: 'streamSend', service: svcName, method: methodName, values: this.formValues[key] || {} });
+        this.streams = Object.assign({}, this.streams, { [key]: Object.assign({}, s, { sent: (s.sent || 0) + 1 }) });
+      },
+
+      halfCloseDuplex: function (svcName, methodName) {
+        if (!this.duplexCanSend(svcName, methodName)) return;
+        var key = this.methodKey(svcName, methodName);
+        sendMessage({ type: 'streamHalfClose', service: svcName, method: methodName });
+        this.streams = Object.assign({}, this.streams, { [key]: Object.assign({}, this.streams[key], { halfClosed: true }) });
+      },
+
+      duplexSentText: function (svcName, methodName) {
+        var s = this.getStream(svcName, methodName);
+        return s && s.duplex ? str('duplexSent', { count: s.sent || 0 }) : '';
+      },
+
+      // ---- 复制为 grpcurl(0.3.78):宿主拼命令(需 proto 路径与 TLS 配置),回 {type:'grpcurl'} 后写剪贴板 ----
+
+      copyGrpcurl: function (svcName, methodName, method) {
+        var key = this.methodKey(svcName, methodName);
+        if (this.showJsonPane(key, method) && !this.applyJsonToForm(key, method)) return;
         sendMessage({
-          type: 'callStream',
+          type: 'exportGrpcurl',
           service: svcName,
           method: methodName,
           values: this.formValues[key] || {},
           metadata: this.collectMetadata(key),
         });
+      },
+
+      // ---- 请求历史(0.3.78) ----
+
+      applyHistory: function (entries) {
+        this.history = Array.isArray(entries) ? entries : [];
+      },
+
+      historyFor: function (svcName, methodName) {
+        return this.history.filter(function (e) {
+          return e.service === svcName && e.method === methodName;
+        });
+      },
+
+      isHistoryOpen: function (key) {
+        return this.historyOpen[key] === true;
+      },
+
+      toggleHistory: function (key) {
+        this.historyOpen = Object.assign({}, this.historyOpen, { [key]: !this.historyOpen[key] });
+      },
+
+      historyLabel: function (entry) {
+        var d = new Date(entry.ts);
+        var pad = function (n) { return n < 10 ? '0' + n : String(n); };
+        var time = (d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+        return time + '  ' + (entry.durationMs || 0) + 'ms';
+      },
+
+      // 恢复入参与 headers;JSON 页同步重生成文本(否则切过去仍是旧文本)
+      restoreHistory: function (svcName, methodName, method, entry) {
+        var key = this.methodKey(svcName, methodName);
+        var values = JSON.parse(JSON.stringify(entry.values || {}));
+        this.formValues = Object.assign({}, this.formValues, { [key]: values });
+        this.headers = Object.assign({}, this.headers, {
+          [key]: (entry.metadata || []).map(function (e) { return { key: String(e.key || ''), value: String(e.value || '') }; }),
+        });
+        this.setJsonText(key, JSON.stringify(window.FormMapping.formValuesToJson(method.requestFields, values), null, 2));
+        this.setJsonError(key, null);
+        this.setJsonWarnings(key, []);
+        this.setFormError(key, '');
+        showNotice(workbenchStore(), str('historyRestored'));
       },
 
       cancelStream: function (svcName, methodName) {
@@ -1468,7 +1656,7 @@
           ? this.getJsonText(step.id)
           : JSON.stringify(this.formValues[step.id] || {});
         if (!text) return [];
-        return window.Placeholder.findInvalidRefs(text, index).map(function (b) {
+        return window.Placeholder.findInvalidRefs(text, index, workbenchStore().envVars).map(function (b) {
           return b.raw + ' \u2014 ' + b.reason;
         });
       },
@@ -1487,6 +1675,8 @@
             if (md.length) step.metadata = md;
             var mm = self.seqMaxMsgsValue(s.id);
             if (mm !== null) step.maxMessages = mm;
+            var as = self.collectAsserts(s.id);
+            if (as.length) step.assertions = as;
             return step;
           }),
         };
@@ -1571,6 +1761,12 @@
             [id]: (st.metadata || []).map(function (e) { return { key: e.key, value: e.value }; }),
           });
           self.seqMaxMsgs = Object.assign({}, self.seqMaxMsgs, { [id]: st.maxMessages == null ? '' : String(st.maxMessages) });
+          // 0.3.78 还原步骤断言
+          self.seqAsserts = Object.assign({}, self.seqAsserts, {
+            [id]: (st.assertions || []).map(function (a) {
+              return { path: a.path || '', op: a.op || 'eq', expected: a.expected == null ? '' : String(a.expected) };
+            }),
+          });
           if (mode === 'json') {
             self.jsonText = Object.assign({}, self.jsonText, { [id]: st.jsonText || '' });
             self.formValues = Object.assign({}, self.formValues, { [id]: m ? self.initFieldValues(m.requestFields) : {} });
@@ -1633,6 +1829,11 @@
             this.seqReport = rep;
             this.seqStopping = false; // 流步骤已收尾,解除「正在停止」
             break;
+          case 'stepAssertions':
+            rep = Object.assign({}, this.seqReport);
+            rep[ev.index] = Object.assign({}, rep[ev.index], { assertions: Array.isArray(ev.results) ? ev.results : [] });
+            this.seqReport = rep;
+            break;
           case 'stepFailed':
             rep = Object.assign({}, this.seqReport);
             rep[ev.index] = Object.assign({}, rep[ev.index], { status: 'error', error: ev.error || '' });
@@ -1662,9 +1863,70 @@
             error: r ? r.error : '',
             chunks: r ? r.chunks : [],
             dropped: r ? (r.dropped || 0) : 0,
+            assertions: r ? (r.assertions || []) : [],
             responseStream: s.responseStream,
           };
         });
+      },
+
+      // ---- 步骤断言(0.3.78):路径相对 {data | chunks/count, durationMs} ----
+
+      assertOps: function () {
+        return ASSERT_OPS;
+      },
+
+      assertNeedsExpected: function (op) {
+        return op !== 'exists' && op !== 'notExists';
+      },
+
+      getAsserts: function (id) {
+        return this.seqAsserts[id] || [];
+      },
+
+      addAssert: function (id) {
+        this.seqAsserts = Object.assign({}, this.seqAsserts, {
+          [id]: this.getAsserts(id).concat([{ path: 'data.', op: 'eq', expected: '' }]),
+        });
+      },
+
+      removeAssert: function (id, idx) {
+        this.seqAsserts = Object.assign({}, this.seqAsserts, {
+          [id]: this.getAsserts(id).filter(function (_a, i) { return i !== idx; }),
+        });
+      },
+
+      setAssertField: function (id, idx, field, value) {
+        this.seqAsserts = Object.assign({}, this.seqAsserts, {
+          [id]: this.getAsserts(id).map(function (a, i) {
+            if (i !== idx) return a;
+            var next = Object.assign({}, a);
+            next[field] = value;
+            return next;
+          }),
+        });
+      },
+
+      // 空路径丢弃;exists 类不带 expected
+      collectAsserts: function (id) {
+        var self = this;
+        return this.getAsserts(id)
+          .filter(function (a) { return (a.path || '').trim(); })
+          .map(function (a) {
+            var out = { path: a.path.trim(), op: a.op };
+            if (self.assertNeedsExpected(a.op)) out.expected = a.expected || '';
+            return out;
+          });
+      },
+
+      assertLine: function (r) {
+        var label = r.op;
+        for (var i = 0; i < ASSERT_OPS.length; i++) {
+          if (ASSERT_OPS[i].op === r.op) label = ASSERT_OPS[i].label;
+        }
+        var text = (r.ok ? '\u2713 ' : '\u2717 ') + r.path + ' ' + label + (r.expected != null ? ' ' + r.expected : '');
+        if (r.error) return text + '  \u2014 ' + r.error;
+        if (!r.ok) text += '  \u2014 ' + str('assertActual', { value: r.actual === undefined ? 'undefined' : JSON.stringify(r.actual) });
+        return text;
       },
 
       seqStepTitle: function (entry) {
@@ -1708,7 +1970,8 @@
         var text = this.seqReportEntries().map(function (e) {
           var head = self.seqStepTitle(e) + '  [' + e.status + (e.durationMs ? ' ' + e.durationMs + 'ms' : '') + ']';
           var body = e.responseStream ? self.seqChunkText(e.chunks) : e.body;
-          return head + '\n' + (body || e.error || '');
+          var asserts = e.assertions.map(function (a) { return self.assertLine(a); }).join('\n');
+          return head + (asserts ? '\n' + asserts : '') + '\n' + (body || e.error || '');
         }).join('\n\n');
         if (!text) return;
         navigator.clipboard.writeText(text);

@@ -113,6 +113,27 @@ test('一元链式:后步占位符吃到前步响应,依序完成', async () => 
   assert.equal(fake.unary.length, 2);
 });
 
+test('步骤断言:成功发 stepAssertions；失败断言中止序列且后步不跑', async () => {
+  const { fake, runner, events } = harness([svc('A', 'X', 'Y')], (_s, m) =>
+    m === 'X' ? ok({ id: 7 }) : ok({ done: true }),
+  );
+  await runner.run({
+    name: 's',
+    steps: [
+      {
+        service: 'A', method: 'X', mode: 'form', responseStream: false,
+        assertions: [{ path: 'data.id', op: 'eq', expected: '8' }],
+      },
+      { service: 'A', method: 'Y', mode: 'form', responseStream: false },
+    ],
+  });
+  const assertionEvent = events.find((e) => e.type === 'stepAssertions');
+  assert.ok(assertionEvent && assertionEvent.type === 'stepAssertions');
+  assert.equal(assertionEvent.results[0].ok, false);
+  assert.equal(fake.unary.length, 1, '断言失败后 Y 不运行');
+  assert.deepEqual(events[events.length - 1], { type: 'end', status: 'aborted' });
+});
+
 test('首个失败步即中止:一元 gRPC 错误 → aborted,后续不跑', async () => {
   const { fake, runner, events } = harness([svc('A', 'X', 'Y')], (_s, m) =>
     m === 'X' ? { status: 'error', error: 'UNAVAILABLE', durationMs: 1 } : ok({}),

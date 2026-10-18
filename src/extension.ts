@@ -217,27 +217,61 @@ class LazyWorkbench {
     // 命名序列持久化(0.3.59,ADR-0012):存工作区文件 .proto-utils/sequences.json;
     // 无工作区则不注入 store,序列存/载/删降级为不可用(运行仍可用)。
     const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // 环境与变量(0.3.78):.proto-utils/environments.json;服务器地址里的 {{var}} 在调用/探测前替换,
+    // session 的 getConfig 仍给原文(顶栏显示与编辑的是未替换地址)。
+    const environments = wsRoot ? new runner.Environments(wsRoot, this.context.workspaceState) : null;
+    await environments?.reload();
+    const runtimeConfig = () => {
+      const c = runner.resolveRunnerConfig(persistedServer);
+      return environments ? { ...c, server: runner.resolveVars(c.server, environments.vars()) as string } : c;
+    };
     const deps = {
       registry,
       // 配置经 getConfig 每次调用现读(0.3.44):server/protoDir/TLS/超时改动即时生效,
       // 服务列表与实际调用两条路径读同一份配置,不再出现「列表新目录、调用旧目录」的劈叉。
-      runner: new runner.GrpcCallRunner(() => runner.resolveRunnerConfig(persistedServer), registry),
+      runner: new runner.GrpcCallRunner(runtimeConfig, registry),
       getConfig: () => runner.resolveRunnerConfig(persistedServer),
       onLoadSettled: this.onLoadSettled,
       // 顶栏连接状态点(0.3.54):与调用路径读同一份现读配置(server+TLS),配置改动即时生效;
       // TLS 配置错会在此抛错,session 按不可达处理(状态点转红),精确错误仍由实际调用面报出。
       probeConnection: () => {
-        const cfg = runner.resolveRunnerConfig(persistedServer);
+        const cfg = runtimeConfig();
         return runner.probeServerConnectivity(cfg.server, runner.buildChannelCredentials(cfg.tls));
       },
       persistServer: (server: string) => {
         persistedServer = server;
         void this.context.workspaceState.update(SERVER_STATE_KEY, server);
       },
+      history: new runner.CallHistory(this.context.workspaceState),
       ...(wsRoot ? { store: new runner.SequenceStore(wsRoot) } : {}),
+      ...(environments
+        ? {
+            environments: {
+              snapshot: () => environments.snapshot(),
+              setActive: (name: string | null) => environments.setActive(name),
+              edit: async () => {
+                const file = await environments.ensureFile();
+                await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(file));
+              },
+            },
+          }
+        : {}),
     };
     this.invalidateRunnerCaches = () => registry.invalidate();
-    return new runner.WorkbenchPanelManager(deps, runner.createVscodePanelFactory(this.context.extensionUri, deps));
+    const manager = new runner.WorkbenchPanelManager(deps, runner.createVscodePanelFactory(this.context.extensionUri, deps));
+    if (environments && wsRoot) {
+      const envWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(wsRoot, '.proto-utils/environments.json'),
+      );
+      const onEnvChange = (): void => {
+        void environments.reload().then(() => manager.pushEnvironments());
+      };
+      envWatcher.onDidChange(onEnvChange);
+      envWatcher.onDidCreate(onEnvChange);
+      envWatcher.onDidDelete(onEnvChange);
+      this.context.subscriptions.push(envWatcher);
+    }
+    return manager;
   }
 }
 

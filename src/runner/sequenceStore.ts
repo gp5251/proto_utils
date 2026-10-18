@@ -24,6 +24,18 @@ export interface SequenceStep {
   metadata?: MetadataEntry[];
   /** 流步骤接收上限(0.3.64):收满自动结束该步并推进;缺省 100;0 = 不限。仅 responseStream 步有效。 */
   maxMessages?: number;
+  /** 步级断言(0.3.78):本步结束后逐条求值,任一失败 = 该步失败并中止序列。 */
+  assertions?: StepAssertion[];
+}
+
+export const ASSERT_OPS = ['eq', 'neq', 'contains', 'exists', 'notExists', 'lt', 'gt'] as const;
+export type AssertOp = (typeof ASSERT_OPS)[number];
+
+/** path 取值规则同占位符(一元 data.x / 流 chunks[0].data.x / count / durationMs);expected 可含 {{stepN}}/{{var}}。 */
+export interface StepAssertion {
+  path: string;
+  op: AssertOp;
+  expected?: string;
 }
 
 /** 一条命名调用序列。 */
@@ -47,7 +59,7 @@ export interface SequenceStoreFs {
   mkdir(dir: string): Promise<void>;
 }
 
-const realFs: SequenceStoreFs = {
+export const realFs: SequenceStoreFs = {
   readFile: (file) => readFile(file, 'utf8'),
   writeFile: (file, data) => writeFile(file, data, 'utf8'),
   mkdir: (dir) => mkdir(dir, { recursive: true }).then(() => undefined),
@@ -86,6 +98,16 @@ function normalizeStep(raw: unknown): SequenceStep | null {
   }
   if (typeof raw.maxMessages === 'number' && Number.isFinite(raw.maxMessages) && raw.maxMessages >= 0) {
     step.maxMessages = Math.floor(raw.maxMessages);
+  }
+  if (Array.isArray(raw.assertions)) {
+    const list: StepAssertion[] = [];
+    for (const a of raw.assertions) {
+      if (!isRecord(a) || typeof a.path !== 'string' || !(ASSERT_OPS as readonly unknown[]).includes(a.op)) continue;
+      const item: StepAssertion = { path: a.path, op: a.op as AssertOp };
+      if (typeof a.expected === 'string') item.expected = a.expected;
+      list.push(item);
+    }
+    if (list.length > 0) step.assertions = list;
   }
   return step;
 }
@@ -197,6 +219,6 @@ export class SequenceStore {
 }
 
 /** ENOENT 判定:缺失文件是正常空态,其余读错误上抛。 */
-function isNotFound(err: unknown): boolean {
+export function isNotFound(err: unknown): boolean {
   return isRecord(err) && (err as { code?: unknown }).code === 'ENOENT';
 }

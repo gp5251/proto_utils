@@ -1,7 +1,7 @@
 import * as grpc from '@grpc/grpc-js';
 import fs from 'node:fs';
 import { l10n } from 'vscode';
-import { CallOptions, CallResult, StreamHandlers, StreamHandle } from './types';
+import { CallOptions, CallResult, DuplexHandle, StreamHandlers, StreamHandle } from './types';
 import type { MetadataEntry, TlsSettings } from '../config';
 import type { ScanExcludes } from '../config';
 import { findProtoFileForService } from './protoLoader';
@@ -68,7 +68,12 @@ type UnaryCall = (
   cb: (err: unknown, res: unknown) => void,
 ) => grpc.ClientUnaryCall;
 type ServerStreamCall = (req: unknown, metadata: grpc.Metadata) => grpc.ClientReadableStream<unknown>;
-type ClientMethod = UnaryCall | ServerStreamCall;
+type ClientStreamCall = (
+  metadata: grpc.Metadata,
+  cb: (err: unknown, res: unknown) => void,
+) => grpc.ClientWritableStream<unknown>;
+type BidiCall = (metadata: grpc.Metadata) => grpc.ClientDuplexStream<unknown, unknown>;
+type ClientMethod = UnaryCall | ServerStreamCall | ClientStreamCall | BidiCall;
 
 interface StreamFlags {
   requestStream: boolean;
@@ -84,6 +89,7 @@ type ResolveOutcome =
     };
 
 const NOOP_STREAM_HANDLE: StreamHandle = { cancel: () => undefined };
+const NOOP_DUPLEX_HANDLE: DuplexHandle = { cancel: () => undefined, write: () => undefined, end: () => undefined };
 
 /** CallOptions.metadata → grpc.Metadata;无条目也给空实例,调用点签名保持固定。 */
 function buildGrpcMetadata(entries: MetadataEntry[] | undefined): grpc.Metadata {
@@ -142,12 +148,12 @@ export class GrpcClient {
       client = resolved.client;
       const { methodFn, streamFlags } = resolved;
 
-      // ADR-0007:client/bidi 流不做,撞上 requestStream 方法给明确错误
+      // client/bidi 流走 openDuplex(0.3.78,ADR-0013),一元入口撞上给明确错误
       if (streamFlags?.requestStream) {
         this.safeClose(client);
         return {
           status: 'error',
-          error: l10n.t('Method "{0}" uses client streaming; only unary and server-streaming calls are supported', options.method),
+          error: l10n.t('Method "{0}" uses client streaming; open a stream session to call it', options.method),
           durationMs: Date.now() - start,
         };
       }
@@ -235,7 +241,7 @@ export class GrpcClient {
 
     if (streamFlags?.requestStream) {
       this.safeClose(client);
-      handlers.onError(l10n.t('Method "{0}" uses client/bidi streaming; only unary and server-streaming calls are supported', options.method));
+      handlers.onError(l10n.t('Method "{0}" uses client/bidi streaming; open a stream session to call it', options.method));
       return NOOP_STREAM_HANDLE;
     }
     if (!streamFlags?.responseStream) {
@@ -254,6 +260,130 @@ export class GrpcClient {
       return NOOP_STREAM_HANDLE;
     }
 
+    return { cancel: this.wireReadable(stream, client, start, handlers) };
+  }
+
+  /**
+   * 0.3.78(ADR-0013):client-stream / bidi。返回写侧句柄,读侧事件语义同 callServerStream;
+   * client-stream 的单条响应经 onData 上报,随后 onTrailers → onEnd。不设总超时(同流式)。
+   */
+  openDuplex(
+    protoDir: string,
+    options: Omit<CallOptions, 'request'>,
+    handlers: StreamHandlers,
+  ): DuplexHandle {
+    const start = Date.now();
+
+    let resolved: ResolveOutcome;
+    try {
+      resolved = this.resolveCall(protoDir, options.service, options.method);
+    } catch (e: unknown) {
+      handlers.onError(formatGrpcError(e, this.address));
+      return NOOP_DUPLEX_HANDLE;
+    }
+    if ('error' in resolved) {
+      handlers.onError(resolved.error);
+      return NOOP_DUPLEX_HANDLE;
+    }
+
+    const { client, methodFn, streamFlags } = resolved;
+    if (!streamFlags?.requestStream) {
+      this.safeClose(client);
+      handlers.onError(l10n.t('Method "{0}" is not a client-streaming method', options.method));
+      return NOOP_DUPLEX_HANDLE;
+    }
+    const md = buildGrpcMetadata(options.metadata);
+
+    if (streamFlags.responseStream) {
+      let duplex: grpc.ClientDuplexStream<unknown, unknown>;
+      try {
+        duplex = (methodFn as BidiCall).call(client, md);
+      } catch (e: unknown) {
+        this.safeClose(client);
+        handlers.onError(formatGrpcError(e, this.address));
+        return NOOP_DUPLEX_HANDLE;
+      }
+      let ended = false;
+      let settled = false;
+      // 读侧收尾(自然结束/出错/取消)后禁止再写:包一层 handlers 捕获 onEnd/onError,不改共享的 wireReadable
+      const readHandlers: StreamHandlers = {
+        ...handlers,
+        onEnd: (durationMs: number) => { settled = true; handlers.onEnd(durationMs); },
+        onError: (message: string) => { settled = true; handlers.onError(message); },
+      };
+      return {
+        cancel: this.wireReadable(duplex, client, start, readHandlers),
+        write: (req) => {
+          if (!ended && !settled) duplex.write(req);
+        },
+        end: () => {
+          if (!ended && !settled) {
+            ended = true;
+            duplex.end();
+          }
+        },
+      };
+    }
+
+    let cancelled = false;
+    let settled = false;
+    let ended = false;
+    let call: grpc.ClientWritableStream<unknown>;
+    try {
+      // grpc-js:回调先于 'status' 事件触发;成功时回调只上报数据,等 status 带 trailers 再收尾
+      call = (methodFn as ClientStreamCall).call(client, md, (err: unknown, res: unknown) => {
+        if (settled) return;
+        if (err) {
+          settled = true;
+          this.safeClose(client);
+          const code = typeof err === 'object' && err !== null && 'code' in err ? err.code : undefined;
+          if (cancelled && code === grpc.status.CANCELLED) handlers.onEnd(Date.now() - start);
+          else handlers.onError(formatGrpcError(err, this.address));
+          return;
+        }
+        handlers.onData(res);
+      });
+    } catch (e: unknown) {
+      this.safeClose(client);
+      handlers.onError(formatGrpcError(e, this.address));
+      return NOOP_DUPLEX_HANDLE;
+    }
+    call.on('metadata', (m: grpc.Metadata) => {
+      if (!cancelled) handlers.onHeaders?.(metadataToEntries(m));
+    });
+    call.on('status', (s: grpc.StatusObject) => {
+      if (settled) return;
+      settled = true;
+      this.safeClose(client);
+      handlers.onTrailers?.(metadataToEntries(s.metadata));
+      handlers.onEnd(Date.now() - start);
+    });
+    return {
+      cancel: () => {
+        if (!settled) {
+          cancelled = true;
+          call.cancel();
+        }
+      },
+      write: (req) => {
+        if (!ended && !settled) call.write(req);
+      },
+      end: () => {
+        if (!ended && !settled) {
+          ended = true;
+          call.end();
+        }
+      },
+    };
+  }
+
+  /** 服务端流与 bidi 共用的读侧事件接线;返回 cancel。取消引发的 CANCELLED 按正常结束上报。 */
+  private wireReadable(
+    stream: grpc.ClientReadableStream<unknown> | grpc.ClientDuplexStream<unknown, unknown>,
+    client: Record<string, unknown>,
+    start: number,
+    handlers: StreamHandlers,
+  ): () => void {
     let cancelled = false;
     let settled = false;
     // 响应 headers 先于首个 data;trailers 随 status 事件在 end/error 之前到达
@@ -290,13 +420,11 @@ export class GrpcClient {
       handlers.onEnd(Date.now() - start);
     });
 
-    return {
-      cancel: () => {
-        if (!settled) {
-          cancelled = true;
-          stream.cancel();
-        }
-      },
+    return () => {
+      if (!settled) {
+        cancelled = true;
+        stream.cancel();
+      }
     };
   }
 

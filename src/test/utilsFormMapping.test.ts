@@ -1,6 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyJsonText, formValuesToJson, validateFormValues, validateJsonText } from '../runner/utils/formMapping';
+import {
+  applyJsonText,
+  formValuesToJson,
+  validateFormValues,
+  validateJsonText,
+  wktFromWire,
+  wktKind,
+  wktToWire,
+} from '../runner/utils/formMapping';
 import { FieldInfo } from '../runner/core/types';
 
 /**
@@ -260,4 +268,20 @@ test('validateFormValues:message textarea 必须是可解析 JSON(标量也算�
 
   assert.match(validateFormValues(extra, { blob: '!!not-base64!!' })[0], /blob/);
   assert.deepEqual(validateFormValues(extra, { blob: 'AQID' }), []);
+});
+
+test('WKT 输入助手:识别 Timestamp/Duration/wrapper 并与线上对象往返', () => {
+  const timestamp: FieldInfo = {
+    name: 'at', type: 'object', required: false, label: 'optional', protoType: 'TYPE_MESSAGE', refType: 'Timestamp',
+    nestedFields: [
+      { name: 'seconds', type: 'string', required: false, label: 'optional', protoType: 'TYPE_INT64' },
+      { name: 'nanos', type: 'number', required: false, label: 'optional', protoType: 'TYPE_INT32' },
+    ],
+  };
+  assert.equal(wktKind(timestamp), 'Timestamp');
+  assert.deepEqual(wktToWire('Timestamp', '2024-01-01T00:00:00.25Z'), { seconds: 1704067200, nanos: 250000000 });
+  assert.equal(wktFromWire('Timestamp', { seconds: 1704067200, nanos: 250000000 }), '2024-01-01T00:00:00.25Z');
+  assert.deepEqual(wktToWire('Duration', '-1.5s'), { seconds: -1, nanos: -500000000 });
+  assert.deepEqual(wktToWire('BoolValue', 'true'), { value: true });
+  assert.equal(wktToWire('BoolValue', 'yes'), undefined);
 });

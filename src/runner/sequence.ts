@@ -5,7 +5,8 @@ import type { MetadataEntry } from './config';
 import { DEFAULT_SEQ_STREAM_CHUNK_LIMIT } from './config';
 import { pushBounded } from './utils/resultTree';
 import type { Sequence, SequenceStep } from './sequenceStore';
-import { resolveDeep, PlaceholderError } from './utils/placeholder';
+import { resolveDeep, resolveVars, PlaceholderError } from './utils/placeholder';
+import { AssertionResult, evaluateAssertions } from './assertions';
 
 /**
  * 调用序列编排引擎(0.3.59,ADR-0012)。宿主侧,UI 无关:依序跑 steps,
@@ -35,14 +36,16 @@ export type SequenceEvent =
   | { type: 'stepStreamEnd'; index: number; ok: boolean; error?: string; chunkCount: number; durationMs: number }
   /** 发起前就失败(占位符取空/JSON 非法/意外抛错)。 */
   | { type: 'stepFailed'; index: number; error: string }
+  /** 0.3.78 步骤断言结果(步成功且配了断言才发);任一 ok=false 即中止。 */
+  | { type: 'stepAssertions'; index: number; results: AssertionResult[] }
   /** 整条结束:completed=全成功,aborted=某步失败中止,stopped=用户停止。 */
   | { type: 'end'; status: 'completed' | 'aborted' | 'stopped' };
 
 export interface SequenceRunnerDeps {
   runner: CallRunner;
   registry: Pick<ServiceRegistry, 'load'>;
-  /** 现读配置:protoDir 供运行前校验,metadata 作全局底(步级覆盖在其上合并)。 */
-  getConfig(): { protoDir: string; metadata: MetadataEntry[] };
+  /** 现读配置:protoDir 供运行前校验,metadata 作全局底(步级覆盖在其上合并);vars 为激活环境变量(0.3.78)。 */
+  getConfig(): { protoDir: string; metadata: MetadataEntry[]; vars?: Record<string, string> };
   onEvent(event: SequenceEvent): void;
 }
 
@@ -76,23 +79,31 @@ function stepMaxMessages(step: SequenceStep): number {
  * - form 模式:直接 resolveDeep(values)。
  * 解析失败(JSON 非法/占位符取空)抛错,由 run 循环捕获为该步失败。
  */
-function resolveStepValues(step: SequenceStep, outputs: Record<number, unknown>, index: number): Record<string, unknown> {
+function resolveStepValues(
+  step: SequenceStep,
+  outputs: Record<number, unknown>,
+  index: number,
+  vars: Record<string, string>,
+): Record<string, unknown> {
+  // 0.3.78 环境变量先替换,剩下的 {{...}} 才按 stepN 引用解析
   if (step.mode === 'json') {
     const text = (step.jsonText ?? '').trim();
     const parsed: unknown = text === '' ? {} : JSON5.parse(text);
-    const resolved = resolveDeep(parsed, outputs, index);
+    const resolved = resolveDeep(resolveVars(parsed, vars), outputs, index);
     if (resolved === null || typeof resolved !== 'object' || Array.isArray(resolved)) {
       throw new PlaceholderError('JSON 入参顶层必须是对象', '', '顶层非对象');
     }
     return resolved as Record<string, unknown>;
   }
-  const resolved = resolveDeep(step.values ?? {}, outputs, index);
+  const resolved = resolveDeep(resolveVars(step.values ?? {}, vars), outputs, index);
   return (resolved ?? {}) as Record<string, unknown>;
 }
 
 export class SequenceRunner {
   private stopped = false;
   private outputs: Record<number, unknown> = {};
+  /** 各步耗时(0.3.78,断言 durationMs 取值用);不进 outputs,占位符取值形态不变 */
+  private durations: Record<number, number> = {};
   /**
    * 进行中的流步骤句柄。endNow = 手动结束:立即把该步判成功并推进,
    * 不等传输层取消回执(真实 grpc 取消后 onEnd/onError 是否到达不可靠,
@@ -116,8 +127,10 @@ export class SequenceRunner {
   async run(seq: Sequence): Promise<void> {
     this.stopped = false;
     this.outputs = {};
+    this.durations = {};
     this.activeStream = null;
     const cfg = this.deps.getConfig();
+    const vars = cfg.vars ?? {};
 
     // 运行前整体校验:任一步方法失效则不启动(ADR/共识:跑一半才发现死方法太浪费)
     const { services } = await this.deps.registry.load(cfg.protoDir);
@@ -139,7 +152,7 @@ export class SequenceRunner {
 
       let values: Record<string, unknown>;
       try {
-        values = resolveStepValues(step, this.outputs, i);
+        values = resolveStepValues(step, this.outputs, i, vars);
       } catch (err) {
         this.deps.onEvent({ type: 'stepFailed', index: i, error: errText(err) });
         this.deps.onEvent({ type: 'end', status: 'aborted' });
@@ -157,7 +170,7 @@ export class SequenceRunner {
       });
 
       // 0.3.64 步级 metadata 覆盖全局(按 key 合并,步级优先)
-      const stepMeta = mergeMetadata(cfg.metadata, step.metadata);
+      const stepMeta = resolveVars(mergeMetadata(cfg.metadata, step.metadata), vars) as MetadataEntry[];
       const ok = step.responseStream
         ? await this.runStreamStep(i, step, values, stepMeta)
         : await this.runUnaryStep(i, step, values, stepMeta);
@@ -165,6 +178,14 @@ export class SequenceRunner {
       if (!ok) {
         this.deps.onEvent({ type: 'end', status: 'aborted' });
         return;
+      }
+      if (step.assertions?.length) {
+        const results = evaluateAssertions(step.assertions, this.outputs[i], this.durations[i] ?? 0, this.outputs, i, vars);
+        this.deps.onEvent({ type: 'stepAssertions', index: i, results });
+        if (results.some((r) => !r.ok)) {
+          this.deps.onEvent({ type: 'end', status: 'aborted' });
+          return;
+        }
       }
       if (this.stopped) break;
     }
@@ -184,6 +205,7 @@ export class SequenceRunner {
       this.deps.onEvent({ type: 'stepUnaryResult', index, payload });
       if (payload.result.status === 'ok') {
         this.outputs[index] = { data: payload.result.data };
+        this.durations[index] = payload.result.durationMs;
         return true;
       }
       return false;
@@ -217,6 +239,7 @@ export class SequenceRunner {
         if (settled) return;
         settled = true;
         this.activeStream = null;
+        this.durations[index] = Date.now() - startedAt;
         if (ok) {
           this.outputs[index] = { chunks: chunks.map((data) => ({ data })), dropped, count: chunks.length + dropped };
         }

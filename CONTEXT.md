@@ -29,7 +29,7 @@ _Avoid_: 解析器、AST、符号索引(旧 symbolIndex 的接替者,但不是�
 _Avoid_: 面板、页面、EJS 页面(旧实现,已废弃)
 
 **调用面(Call Plane)**:
-`src/runner/` 下从 schema 提取到发 RPC 的整条链路:ServiceRegistry(服务/字段提取)→ CallRunner(表单值→请求对象→调用)→ GrpcClient(grpc-js 通讯,一元 + 服务端流)。与编辑面(位置索引层、emitter)并列,共享语义前端。
+`src/runner/` 下从 schema 提取到发 RPC 的整条链路:ServiceRegistry(服务/字段提取)→ CallRunner(表单值→请求对象→调用)→ GrpcClient(grpc-js 通讯,一元 + 四种流方向)。与编辑面(位置索引层、emitter)并列,共享语义前端。
 _Avoid_: runner 服务、后端
 
 **调用序列(Sequence)**:

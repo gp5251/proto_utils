@@ -2,6 +2,10 @@ import * as vscode from 'vscode';
 import type { ServiceRegistry, ServicesPayload } from './serviceRegistry';
 import type { CallResultPayload, CallRunner } from './callHandler';
 import type { MetadataEntry, TlsSettings } from './config';
+import type { StreamHandlers } from './core/types';
+import type { EnvSnapshot } from './environments';
+import type { CallHistory, HistoryEntry } from './history';
+import { resolveVars } from './utils/placeholder';
 import { SequenceRunner, type SequenceEvent } from './sequence';
 import { parseSequence, type Sequence, type SequenceStore } from './sequenceStore';
 import { resolveRunnerConfig as resolveRunnerConfigPure, DEFAULT_CONN_PROBE_INTERVAL_MS } from './config';
@@ -32,7 +36,15 @@ export type WebviewToWorkbench =
   | { type: 'listSequences' }
   | { type: 'saveSequence'; sequence: Sequence }
   | { type: 'loadSequence'; name: string }
-  | { type: 'deleteSequence'; name: string };
+  | { type: 'deleteSequence'; name: string }
+  // ---- 0.3.78 环境 / grpcurl / client·bidi 流 ----
+  | { type: 'setEnvironment'; name: string | null }
+  | { type: 'editEnvironments' }
+  | { type: 'exportGrpcurl'; service: string; method: string; values: Record<string, unknown>; metadata?: MetadataEntry[] }
+  /** 打开 client-stream / bidi 会话(ADR-0013);结果复用 stream* 消息,取消复用 cancelStream */
+  | { type: 'streamOpen'; service: string; method: string; metadata?: MetadataEntry[] }
+  | { type: 'streamSend'; service: string; method: string; values: Record<string, unknown> }
+  | { type: 'streamHalfClose'; service: string; method: string };
 
 export type WorkbenchToWebview =
   | { type: 'loading' }
@@ -57,7 +69,11 @@ export type WorkbenchToWebview =
   /** 持久化/序列非法错误(损坏文件、无工作区、空名等)。 */
   | { type: 'sequenceStoreError'; message: string }
   /** 引擎逐步事件包一层转发:webview 按 event.type 路由到序列报告。 */
-  | { type: 'seqEvent'; event: SequenceEvent };
+  | { type: 'seqEvent'; event: SequenceEvent }
+  // ---- 0.3.78 ----
+  | ({ type: 'environments' } & EnvSnapshot)
+  | { type: 'history'; entries: HistoryEntry[] }
+  | { type: 'grpcurl'; service: string; method: string; command?: string; error?: string };
 
 /** 纯消息路由层与 vscode 之间的最小宿主面;onDispose 可注册多个监听器,测试用 fake 实现。 */
 export interface WorkbenchHost {
@@ -78,6 +94,15 @@ export interface WorkbenchSessionDeps {
   persistServer?(server: string): void;
   /** 0.3.59:命名序列持久化(ADR-0012);未注入(如无工作区)则存/载/删降级为不可用。 */
   store?: SequenceStore;
+  /** 0.3.78:环境与变量;未注入(无工作区)则不替换 {{var}}、不推 environments */
+  environments?: {
+    snapshot(): EnvSnapshot;
+    setActive(name: string | null): Promise<void>;
+    /** 打开(必要时先创建)环境文件 */
+    edit(): Promise<void>;
+  };
+  /** 0.3.78:请求历史;未注入则不记录 */
+  history?: Pick<CallHistory, 'list' | 'add'>;
 }
 
 interface CallTarget {
@@ -89,6 +114,11 @@ interface ActiveStream {
   cancel(): void;
   startedAt: number;
   active: boolean;
+  /** client-stream / bidi 写侧(0.3.78);服务端流无 */
+  send?(values: Record<string, unknown>): void;
+  halfClose?(): void;
+  /** 收尾时记历史(服务端流才有) */
+  record?(ok: boolean, durationMs: number): void;
 }
 
 function readCallTarget(message: object): CallTarget | null {
@@ -208,6 +238,17 @@ export class WorkbenchSession {
     await this.loadAndSend();
   }
 
+  /** 环境文件变更/切换后推最新快照(0.3.78)。 */
+  pushEnvironments(): void {
+    if (this.deps.environments) {
+      this.send({ type: 'environments', ...this.deps.environments.snapshot() });
+    }
+  }
+
+  private vars(): Record<string, string> {
+    return this.deps.environments?.snapshot().variables ?? {};
+  }
+
   async dispatch(message: unknown): Promise<void> {
     if (typeof message !== 'object' || message === null || !('type' in message)) {
       return;
@@ -215,6 +256,8 @@ export class WorkbenchSession {
     switch (message.type) {
       case 'ready': {
         this.webviewReady = true;
+        this.pushEnvironments();
+        if (this.deps.history) this.send({ type: 'history', entries: this.deps.history.list() });
         // prefill 由 loadAndSend 的 finally 统一冲出(见其注释),此处不重复
         await this.loadAndSend();
         return;
@@ -293,6 +336,58 @@ export class WorkbenchSession {
         if (typeof name === 'string') {
           await this.deleteSequence(name);
         }
+        return;
+      }
+      case 'setEnvironment': {
+        const name = (message as { name?: unknown }).name;
+        if (!this.deps.environments || (name !== null && typeof name !== 'string')) return;
+        await this.deps.environments.setActive(name);
+        this.pushEnvironments();
+        void this.probe(); // 服务器地址可能引用了变量
+        return;
+      }
+      case 'editEnvironments': {
+        try {
+          await this.deps.environments?.edit();
+        } catch (err) {
+          void vscode.window.showErrorMessage(vscode.l10n.t('Proto Utils: Failed to open environments file: {0}', errText(err)));
+        }
+        return;
+      }
+      case 'exportGrpcurl': {
+        const target = readCallTarget(message);
+        if (!target || !this.deps.runner.grpcurlCommand) return;
+        const vars = this.vars();
+        try {
+          const command = await this.deps.runner.grpcurlCommand(
+            target.service,
+            target.method,
+            resolveVars(readValues(message), vars) as Record<string, unknown>,
+            resolveVars(readMetadata(message), vars) as MetadataEntry[],
+          );
+          this.send({ type: 'grpcurl', ...target, command });
+        } catch (err) {
+          this.send({ type: 'grpcurl', ...target, error: errText(err) });
+        }
+        return;
+      }
+      case 'streamOpen': {
+        const target = readCallTarget(message);
+        if (target) this.openClientStream(target, readMetadata(message));
+        return;
+      }
+      case 'streamSend': {
+        const target = readCallTarget(message);
+        if (target) {
+          this.streams.get(`${target.service}.${target.method}`)?.send?.(
+            resolveVars(readValues(message), this.vars()) as Record<string, unknown>,
+          );
+        }
+        return;
+      }
+      case 'streamHalfClose': {
+        const target = readCallTarget(message);
+        if (target) this.streams.get(`${target.service}.${target.method}`)?.halfClose?.();
         return;
       }
     }
@@ -418,64 +513,98 @@ export class WorkbenchSession {
 
   private async runUnary(target: CallTarget, values: Record<string, unknown>, metadata: MetadataEntry[]): Promise<void> {
     const startedAt = Date.now();
+    const vars = this.vars();
     try {
-      const payload = await this.deps.runner.callUnary(target.service, target.method, values, metadata);
+      const payload = await this.deps.runner.callUnary(
+        target.service,
+        target.method,
+        resolveVars(values, vars) as Record<string, unknown>,
+        resolveVars(metadata, vars) as MetadataEntry[],
+      );
       this.send({ type: 'callResult', payload });
+      this.record(target, values, metadata, payload.result.status === 'ok', payload.result.durationMs);
     } catch (err) {
       this.send({ type: 'callResult', payload: toErrorPayload(target, err, Date.now() - startedAt) });
+      this.record(target, values, metadata, false, Date.now() - startedAt);
     }
   }
 
-  private runStream(target: CallTarget, values: Record<string, unknown>, metadata: MetadataEntry[]): void {
-    const key = `${target.service}.${target.method}`;
+  /** 记一条历史(存未替换变量的原文)并重推列表;写失败静默(历史是辅助功能,不打断调用)。 */
+  private record(target: CallTarget, values: Record<string, unknown>, metadata: MetadataEntry[], ok: boolean, durationMs: number): void {
+    const h = this.deps.history;
+    if (!h) return;
+    void h.add({ ...target, values, metadata, ts: Date.now(), ok, durationMs }).then(
+      (entries) => this.send({ type: 'history', entries }),
+      () => undefined,
+    );
+  }
+
+  /** 服务端流 / client·bidi 流共用的读侧转发;entry.active 关闭后一律丢弃。 */
+  private streamHandlers(target: CallTarget, key: string, entry: ActiveStream): StreamHandlers {
+    return {
+      onData: (data: unknown) => {
+        if (entry.active) {
+          this.send({ type: 'streamChunk', service: target.service, method: target.method, data });
+        }
+      },
+      onHeaders: (headers: MetadataEntry[]) => {
+        if (entry.active) {
+          this.send({ type: 'streamHeaders', service: target.service, method: target.method, headers });
+        }
+      },
+      onTrailers: (trailers: MetadataEntry[]) => {
+        if (entry.active) {
+          this.send({ type: 'streamTrailers', service: target.service, method: target.method, trailers });
+        }
+      },
+      onError: (message: string) => {
+        if (!entry.active) {
+          return;
+        }
+        entry.active = false;
+        this.streams.delete(key);
+        entry.record?.(false, Date.now() - entry.startedAt);
+        this.send({
+          type: 'callResult',
+          payload: toErrorPayload(target, message, Date.now() - entry.startedAt),
+        });
+      },
+      onEnd: (durationMs: number) => {
+        if (!entry.active) {
+          return;
+        }
+        entry.active = false;
+        this.streams.delete(key);
+        entry.record?.(true, durationMs);
+        this.send({ type: 'streamEnd', service: target.service, method: target.method, durationMs });
+      },
+    };
+  }
+
+  /** 同方法旧流先取消,再建新 entry(服务端流与 client·bidi 共用)。 */
+  private replaceStream(key: string): ActiveStream {
     const previous = this.streams.get(key);
     if (previous) {
       previous.active = false;
       previous.cancel();
       this.streams.delete(key);
     }
-    const entry: ActiveStream = {
-      cancel: () => undefined,
-      startedAt: Date.now(),
-      active: true,
-    };
+    return { cancel: () => undefined, startedAt: Date.now(), active: true };
+  }
+
+  private runStream(target: CallTarget, values: Record<string, unknown>, metadata: MetadataEntry[]): void {
+    const key = `${target.service}.${target.method}`;
+    const entry = this.replaceStream(key);
+    entry.record = (ok, durationMs) => this.record(target, values, metadata, ok, durationMs);
+    const vars = this.vars();
     try {
-      const handle = this.deps.runner.callServerStream(target.service, target.method, values, {
-        onData: (data: unknown) => {
-          if (entry.active) {
-            this.send({ type: 'streamChunk', service: target.service, method: target.method, data });
-          }
-        },
-        onHeaders: (headers: MetadataEntry[]) => {
-          if (entry.active) {
-            this.send({ type: 'streamHeaders', service: target.service, method: target.method, headers });
-          }
-        },
-        onTrailers: (trailers: MetadataEntry[]) => {
-          if (entry.active) {
-            this.send({ type: 'streamTrailers', service: target.service, method: target.method, trailers });
-          }
-        },
-        onError: (message: string) => {
-          if (!entry.active) {
-            return;
-          }
-          entry.active = false;
-          this.streams.delete(key);
-          this.send({
-            type: 'callResult',
-            payload: toErrorPayload(target, message, Date.now() - entry.startedAt),
-          });
-        },
-        onEnd: (durationMs: number) => {
-          if (!entry.active) {
-            return;
-          }
-          entry.active = false;
-          this.streams.delete(key);
-          this.send({ type: 'streamEnd', service: target.service, method: target.method, durationMs });
-        },
-      }, metadata);
+      const handle = this.deps.runner.callServerStream(
+        target.service,
+        target.method,
+        resolveVars(values, vars) as Record<string, unknown>,
+        this.streamHandlers(target, key, entry),
+        resolveVars(metadata, vars) as MetadataEntry[],
+      );
       entry.cancel = () => {
         handle.cancel();
       };
@@ -488,6 +617,30 @@ export class WorkbenchSession {
     }
   }
 
+  /** 0.3.78(ADR-0013):client-stream / bidi 会话;消息由 streamSend 逐条写入,不进历史。 */
+  private openClientStream(target: CallTarget, metadata: MetadataEntry[]): void {
+    const key = `${target.service}.${target.method}`;
+    const entry = this.replaceStream(key);
+    if (!this.deps.runner.openClientStream) {
+      this.send({ type: 'callResult', payload: toErrorPayload(target, 'client streaming unavailable', 0) });
+      return;
+    }
+    try {
+      const handle = this.deps.runner.openClientStream(
+        target.service,
+        target.method,
+        this.streamHandlers(target, key, entry),
+        resolveVars(metadata, this.vars()) as MetadataEntry[],
+      );
+      entry.cancel = () => handle.cancel();
+      entry.send = (values) => handle.send(values);
+      entry.halfClose = () => handle.halfClose();
+      this.streams.set(key, entry);
+    } catch (err) {
+      this.send({ type: 'callResult', payload: toErrorPayload(target, err, Date.now() - entry.startedAt) });
+    }
+  }
+
   private cancelStream(target: CallTarget): void {
     const key = `${target.service}.${target.method}`;
     const entry = this.streams.get(key);
@@ -497,6 +650,7 @@ export class WorkbenchSession {
     entry.active = false;
     this.streams.delete(key);
     entry.cancel();
+    entry.record?.(true, Date.now() - entry.startedAt);
     this.send({
       type: 'streamEnd',
       service: target.service,
@@ -520,10 +674,10 @@ export class WorkbenchSession {
     const engine = new SequenceRunner({
       runner: this.deps.runner,
       registry: this.deps.registry,
-      // 只透传引擎所需的两项(0.3.70 前还传 connProbeIntervalMs,引擎不用)
+      // 只透传引擎所需项(0.3.70 前还传 connProbeIntervalMs,引擎不用);0.3.78 加环境变量
       getConfig: () => {
         const c = this.deps.getConfig();
-        return { protoDir: c.protoDir, metadata: c.metadata };
+        return { protoDir: c.protoDir, metadata: c.metadata, vars: this.vars() };
       },
       onEvent: (event) => {
         this.send({ type: 'seqEvent', event });
@@ -693,6 +847,11 @@ export class WorkbenchPanelManager {
   /** runner.* 配置改动入口(0.3.70):面板开着就推 config;protoDir/excludes 变动由调用方另行 reload。 */
   pushConfig(): void {
     this.active?.session.notifyConfigChanged();
+  }
+
+  /** 环境文件变更入口(0.3.78)。 */
+  pushEnvironments(): void {
+    this.active?.session.pushEnvironments();
   }
 }
 

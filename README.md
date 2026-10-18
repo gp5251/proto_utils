@@ -13,8 +13,8 @@ Zero external dependencies — no need to install `protoc`, `buf`, or any CLI to
 | 🔍 **Go-to-Definition & Hover** | Type navigation within same file / imports / package namespace; hover shows type summary and leading comments |
 | 🧭 **Outline Navigation** | `message` / `enum` / `service` / rpc methods all appear in Outline and Symbol Search |
 | 🏗 **TS Type Generation** | `message` / `enum` / `repeated` / `map` / `oneof` → TypeScript; `service` → `<Name>Client` interface (all 4 streaming directions) |
-| 📞 **RPC Workbench** | Auto-generated request forms from schema; invoke unary / server-streaming gRPC methods; collapsible response tree |
-| 🔁 **Call Sequences** | Chain multiple rpc methods in sequence; later steps can reference earlier responses via `{{stepN.path}}` (data pipeline); named sequences persist to workspace |
+| 📞 **RPC Workbench** | Schema-driven forms; all four gRPC call directions; environments, history, grpcurl export, and collapsible response tree |
+| 🔁 **Call Sequences** | Chain rpc methods with `{{stepN.path}}` / environment variables and step assertions; named sequences persist to workspace |
 | 🩺 **Live Diagnostics** | Inline syntax errors, missing types and duplicate names highlighted at reference sites; one-click import fix |
 
 ## Screenshots
@@ -61,8 +61,9 @@ Workbench colors automatically follow VS Code light/dark theme (GitHub Dark for 
 - Auto-generates TypeScript `import type` from cross-file type references (`.ts` suffix by default; same-name types across modules get deterministic aliases)
 - Single-file or batch generation for all protos
 - "▶ Call" CodeLens above rpc methods opens the RPC Workbench with method pre-selected
-- RPC Workbench: auto-generated request forms from proto schema; unary and server-streaming calls; responses shown in collapsible JSON tree (nested objects/arrays expand level by level)
-- Call Sequences: chain methods for sequential execution, aborting on first failure; later steps can use `{{stepN.path}}` to reference earlier responses (preserving JSON types for whole values, string interpolation when embedded; server streams support `chunks[i]`); stream steps can be manually ended to continue; named sequences persist to `.proto-utils/sequences.json` for save/load/delete
+- RPC Workbench: schema-driven request forms with Timestamp/Duration/wrapper helpers; unary, server-streaming, client-streaming, and bidi calls; responses shown in a collapsible JSON tree; request history and Copy as grpcurl
+- Environments: switch variable sets from `.proto-utils/environments.json`; use `{{name}}` in the server address, request fields, and Headers (keep secrets out of version control)
+- Call Sequences: chain methods for sequential execution, aborting on call or assertion failure; later steps can use `{{stepN.path}}` and environment variables; server streams support `chunks[i]`; named sequences persist to `.proto-utils/sequences.json` for save/load/delete
 - Diagnostics on `.proto` save or workbench load: syntax errors highlighted inline (narrowed to the offending token), missing types / duplicates flagged at reference and declaration sites; workbench error cards show red squiggles at error points
 
 ## Usage

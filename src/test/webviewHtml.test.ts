@@ -355,3 +355,22 @@ test('0.3.70 UX 锚点:流错误横幅、原始 JSON 切换、表单重置、实
   assert.ok(html.includes("'search-hit': seg.hit"), '缺高亮样式类绑定');
   assert.ok(html.includes('collapseAllServices()'), '缺全部收起服务入口');
 });
+
+test('0.3.78 P0/P1 UI 锚点:环境、历史、grpcurl、WKT、断言与 client/bidi 会话', () => {
+  const html = render();
+  for (const anchor of [
+    "setEnvironment($event.target.value)",
+    'editEnvironments()',
+    'historyFor(svcId(svc), m.name)',
+    'restoreHistory(svcId(svc), m.name, m, he)',
+    'copyGrpcurl(svcId(svc), m.name, m)',
+    'wktPlaceholder(row.wkt)',
+    'setTimestampNow(methodKey(svcId(svc), m.name), row.path)',
+    'addAssert(step.id)',
+    'entry.assertions',
+    'openDuplex(svcId(svc), m.name)',
+    'halfCloseDuplex(svcId(svc), m.name)',
+  ]) assert.ok(html.includes(anchor), `缺 UI 锚点: ${anchor}`);
+  assert.ok(html.includes("m.responseStream || m.requestStream"), 'client/bidi 响应须复用流结果区');
+  assert.ok(!html.includes('Client-streaming and bidi-streaming methods are not supported yet'), '旧的不支持提示必须移除');
+});

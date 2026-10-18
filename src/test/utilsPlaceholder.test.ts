@@ -5,6 +5,7 @@ import {
   resolveString,
   resolveDeep,
   findInvalidRefs,
+  resolveVars,
   PlaceholderError,
 } from '../runner/utils/placeholder';
 
@@ -109,6 +110,16 @@ test('findInvalidRefs:标出前向/自引用与结构非法,放过合法前序�
 
 test('findInvalidRefs:路径能否取到值属运行时,静态不判', () => {
   assert.deepEqual(findInvalidRefs('{{step0.deep.missing}}', 1), []);
+});
+
+test('resolveVars:深度替换环境变量，保留未知变量与 step 占位符', () => {
+  assert.deepEqual(
+    resolveVars({ server: '{{host}}', headers: ['Bearer {{token}}'], step: '{{step0.data.id}}', miss: '{{unknown}}' }, {
+      host: 'localhost:50051', token: 'abc',
+    }),
+    { server: 'localhost:50051', headers: ['Bearer abc'], step: '{{step0.data.id}}', miss: '{{unknown}}' },
+  );
+  assert.deepEqual(findInvalidRefs('{{host}} {{oops}}', 0, { host: 'x' }).map((b) => b.raw), ['{{oops}}']);
 });
 
 // ---- resolveDeep:深度遍历 ----

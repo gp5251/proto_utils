@@ -1,9 +1,12 @@
-import { CallOptions, CallResult, FieldInfo, StreamHandlers } from './core/types';
+import { CallOptions, CallResult, DuplexHandle, FieldInfo, StreamHandlers } from './core/types';
 import { GrpcClient, buildChannelCredentials } from './core/grpcClient';
+import { findProtoFileForService } from './core/protoLoader';
 import { ServiceRegistry, SerializedMethod } from './serviceRegistry';
 import { buildRequestFromValues } from './utils/formParser';
+import { buildGrpcurlCommand } from './utils/grpcurl';
 import type { MetadataEntry, TlsSettings } from './config';
 import JSON5 from 'json5';
+import path from 'node:path';
 
 export type { StreamHandlers, StreamHandle } from './core/types';
 
@@ -15,6 +18,8 @@ export interface GrpcTransport {
     options: CallOptions,
     handlers: StreamHandlers,
   ): { cancel(): void };
+  /** 0.3.78(ADR-0013):client-stream / bidi;测试替身可不实现 */
+  openDuplex?(protoDir: string, options: Omit<CallOptions, 'request'>, handlers: StreamHandlers): DuplexHandle;
 }
 
 /** 调用面运行时配置快照:getConfig() 每次调用前现读。 */
@@ -61,6 +66,26 @@ export interface CallRunner {
     handlers: StreamHandlers,
     metadata?: MetadataEntry[],
   ): { cancel(): void };
+  /** 0.3.78(ADR-0013):打开 client-stream / bidi 会话;send 的 values 与 callUnary 同形态 */
+  openClientStream?(
+    service: string,
+    method: string,
+    handlers: StreamHandlers,
+    metadata?: MetadataEntry[],
+  ): ClientStreamHandle;
+  /** 0.3.78:生成等价 grpcurl 命令(values/metadata 须已替换环境变量) */
+  grpcurlCommand?(
+    service: string,
+    method: string,
+    values: Record<string, unknown>,
+    metadata?: MetadataEntry[],
+  ): Promise<string>;
+}
+
+export interface ClientStreamHandle {
+  send(values: Record<string, unknown>): void;
+  halfClose(): void;
+  cancel(): void;
 }
 
 /** routes/call.ts JSON 分支:有 schema 走字段解析;无 schema 时兜底 _raw JSON。 */
@@ -163,9 +188,81 @@ export class GrpcCallRunner implements CallRunner {
   }
 
   private async findMethod(protoDir: string, service: string, method: string): Promise<SerializedMethod | null> {
+    return (await this.findTarget(protoDir, service, method)).method;
+  }
+
+  private async findTarget(
+    protoDir: string,
+    service: string,
+    method: string,
+  ): Promise<{ fullName: string | null; method: SerializedMethod | null }> {
     const { services } = await this.registry.load(protoDir);
     // CodeLens 发全限定名(pkg.Service),工作台下拉发裸名——两者都认
     const svc = services.find(s => s.name === service || s.fullName === service);
-    return svc?.methods.find(item => item.name === method) ?? null;
+    return { fullName: svc?.fullName ?? null, method: svc?.methods.find(item => item.name === method) ?? null };
+  }
+
+  openClientStream(
+    service: string,
+    method: string,
+    handlers: StreamHandlers,
+    metadata?: MetadataEntry[],
+  ): ClientStreamHandle {
+    const cfg = this.getConfig();
+    const client = this.clientFactory(cfg);
+    // findMethod 就绪前的 send/halfClose 排队,就绪后按序冲刷
+    type Op = (h: DuplexHandle, fields: FieldInfo[]) => void;
+    const pending: Op[] = [];
+    let handle: DuplexHandle | null = null;
+    let fields: FieldInfo[] = [];
+    let cancelled = false;
+    const run = (op: Op): void => {
+      if (handle) op(handle, fields);
+      else pending.push(op);
+    };
+
+    void this.findMethod(cfg.protoDir, service, method).then(m => {
+      if (cancelled) return;
+      if (!client.openDuplex) throw new Error('transport does not support client streaming');
+      fields = m?.requestFields ?? [];
+      const h = client.openDuplex(cfg.protoDir, { service, method, metadata }, handlers);
+      handle = h;
+      for (const op of pending.splice(0)) op(h, fields);
+    }).catch((err: unknown) => {
+      handlers.onError(err instanceof Error ? err.message : String(err));
+    });
+
+    return {
+      send: values => run((h, f) => h.write(buildRequestObject(f, values))),
+      halfClose: () => run(h => h.end()),
+      cancel: () => {
+        cancelled = true;
+        handle?.cancel();
+      },
+    };
+  }
+
+  async grpcurlCommand(
+    service: string,
+    method: string,
+    values: Record<string, unknown>,
+    metadata?: MetadataEntry[],
+  ): Promise<string> {
+    const cfg = this.getConfig();
+    const t = await this.findTarget(cfg.protoDir, service, method);
+    const fullName = t.fullName ?? service;
+    const protoFile = findProtoFileForService(cfg.protoDir, fullName, this.registry.scanExcludes);
+    const streaming = !!(t.method?.requestStream || t.method?.responseStream);
+    return buildGrpcurlCommand({
+      server: cfg.server,
+      serviceFullName: fullName,
+      method,
+      request: buildRequestObject(t.method?.requestFields ?? [], values),
+      metadata,
+      tls: cfg.tls,
+      timeoutMs: streaming ? 0 : cfg.timeoutMs,
+      protoDir: cfg.protoDir,
+      protoFile: protoFile ? path.relative(cfg.protoDir, protoFile).split(path.sep).join('/') : undefined,
+    });
   }
 }

@@ -83,7 +83,6 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     noParams: l10n.t('(no parameters)'),
     send: l10n.t('Send'),
     sending: l10n.t('Sending...'),
-    unsupportedStream: l10n.t('Client-streaming and bidi-streaming methods are not supported yet'),
     success: l10n.t('Success'),
     failed: l10n.t('Failed'),
     receiving: l10n.t('Receiving…'),
@@ -128,6 +127,21 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     seqStepsTab: l10n.t('Steps'),
     seqReportTab: l10n.t('Run report'),
     seqReportEmpty: l10n.t('Not run yet. Results appear here step by step after clicking Run sequence.'),
+    // ---- 0.3.78:环境/历史/grpcurl/WKT/断言/client·bidi 流 ----
+    envNone: l10n.t('No environment'),
+    envSelectTitle: l10n.t('Active environment'),
+    envEdit: l10n.t('Edit environments'),
+    copyGrpcurl: l10n.t('Copy as grpcurl'),
+    historyTitle: l10n.t('History'),
+    historyRestore: l10n.t('Restore'),
+    duplexOpen: l10n.t('Open stream'),
+    duplexSend: l10n.t('Send message'),
+    duplexHalfClose: l10n.t('End sending'),
+    timestampNow: l10n.t('Now'),
+    assertTitle: l10n.t('Assertions (failure aborts the sequence)'),
+    addAssert: l10n.t('Add assertion'),
+    assertPathPlaceholder: l10n.t('Path, e.g. data.id / count / durationMs'),
+    assertExpectedPlaceholder: l10n.t('Expected value'),
   };
   const strings = {
     copy: l10n.t('Copy'),
@@ -160,6 +174,17 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     seqCompleted: l10n.t('Sequence completed'),
     seqAborted: l10n.t('Sequence aborted at a failed step'),
     seqStopped: l10n.t('Sequence stopped'),
+    // 0.3.78 动态文案(runner.js STRING_DEFAULTS 同键英文兜底)
+    envFileError: l10n.t('environments.json: {error}'),
+    grpcurlCopied: l10n.t('grpcurl command copied'),
+    grpcurlFailed: l10n.t('Copy as grpcurl failed: {error}'),
+    historyRestored: l10n.t('Restored from history'),
+    duplexSent: l10n.t('{count} sent'),
+    assertActual: l10n.t('actual: {value}'),
+    wktTimestamp: l10n.t('RFC 3339, e.g. 2024-01-01T00:00:00Z'),
+    wktDuration: l10n.t('e.g. 1.5s'),
+    wktBool: l10n.t('true / false'),
+    wktValue: l10n.t('Value (empty = unset)'),
   };
   const boot = {
     server: options.server,
@@ -213,6 +238,18 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
         <!-- 0.3.54:状态点绑定真实连通性(connState 由 host 探测推送;unknown=灰/ok=绿/fail=红) -->
         <!-- 0.3.75:地址可点击原地编辑(Enter/失焦确认、Esc 取消),确认经 setServer 消息持久化;赋值全走组件方法(@alpinejs/csp) -->
         <span><span class="dot" :class="$store.workbench.connState"></span><span class="server-addr" role="button" tabindex="0" title="${S.serverEditHint}" x-show="!editingServer" x-text="$store.workbench.server" @click="startEditServer()" @keydown.enter="startEditServer()"></span><input class="server-edit" type="text" spellcheck="false" autocomplete="off" x-show="editingServer" x-ref="serverInput" x-model="serverDraft" @keydown.enter="commitEditServer()" @keydown.escape="cancelEditServer()" @blur="commitEditServer()"><span class="conn-hint" x-show="$store.workbench.connState === 'fail'" x-text="$store.str.connUnreachable"></span></span>
+        <!-- 0.3.78 环境切换:无工作区时宿主不推快照,整块隐藏;地址含 {{var}} 时旁显替换结果 -->
+        <span class="env-picker" x-show="$store.workbench.envSupported">
+          <span class="server-resolved" x-show="resolvedServerText()" x-text="resolvedServerText()"></span>
+          <select class="env-select" title="${S.envSelectTitle}" @change="setEnvironment($event.target.value)">
+            <option value="" :selected="!$store.workbench.envActive">${S.envNone}</option>
+            <template x-for="n in $store.workbench.envNames" :key="n">
+              <option :value="n" :selected="$store.workbench.envActive === n" x-text="n"></option>
+            </template>
+          </select>
+          <button type="button" class="btn btn-secondary btn-xs" @click="editEnvironments()">${S.envEdit}</button>
+          <span class="env-error" x-show="envErrorText()" x-text="envErrorText()"></span>
+        </span>
         <!-- 0.3.76 刷新服务按钮移除:探测由打开首探/编辑地址后静默探/周期复探三路覆盖;「刷新 proto」保留 invalidate+重解析 -->
         <button type="button" class="btn btn-secondary btn-xs" :disabled="$store.workbench.refreshing" @click="refresh()">
           <span x-show="!$store.workbench.refreshing">${S.refresh}</span>
@@ -294,7 +331,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                   >${COPY_ICON_SVG}</span>
                   <span x-show="isMethodCopied(svcId(svc), m.name)" class="copy-badge">${S.copiedBadge}</span>
                 </span>
-                <span x-show="m.responseStream" class="method-stream-badge">stream</span>
+                <span x-show="m.responseStream && !m.requestStream" class="method-stream-badge">stream</span>
+                <span x-show="m.requestStream" class="method-stream-badge" x-text="m.responseStream ? 'bidi' : 'client stream'"></span>
                 <button
                   type="button"
                   class="btn btn-secondary btn-xs seq-add"
@@ -340,6 +378,23 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                         >×</button>
                       </div>
                     </template>
+                  </div>
+                  <!-- 0.3.78 请求历史:按 service+method 过滤,点「恢复」回填入参与 headers -->
+                  <div class="resp-meta history-block" x-show="historyFor(svcId(svc), m.name).length > 0">
+                    <div class="resp-meta-toggle" @click="toggleHistory(methodKey(svcId(svc), m.name))">
+                      <span class="collapse-icon" x-text="isHistoryOpen(methodKey(svcId(svc), m.name)) ? '▼' : '▶'"></span>
+                      <span>${S.historyTitle}</span>
+                      <span class="resp-meta-count" x-text="historyFor(svcId(svc), m.name).length"></span>
+                    </div>
+                    <div x-show="isHistoryOpen(methodKey(svcId(svc), m.name))" class="resp-meta-body">
+                      <template x-for="(he, heIdx) in historyFor(svcId(svc), m.name)" :key="he.ts + '-' + heIdx">
+                        <div class="history-row">
+                          <span :class="he.ok ? 'result-ok' : 'result-err'" x-text="he.ok ? '✓' : '✗'"></span>
+                          <span class="history-time" x-text="historyLabel(he)"></span>
+                          <button type="button" class="btn btn-secondary btn-xs" @click="restoreHistory(svcId(svc), m.name, m, he)">${S.historyRestore}</button>
+                        </div>
+                      </template>
+                    </div>
                   </div>
                   <div class="method-schema">
                     <div class="method-schema-block">
@@ -519,12 +574,24 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                               placeholder="${S.enumPlaceholder}"
                             >
                           </template>
-                          <template x-if="row.field.protoType === 'TYPE_MESSAGE'">
+                          <template x-if="row.field.protoType === 'TYPE_MESSAGE' && !row.wkt">
                             <textarea
                               :value="getFieldValue(methodKey(svcId(svc), m.name), row.path)"
                               @input="setFieldValue(methodKey(svcId(svc), m.name), row.path, $event.target.value)"
                               placeholder='{ "key": "value" }'
                             ></textarea>
+                          </template>
+                          <!-- 0.3.78 Timestamp/Duration/wrappers:单行文本,Timestamp 附「现在」一键填入 -->
+                          <template x-if="row.wkt">
+                            <span class="wkt-input">
+                              <input
+                                type="text"
+                                :value="getFieldValue(methodKey(svcId(svc), m.name), row.path)"
+                                @input="setFieldValue(methodKey(svcId(svc), m.name), row.path, $event.target.value)"
+                                :placeholder="wktPlaceholder(row.wkt)"
+                              >
+                              <button type="button" class="btn btn-secondary btn-xs" x-show="row.wkt === 'Timestamp'" @click="setTimestampNow(methodKey(svcId(svc), m.name), row.path)">${S.timestampNow}</button>
+                            </span>
                           </template>
                           <template x-if="row.field.protoType === 'TYPE_BYTES'">
                             <input
@@ -598,21 +665,31 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                       <button
                         type="button"
                         class="btn"
+                        x-show="!m.requestStream"
                         :disabled="isLoading(svcId(svc), m.name) || m.requestStream || $store.workbench.connState === 'fail'"
                         @click="sendFromEditor(svcId(svc), m.name, m)"
                       >
                         <span x-show="!isLoading(svcId(svc), m.name)">${S.send}</span>
                         <span x-show="isLoading(svcId(svc), m.name)">${S.sending}</span>
                       </button>
+                      <!-- 0.3.78(ADR-0013):client/bidi 流会话——打开 → 逐条发送当前表单 → 结束发送;取消在结果区 -->
+                      <template x-if="m.requestStream">
+                        <span class="duplex-controls">
+                          <button type="button" class="btn" :disabled="streamIsLive(svcId(svc), m.name) || $store.workbench.connState === 'fail'" @click="openDuplex(svcId(svc), m.name)">${S.duplexOpen}</button>
+                          <button type="button" class="btn btn-secondary" :disabled="!duplexCanSend(svcId(svc), m.name)" @click="sendFromEditor(svcId(svc), m.name, m)">${S.duplexSend}</button>
+                          <button type="button" class="btn btn-secondary" :disabled="!duplexCanSend(svcId(svc), m.name)" @click="halfCloseDuplex(svcId(svc), m.name)">${S.duplexHalfClose}</button>
+                          <span class="elapsed-hint" x-text="duplexSentText(svcId(svc), m.name)"></span>
+                        </span>
+                      </template>
+                      <button type="button" class="btn btn-secondary" @click="copyGrpcurl(svcId(svc), m.name, m)">${S.copyGrpcurl}</button>
                       <!-- 0.3.70:在途实时计时(重置按钮已移至上方 表单/JSON 行右侧) -->
                       <span class="elapsed-hint" x-show="isLoading(svcId(svc), m.name)" x-text="elapsedText(methodKey(svcId(svc), m.name))"></span>
-                      <p x-show="m.requestStream" class="unsupported-hint">${S.unsupportedStream}</p>
                       <!-- 0.3.54:探测不可达时禁发并就地提示;unknown(探测中)不拦,可达服务不吃 1.5s 探测闪断 -->
                       <p x-show="$store.workbench.connState === 'fail'" class="unsupported-hint" x-text="$store.str.svcUnavailable"></p>
                     </div>
                   </form>
 
-                  <template x-if="!m.responseStream">
+                  <template x-if="!m.responseStream && !m.requestStream">
                     <div
                       x-show="getResult(svcId(svc), m.name)"
                       class="result-section"
@@ -694,7 +771,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                     </div>
                   </template>
 
-                  <template x-if="m.responseStream">
+                  <template x-if="m.responseStream || m.requestStream">
                     <div
                       x-show="getStream(svcId(svc), m.name) || getResult(svcId(svc), m.name)"
                       class="result-section"
@@ -949,8 +1026,14 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                       <template x-if="row.field.protoType === 'TYPE_ENUM' && (!row.field.enumValues || row.field.enumValues.length === 0)">
                         <input type="text" :value="getFieldValue(step.id, row.path)" @input="setFieldValue(step.id, row.path, $event.target.value)" placeholder="${S.enumPlaceholder}">
                       </template>
-                      <template x-if="row.field.protoType === 'TYPE_MESSAGE'">
+                      <template x-if="row.field.protoType === 'TYPE_MESSAGE' && !row.wkt">
                         <textarea :value="getFieldValue(step.id, row.path)" @input="setFieldValue(step.id, row.path, $event.target.value)" placeholder='{ "key": "value" }'></textarea>
+                      </template>
+                      <template x-if="row.wkt">
+                        <span class="wkt-input">
+                          <input type="text" :value="getFieldValue(step.id, row.path)" @input="setFieldValue(step.id, row.path, $event.target.value)" :placeholder="wktPlaceholder(row.wkt)">
+                          <button type="button" class="btn btn-secondary btn-xs" x-show="row.wkt === 'Timestamp'" @click="setTimestampNow(step.id, row.path)">${S.timestampNow}</button>
+                        </span>
                       </template>
                       <template x-if="row.field.protoType === 'TYPE_BYTES'">
                         <input type="text" :value="getFieldValue(step.id, row.path)" @input="setFieldValue(step.id, row.path, $event.target.value)" placeholder="${S.bytesHint}" title="${S.bytesHint}">
@@ -989,6 +1072,26 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                   @input="setSeqMaxMsgs(step.id, $event.target.value)"
                   placeholder="100"
                 >
+              </div>
+
+              <!-- 0.3.78 步骤断言:路径相对 {data | chunks/count, durationMs};期望值可用 {{var}} / {{steps[i]...}} -->
+              <div class="headers-editor seq-asserts">
+                <div class="headers-editor-head">
+                  <span class="headers-title">${S.assertTitle}</span>
+                  <button type="button" class="btn btn-secondary btn-xs" @click="addAssert(step.id)">${S.addAssert}</button>
+                </div>
+                <template x-for="(a, aIdx) in getAsserts(step.id)" :key="aIdx">
+                  <div class="header-row">
+                    <input type="text" class="header-key" :value="a.path" @input="setAssertField(step.id, aIdx, 'path', $event.target.value)" placeholder="${S.assertPathPlaceholder}" autocomplete="off">
+                    <select class="assert-op" @change="setAssertField(step.id, aIdx, 'op', $event.target.value)">
+                      <template x-for="o in assertOps()" :key="o.op">
+                        <option :value="o.op" :selected="a.op === o.op" x-text="o.label"></option>
+                      </template>
+                    </select>
+                    <input type="text" class="header-value" x-show="assertNeedsExpected(a.op)" :value="a.expected" @input="setAssertField(step.id, aIdx, 'expected', $event.target.value)" placeholder="${S.assertExpectedPlaceholder}" autocomplete="off">
+                    <button type="button" class="btn btn-secondary btn-xs header-remove" @click="removeAssert(step.id, aIdx)">×</button>
+                  </div>
+                </template>
               </div>
             </div>
           </template>
@@ -1029,6 +1132,11 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                   @click="endSeqStream()"
                 >${S.seqEndStream}</button>
               </div>
+            </div>
+            <div class="seq-assert-results" x-show="entry.assertions.length > 0">
+              <template x-for="(ar, arIdx) in entry.assertions" :key="arIdx">
+                <div :class="ar.ok ? 'assert-pass' : 'assert-fail'" x-text="assertLine(ar)"></div>
+              </template>
             </div>
             <pre class="result-body seq-report-body" x-show="!entry.responseStream && entry.body" x-text="entry.body"></pre>
             <pre class="result-body seq-report-body" x-show="entry.responseStream && entry.chunks.length > 0" x-text="seqChunkText(entry.chunks)"></pre>

@@ -33,6 +33,75 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
+// ---- WKT 输入助手(0.3.78):Timestamp/Duration/wrappers 在表单里是一个文本框 ----
+
+const WRAPPERS = [
+  'DoubleValue', 'FloatValue', 'Int64Value', 'UInt64Value', 'Int32Value', 'UInt32Value',
+  'BoolValue', 'StringValue', 'BytesValue',
+];
+
+/**
+ * 字段是否为受支持的 WKT,返回短名(Timestamp/Duration/XxxValue),否则 null。
+ * ponytail: refType 只有短名,用子字段形状(seconds+nanos / value)兜底辨别;自定义同名同形 message 会被当 WKT。
+ */
+export function wktKind(field: FieldInfo): string | null {
+  if (field.protoType !== 'TYPE_MESSAGE' || !field.refType) return null;
+  const names = field.nestedFields?.map((f) => f.name).sort().join(',');
+  if (field.refType === 'Timestamp' || field.refType === 'Duration') {
+    return names === undefined || names === 'nanos,seconds' ? field.refType : null;
+  }
+  if (WRAPPERS.includes(field.refType)) {
+    return names === undefined || names === 'value' ? field.refType : null;
+  }
+  return null;
+}
+
+const TS_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/i;
+const DUR_RE = /^(-)?(\d+)(?:\.(\d{1,9}))?s?$/;
+
+/**
+ * 表单显示串 → 线上对象:Timestamp 认 RFC 3339,Duration 认 "1.5s",wrapper 认裸标量。
+ * 已是对象原样返回;空值与非法文本返回 undefined(调用方决定忽略还是报错)。
+ */
+export function wktToWire(kind: string, value: unknown): unknown {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value === 'object') return value;
+  const raw = String(value);
+  const s = raw.trim();
+  if (kind === 'Timestamp') {
+    const m = TS_RE.exec(s);
+    if (!m) return undefined;
+    const ms = Date.parse(`${m[1]}${m[3]}`);
+    if (Number.isNaN(ms)) return undefined;
+    return { seconds: Math.floor(ms / 1000), nanos: m[2] ? Number(m[2].padEnd(9, '0')) : 0 };
+  }
+  if (kind === 'Duration') {
+    const m = DUR_RE.exec(s);
+    if (!m) return undefined;
+    const sign = m[1] ? -1 : 1;
+    return { seconds: sign * Number(m[2]), nanos: m[3] ? sign * Number(m[3].padEnd(9, '0')) : 0 };
+  }
+  if (kind === 'BoolValue') return s === 'true' || s === 'false' ? { value: s === 'true' } : undefined;
+  if (kind === 'StringValue' || kind === 'BytesValue') return { value: raw };
+  if (kind === 'Int64Value' || kind === 'UInt64Value') return /^-?\d+$/.test(s) ? { value: s } : undefined;
+  return s !== '' && !Number.isNaN(Number(s)) ? { value: Number(s) } : undefined;
+}
+
+/** 线上对象 → 表单显示串(与 wktToWire 互逆);形状不对返回 null。 */
+export function wktFromWire(kind: string, obj: unknown): string | null {
+  if (!isPlainObject(obj)) return null;
+  if (kind === 'Timestamp' || kind === 'Duration') {
+    const sec = Number(obj.seconds ?? 0);
+    const nanos = Number(obj.nanos ?? 0);
+    if (!Number.isFinite(sec) || !Number.isFinite(nanos)) return null;
+    const frac = nanos ? '.' + String(Math.abs(nanos)).padStart(9, '0').replace(/0+$/, '') : '';
+    if (kind === 'Duration') return `${sec < 0 || nanos < 0 ? '-' : ''}${Math.abs(sec)}${frac}s`;
+    const d = new Date(sec * 1000);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString().replace(/\.\d{3}Z$/, `${frac}Z`);
+  }
+  return 'value' in obj ? String(obj.value) : null;
+}
+
 /** 单个 JSON 值 → 表单值。path 用于警告信息。 */
 function jsonToFormValue(
   field: FieldInfo,
@@ -44,6 +113,12 @@ function jsonToFormValue(
   // null/undefined 视为未提供:保留表单现值(合并语义)
   if (v === undefined || v === null) {
     return currentValue;
+  }
+
+  // WKT(0.3.78):对象转显示串,protojson 规范形态(字符串/裸标量)直接入框
+  const wkt = field.label !== 'repeated' ? wktKind(field) : null;
+  if (wkt) {
+    return isPlainObject(v) ? (wktFromWire(wkt, v) ?? JSON.stringify(v)) : String(v);
   }
 
   // 非 repeated 且带子表单的 message:递归合并
@@ -159,6 +234,22 @@ export function validateFormValues(fields: FieldInfo[], values: FormValues): str
       const path = prefix ? `${prefix}.${f.name}` : f.name;
       const v = vals ? vals[f.name] : undefined;
 
+      // 0.3.78 含环境变量/步引用的值发送前才替换,这里无从校验
+      if (typeof v === 'string' && v.includes('{{')) continue;
+
+      const wkt = f.label !== 'repeated' ? wktKind(f) : null;
+      if (wkt) {
+        if (typeof v === 'string' && v.trim() !== '' && wktToWire(wkt, v) === undefined) {
+          const hint =
+            wkt === 'Timestamp' ? '应为 RFC 3339 时间，如 2024-01-01T00:00:00Z'
+            : wkt === 'Duration' ? '应为时长，如 1.5s'
+            : wkt === 'BoolValue' ? '应为 true 或 false'
+            : '不是合法数字';
+          problems.push(`${path}: ${hint}`);
+        }
+        continue;
+      }
+
       // 嵌套 message 表单:递归下钻
       if (f.protoType === 'TYPE_MESSAGE' && f.label !== 'repeated' && f.nestedFields?.length) {
         if (isPlainObject(v)) walk(f.nestedFields, v as FormValues, path);
@@ -252,6 +343,13 @@ export function formValuesToJson(fields: FieldInfo[], values: FormValues): Recor
     }
     if (f.protoType === 'TYPE_BOOL') {
       out[f.name] = v === true || v === 'true';
+      continue;
+    }
+    // WKT:Timestamp/Duration 的 protojson 规范形态就是字符串;wrapper 输出裸标量
+    const wkt = f.label !== 'repeated' ? wktKind(f) : null;
+    if (wkt) {
+      const w = wkt === 'Timestamp' || wkt === 'Duration' ? undefined : wktToWire(wkt, v);
+      out[f.name] = isPlainObject(w) && 'value' in w ? w.value : v;
       continue;
     }
     if (f.protoType === 'TYPE_MESSAGE' && f.label !== 'repeated' && f.nestedFields?.length) {

@@ -163,8 +163,9 @@ function scan(text: string): { refs: PlaceholderRef[]; bad: BadRef[] } {
  * 只能静态判定的两类:结构非法、前向/自引用(ref.step >= currentStep)。
  * 路径能否取到值依赖运行时响应数据,不在这里判(交给 resolve 时兜底)。
  */
-export function findInvalidRefs(text: string, currentStep: number): BadRef[] {
-  const { refs, bad } = scan(text);
+export function findInvalidRefs(text: string, currentStep: number, vars?: Record<string, string>): BadRef[] {
+  // 0.3.78 已定义的环境变量先替换掉,不再被当成非法 stepN 引用标红
+  const { refs, bad } = scan(vars ? (resolveVars(text, vars) as string) : text);
   const out = bad.slice();
   for (const r of refs) {
     if (r.step >= currentStep) {
@@ -172,6 +173,31 @@ export function findInvalidRefs(text: string, currentStep: number): BadRef[] {
     }
   }
   return out;
+}
+
+/** 环境变量名:{{host}} / {{api_key}} / {{tenant-id}};stepN 形态留给步引用。 */
+const VAR_NAME_RE = /^[A-Za-z_][\w-]*$/;
+
+/**
+ * 环境变量替换(0.3.78):深度遍历,只替换已定义的 {{name}},未定义的保留字面量
+ * (服务页原样发出;序列里随后由 resolveDeep 当非法引用报错)。变量值恒为字符串。
+ */
+export function resolveVars(value: unknown, vars: Record<string, string>): unknown {
+  if (typeof value === 'string') {
+    if (!value.includes('{{')) return value;
+    return value.replace(PLACEHOLDER_RE, (raw, inner: string) => {
+      const name = inner.trim();
+      if (!VAR_NAME_RE.test(name) || STEP_RE.test(name)) return raw;
+      return Object.prototype.hasOwnProperty.call(vars, name) ? vars[name] : raw;
+    });
+  }
+  if (Array.isArray(value)) return value.map((v) => resolveVars(v, vars));
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[k] = resolveVars(v, vars);
+    return out;
+  }
+  return value;
 }
 
 /** 字符串插值时把值转文本:字符串原样,数字/布尔 String,对象/数组 JSON,null/undefined 空串。 */

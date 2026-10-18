@@ -64,6 +64,13 @@ export interface StreamHandle {
   cancel(): void;
 }
 
+/** 0.3.78(ADR-0013):client-stream / bidi 的写侧句柄;读侧事件仍走 StreamHandlers。 */
+export interface DuplexHandle extends StreamHandle {
+  write(request: Record<string, unknown>): void;
+  /** 半关闭:告诉服务端请求流结束 */
+  end(): void;
+}
+
 export interface CallOk {
   status: 'ok';
   data: unknown;

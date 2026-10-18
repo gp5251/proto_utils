@@ -14,7 +14,7 @@ message ListFBVariableResponse {
 
 service Acronym {
   rpc ListFBVariableRequest (ListFBVariableRequest) returns (ListFBVariableResponse);
-  // ADR-0007:client/bidi 流不做,callUnary 撞上应返回明确错误
+  // 0.3.78 / ADR-0013:client stream 会话 fixture;callUnary 撞上仍应返回明确错误
   rpc UploadFBData (stream ListFBVariableRequest) returns (ListFBVariableResponse);
   // 定速服务端流:供 cancel 停流测试;自然情况下不主动 end
   rpc WatchFBVariable (ListFBVariableRequest) returns (stream ListFBVariableResponse);
