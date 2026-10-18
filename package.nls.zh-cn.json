@@ -4,7 +4,7 @@
   "command.generateAllTypes": "Proto Utils: 生成 TypeScript 类型(全部 proto)",
   "command.openRpcRunner": "Proto Utils: 打开 RPC 工作台",
   "config.runner.protoDir": "指向 .proto 文件所在目录本身(import 相对它解析;指到父目录会导致跨文件类型解析失败)。留空 = 工作区根;相对路径相对 workspace folder 解析。显式配置后,代码生成也只扫描该目录(不再扫工作区)。改动需 reload 窗口生效",
-  "config.runner.tls": "RPC Runner 调用启用 TLS(默认使用系统根证书)。自签名 CA 或双向 TLS 时配合 tls*Cert 设置使用",
+  "config.runner.tls": "RPC 工作台调用启用 TLS(默认使用系统根证书)。自签名 CA 或双向 TLS 时配合 tls*Cert 设置使用",
   "config.runner.tlsRootCert": "校验服务端的 PEM 根 CA 证书文件(留空 = 系统根证书)。相对路径相对 workspace folder 解析",
   "config.runner.tlsClientCert": "双向 TLS 的 PEM 客户端证书文件(需同时配置 tlsClientKey)",
   "config.runner.tlsClientKey": "双向 TLS 的 PEM 客户端私钥文件(需同时配置 tlsClientCert)",
