@@ -185,6 +185,9 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     wktDuration: l10n.t('e.g. 1.5s'),
     wktBool: l10n.t('true / false'),
     wktValue: l10n.t('Value (empty = unset)'),
+    // 0.3.80 序列报告折叠按钮(x-text 动态求值)
+    expandAll: l10n.t('Expand all'),
+    collapseAll: l10n.t('Collapse all'),
   };
   const boot = {
     server: options.server,
@@ -1112,11 +1115,13 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
       <div class="card" x-show="hasSeqReport()">
         <div class="seq-report-actions">
           <div class="card-title" style="margin-right: auto;">${S.seqReportTitle}</div>
+          <button type="button" class="btn btn-secondary btn-xs" x-show="hasSeqReport()" @click="toggleAllSeqReport()" x-text="allSeqReportOpen() ? $store.str.collapseAll : $store.str.expandAll"></button>
           <button type="button" class="btn btn-secondary" x-show="hasSeqReport()" @click="copySeqReport()">${S.seqCopyReport}</button>
         </div>
         <template x-for="entry in seqReportEntries()" :key="entry.index">
           <div class="seq-report-row" x-show="entry.status !== 'pending'">
-            <div class="result-header">
+            <div class="result-header seq-report-toggle" @click="toggleSeqReport(entry.index)">
+              <span class="collapse-icon" x-text="isSeqReportOpen(entry.index) ? '▼' : '▶'"></span>
               <div class="result-meta">
                 <span class="seq-report-title" x-text="seqStepTitle(entry)"></span>
                 <span x-show="entry.status === 'ok'" class="result-ok">${S.success}</span>
@@ -1129,18 +1134,20 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                   class="btn btn-secondary btn-xs"
                   :disabled="seqStopping"
                   x-show="entry.responseStream && entry.status === 'running'"
-                  @click="endSeqStream()"
+                  @click.stop="endSeqStream()"
                 >${S.seqEndStream}</button>
               </div>
             </div>
-            <div class="seq-assert-results" x-show="entry.assertions.length > 0">
-              <template x-for="(ar, arIdx) in entry.assertions" :key="arIdx">
-                <div :class="ar.ok ? 'assert-pass' : 'assert-fail'" x-text="assertLine(ar)"></div>
-              </template>
+            <div x-show="isSeqReportOpen(entry.index)">
+              <div class="seq-assert-results" x-show="entry.assertions.length > 0">
+                <template x-for="(ar, arIdx) in entry.assertions" :key="arIdx">
+                  <div :class="ar.ok ? 'assert-pass' : 'assert-fail'" x-text="assertLine(ar)"></div>
+                </template>
+              </div>
+              <pre class="result-body seq-report-body" x-show="!entry.responseStream && entry.body" x-text="entry.body"></pre>
+              <pre class="result-body seq-report-body" x-show="entry.responseStream && entry.chunks.length > 0" x-text="seqChunkText(entry.chunks)"></pre>
+              <pre class="result-body seq-report-body" x-show="entry.error && !entry.body && entry.chunks.length === 0" x-text="entry.error"></pre>
             </div>
-            <pre class="result-body seq-report-body" x-show="!entry.responseStream && entry.body" x-text="entry.body"></pre>
-            <pre class="result-body seq-report-body" x-show="entry.responseStream && entry.chunks.length > 0" x-text="seqChunkText(entry.chunks)"></pre>
-            <pre class="result-body seq-report-body" x-show="entry.error && !entry.body && entry.chunks.length === 0" x-text="entry.error"></pre>
           </div>
         </template>
       </div>

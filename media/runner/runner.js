@@ -424,6 +424,8 @@
       seqNotice: '',
       // seqReport: index → {status, service, method, responseStream, values, durationMs, body, chunks, error}
       seqReport: {},
+      // 0.3.80 序列报告折叠态:index → bool;缺省 = 流式折叠/一元展开
+      seqReportOpen: {},
       // 序列内二级 tab(0.3.62):'steps' 步骤编辑 | 'report' 运行报告
       seqTab: 'steps',
       // 0.3.63 步骤入参折叠态:step.id → bool,缺省(无记录) = 折叠
@@ -1691,6 +1693,7 @@
         if (this.seqRunning) return;
         if (this.seqSteps.length === 0) { this.showSeqNotice(str('seqEmpty')); return; }
         this.seqReport = {};
+        this.seqReportOpen = {};
         this.seqNotice = '';
         this.seqStatus = 'running';
         this.seqRunning = true;
@@ -1867,6 +1870,33 @@
             responseStream: s.responseStream,
           };
         });
+      },
+
+      // 0.3.80 报告折叠:流式默认折叠,一元默认展开
+      isSeqReportOpen: function (index) {
+        var v = this.seqReportOpen[index];
+        if (v !== undefined) return v;
+        var step = this.seqSteps[index];
+        return step ? !step.responseStream : true;
+      },
+
+      toggleSeqReport: function (index) {
+        this.seqReportOpen = Object.assign({}, this.seqReportOpen, { [index]: !this.isSeqReportOpen(index) });
+      },
+
+      // 全部展开/折叠:若当前全展开则折叠,否则全展开
+      allSeqReportOpen: function () {
+        for (var i = 0; i < this.seqSteps.length; i++) {
+          if (!this.isSeqReportOpen(i)) return false;
+        }
+        return true;
+      },
+
+      toggleAllSeqReport: function () {
+        var open = !this.allSeqReportOpen();
+        var m = {};
+        for (var i = 0; i < this.seqSteps.length; i++) m[i] = open;
+        this.seqReportOpen = m;
       },
 
       // ---- 步骤断言(0.3.78):路径相对 {data | chunks/count, durationMs} ----
