@@ -424,8 +424,8 @@
       seqNotice: '',
       // seqReport: index → {status, service, method, responseStream, values, durationMs, body, chunks, error}
       seqReport: {},
-      // 0.3.80 序列报告折叠态:index → bool;缺省 = 流式折叠/一元展开
-      seqReportOpen: {},
+      // 0.3.81 序列报告折叠树展开态:index → {nodes, chunks};一元根行种子展开,流式 chunk 条默认收起
+      seqTreeOpen: {},
       // 序列内二级 tab(0.3.62):'steps' 步骤编辑 | 'report' 运行报告
       seqTab: 'steps',
       // 0.3.63 步骤入参折叠态:step.id → bool,缺省(无记录) = 折叠
@@ -1693,7 +1693,7 @@
         if (this.seqRunning) return;
         if (this.seqSteps.length === 0) { this.showSeqNotice(str('seqEmpty')); return; }
         this.seqReport = {};
-        this.seqReportOpen = {};
+        this.seqTreeOpen = {};
         this.seqNotice = '';
         this.seqStatus = 'running';
         this.seqRunning = true;
@@ -1796,6 +1796,8 @@
               responseStream: ev.responseStream, values: ev.values, chunks: [], dropped: 0,
               maxMessages: typeof ev.maxMessages === 'number' ? ev.maxMessages : SEQ_STREAM_CAP_DEFAULT,
               body: '', error: '', durationMs: 0,
+              // 0.3.81 折叠树载荷:一元 tree / 流式每 chunk 树行与字节数,与 chunks 同窗口索引对齐
+              tree: null, chunkTrees: [], chunkSizes: [],
             };
             this.seqReport = rep;
             break;
@@ -1804,8 +1806,13 @@
             if (rep[ev.index]) {
               // 0.3.64 按步上限有界(步级 maxMessages,0=不限),防长流撑爆报告区
               var rc = window.ResultTree.pushBounded(rep[ev.index].chunks || [], ev.data, rep[ev.index].maxMessages);
+              // 0.3.81 树行/字节数与 chunks 同窗同 max,索引对齐;字节数 append 时缓存,折叠条渲染零 stringify
+              var rt = window.ResultTree.pushBounded(rep[ev.index].chunkTrees || [], window.ResultTree.buildResultTree(ev.data), rep[ev.index].maxMessages);
+              var rs = window.ResultTree.pushBounded(rep[ev.index].chunkSizes || [], new TextEncoder().encode(JSON.stringify(ev.data)).length, rep[ev.index].maxMessages);
               rep[ev.index] = Object.assign({}, rep[ev.index], {
                 chunks: rc.items,
+                chunkTrees: rt.items,
+                chunkSizes: rs.items,
                 dropped: (rep[ev.index].dropped || 0) + rc.dropped,
               });
               this.seqReport = rep;
@@ -1815,12 +1822,21 @@
             rep = Object.assign({}, this.seqReport);
             var p = ev.payload || {};
             var ok = p.result && p.result.status === 'ok';
+            // 0.3.81 与普通结果同构:成功且带结构化 data → 一次构建折叠树;错误/无 data 退原始 <pre>
+            var treeable = ok && p.result.data !== undefined;
             rep[ev.index] = Object.assign({}, rep[ev.index], {
               status: ok ? 'ok' : 'error',
               body: p.resultBody || '',
               durationMs: (p.result && p.result.durationMs) || 0,
               error: ok ? '' : (p.resultBody || ''),
+              tree: treeable ? window.ResultTree.buildResultTree(p.result.data) : null,
             });
+            if (treeable) {
+              // 根行种子展开(顶层键可见),同 applyCallResult
+              this.seqTreeOpen = Object.assign({}, this.seqTreeOpen, {
+                [ev.index]: { nodes: { '': true }, chunks: {} },
+              });
+            }
             this.seqReport = rep;
             break;
           }
@@ -1872,31 +1888,121 @@
         });
       },
 
-      // 0.3.80 报告折叠:流式默认折叠,一元默认展开
-      isSeqReportOpen: function (index) {
-        var v = this.seqReportOpen[index];
-        if (v !== undefined) return v;
-        var step = this.seqSteps[index];
-        return step ? !step.responseStream : true;
+      // 0.3.81 序列报告折叠树(与普通结果同构):展开态 seqTreeOpen[index] = {nodes, chunks}
+      seqTreeAvailable: function (index) {
+        var r = this.seqReport[index];
+        return Boolean(r && r.tree);
       },
 
-      toggleSeqReport: function (index) {
-        this.seqReportOpen = Object.assign({}, this.seqReportOpen, { [index]: !this.isSeqReportOpen(index) });
+      seqTreeRows: function (index) {
+        var r = this.seqReport[index];
+        var t = this.seqTreeOpen[index];
+        var nodes = (t && t.nodes) || {};
+        return window.ResultTree.visibleRows((r && r.tree) || [], function (path) {
+          return nodes[path] === true;
+        });
       },
 
-      // 全部展开/折叠:若当前全展开则折叠,否则全展开
+      seqIsTreeNodeOpen: function (index, path) {
+        var t = this.seqTreeOpen[index];
+        return Boolean(t && t.nodes[path] === true);
+      },
+
+      seqToggleTreeNode: function (index, path) {
+        var t = this.seqTreeOpen[index] || { nodes: {}, chunks: {} };
+        this.seqTreeOpen = Object.assign({}, this.seqTreeOpen, {
+          [index]: Object.assign({}, t, {
+            nodes: Object.assign({}, t.nodes, { [path]: !t.nodes[path] }),
+          }),
+        });
+      },
+
+      seqStreamTreeable: function (index) {
+        var r = this.seqReport[index];
+        return Boolean(r && r.chunks && r.chunks.length > 0);
+      },
+
+      // 每 chunk 一条折叠条(#绝对序号 · 大小);序号带 dropped 偏移,窗口滑出后展开态仍稳定
+      seqChunkSections: function (index) {
+        var r = this.seqReport[index];
+        if (!r || !r.chunks) return [];
+        var dropped = r.dropped || 0;
+        var sizes = r.chunkSizes || [];
+        return r.chunks.map(function (_c, i) {
+          var idx = i + dropped;
+          return { idx: idx, label: window.ResultTree.formatChunkLabel(idx, sizes[i] || 0) };
+        });
+      },
+
+      seqIsChunkTreeOpen: function (index, idx) {
+        var t = this.seqTreeOpen[index];
+        return Boolean(t && t.chunks[idx] === true);
+      },
+
+      seqToggleChunkTree: function (index, idx) {
+        var t = this.seqTreeOpen[index] || { nodes: {}, chunks: {} };
+        this.seqTreeOpen = Object.assign({}, this.seqTreeOpen, {
+          [index]: Object.assign({}, t, {
+            chunks: Object.assign({}, t.chunks, { [idx]: !t.chunks[idx] }),
+          }),
+        });
+      },
+
+      seqChunkTreeRows: function (index, idx) {
+        var t = this.seqTreeOpen[index];
+        if (!t || t.chunks[idx] !== true) return [];
+        var r = this.seqReport[index];
+        if (!r) return [];
+        var rows = (r.chunkTrees || [])[idx - (r.dropped || 0)] || [];
+        if (rows.length === 0) return []; // 已被窗口挤出的早期块
+        var nodes = t.nodes || {};
+        return window.ResultTree.visibleRows(rows, function (path) {
+          return nodes[path] === true;
+        });
+      },
+
+      // 全部展开/收起(树级):任一步有容器节点或 chunk 条未开 → 全展开,否则全收起
       allSeqReportOpen: function () {
-        for (var i = 0; i < this.seqSteps.length; i++) {
-          if (!this.isSeqReportOpen(i)) return false;
+        for (var k in this.seqReport) {
+          if (!Object.prototype.hasOwnProperty.call(this.seqReport, k)) continue;
+          var r = this.seqReport[k];
+          var t = this.seqTreeOpen[k] || { nodes: {}, chunks: {} };
+          var trees = (r.tree ? [r.tree] : []).concat(r.chunkTrees || []);
+          for (var i = 0; i < trees.length; i++) {
+            var paths = window.ResultTree.collectContainerPaths(trees[i]);
+            for (var j = 0; j < paths.length; j++) {
+              if (t.nodes[paths[j]] !== true) return false;
+            }
+          }
+          var dropped = r.dropped || 0;
+          for (var c = 0; c < (r.chunks || []).length; c++) {
+            if (t.chunks[c + dropped] !== true) return false;
+          }
         }
         return true;
       },
 
       toggleAllSeqReport: function () {
         var open = !this.allSeqReportOpen();
-        var m = {};
-        for (var i = 0; i < this.seqSteps.length; i++) m[i] = open;
-        this.seqReportOpen = m;
+        var next = {};
+        for (var k in this.seqReport) {
+          if (!Object.prototype.hasOwnProperty.call(this.seqReport, k)) continue;
+          var r = this.seqReport[k];
+          var nodes = {};
+          var chunks = {};
+          if (open) {
+            var dropped = r.dropped || 0;
+            if (r.tree) {
+              window.ResultTree.collectContainerPaths(r.tree).forEach(function (p) { nodes[p] = true; });
+            }
+            (r.chunkTrees || []).forEach(function (rows, ci) {
+              chunks[ci + dropped] = true;
+              window.ResultTree.collectContainerPaths(rows).forEach(function (p) { nodes[p] = true; });
+            });
+          }
+          next[k] = { nodes: nodes, chunks: chunks };
+        }
+        this.seqTreeOpen = next;
       },
 
       // ---- 步骤断言(0.3.78):路径相对 {data | chunks/count, durationMs} ----

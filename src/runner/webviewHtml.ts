@@ -185,7 +185,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     wktDuration: l10n.t('e.g. 1.5s'),
     wktBool: l10n.t('true / false'),
     wktValue: l10n.t('Value (empty = unset)'),
-    // 0.3.80 序列报告折叠按钮(x-text 动态求值)
+    // 0.3.81 序列报告折叠树批量按钮(x-text 动态求值)
     expandAll: l10n.t('Expand all'),
     collapseAll: l10n.t('Collapse all'),
   };
@@ -1120,8 +1120,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
         </div>
         <template x-for="entry in seqReportEntries()" :key="entry.index">
           <div class="seq-report-row" x-show="entry.status !== 'pending'">
-            <div class="result-header seq-report-toggle" @click="toggleSeqReport(entry.index)">
-              <span class="collapse-icon" x-text="isSeqReportOpen(entry.index) ? '▼' : '▶'"></span>
+            <div class="result-header">
               <div class="result-meta">
                 <span class="seq-report-title" x-text="seqStepTitle(entry)"></span>
                 <span x-show="entry.status === 'ok'" class="result-ok">${S.success}</span>
@@ -1134,20 +1133,63 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                   class="btn btn-secondary btn-xs"
                   :disabled="seqStopping"
                   x-show="entry.responseStream && entry.status === 'running'"
-                  @click.stop="endSeqStream()"
+                  @click="endSeqStream()"
                 >${S.seqEndStream}</button>
               </div>
             </div>
-            <div x-show="isSeqReportOpen(entry.index)">
-              <div class="seq-assert-results" x-show="entry.assertions.length > 0">
-                <template x-for="(ar, arIdx) in entry.assertions" :key="arIdx">
-                  <div :class="ar.ok ? 'assert-pass' : 'assert-fail'" x-text="assertLine(ar)"></div>
-                </template>
-              </div>
-              <pre class="result-body seq-report-body" x-show="!entry.responseStream && entry.body" x-text="entry.body"></pre>
-              <pre class="result-body seq-report-body" x-show="entry.responseStream && entry.chunks.length > 0" x-text="seqChunkText(entry.chunks)"></pre>
-              <pre class="result-body seq-report-body" x-show="entry.error && !entry.body && entry.chunks.length === 0" x-text="entry.error"></pre>
+            <div class="seq-assert-results" x-show="entry.assertions.length > 0">
+              <template x-for="(ar, arIdx) in entry.assertions" :key="arIdx">
+                <div :class="ar.ok ? 'assert-pass' : 'assert-fail'" x-text="assertLine(ar)"></div>
+              </template>
             </div>
+            <!-- 0.3.81 一元:DevTools 风格折叠树(与普通结果同构);错误/无 data 退原始 <pre> -->
+            <div x-show="!entry.responseStream && seqTreeAvailable(entry.index)" class="result-body result-tree">
+              <template x-for="row in seqTreeRows(entry.index)" :key="row.path">
+                <div
+                  class="tree-row"
+                  :class="{ 'tree-row-container': row.children && row.children.length }"
+                  :style="'padding-left:' + (row.depth * 14 + 8) + 'px'"
+                  @click.stop="row.children && row.children.length ? seqToggleTreeNode(entry.index, row.path) : null"
+                >
+                  <span x-show="row.children && row.children.length" class="collapse-icon" x-text="seqIsTreeNodeOpen(entry.index, row.path) ? '▼' : '▶'"></span>
+                  <span x-show="!(row.children && row.children.length)" class="tree-spacer"></span>
+                  <span x-show="row.key" class="tree-key" x-text="row.key"></span>
+                  <span x-show="row.key" class="tree-colon">:</span>
+                  <span class="tree-value" :class="'tree-value-' + row.kind" x-text="row.value"></span>
+                  <span x-show="row.count" class="tree-count" x-text="row.count"></span>
+                </div>
+              </template>
+            </div>
+            <pre class="result-body seq-report-body" x-show="!entry.responseStream && !seqTreeAvailable(entry.index)" x-text="entry.body || entry.error"></pre>
+            <!-- 0.3.81 流式:每 chunk 一条折叠条,条内同款折叠树(与普通流结果同构) -->
+            <div x-show="entry.responseStream && seqStreamTreeable(entry.index)" class="stream-tree">
+              <template x-for="sec in seqChunkSections(entry.index)" :key="sec.idx">
+                <div class="chunk-section">
+                  <div class="chunk-toggle" @click="seqToggleChunkTree(entry.index, sec.idx)">
+                    <span class="collapse-icon" x-text="seqIsChunkTreeOpen(entry.index, sec.idx) ? '▼' : '▶'"></span>
+                    <span class="chunk-label" x-text="sec.label"></span>
+                  </div>
+                  <div x-show="seqIsChunkTreeOpen(entry.index, sec.idx)" class="chunk-tree">
+                    <template x-for="row in seqChunkTreeRows(entry.index, sec.idx)" :key="row.path">
+                      <div
+                        class="tree-row"
+                        :class="{ 'tree-row-container': row.children && row.children.length }"
+                        :style="'padding-left:' + (row.depth * 14 + 8) + 'px'"
+                        @click.stop="row.children && row.children.length ? seqToggleTreeNode(entry.index, row.path) : null"
+                      >
+                        <span x-show="row.children && row.children.length" class="collapse-icon" x-text="seqIsTreeNodeOpen(entry.index, row.path) ? '▼' : '▶'"></span>
+                        <span x-show="!(row.children && row.children.length)" class="tree-spacer"></span>
+                        <span x-show="row.key" class="tree-key" x-text="row.key"></span>
+                        <span x-show="row.key" class="tree-colon">:</span>
+                        <span class="tree-value" :class="'tree-value-' + row.kind" x-text="row.value"></span>
+                        <span x-show="row.count" class="tree-count" x-text="row.count"></span>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+            <pre class="result-body seq-report-body" x-show="entry.responseStream && !seqStreamTreeable(entry.index) && entry.error" x-text="entry.error"></pre>
           </div>
         </template>
       </div>

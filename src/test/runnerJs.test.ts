@@ -486,3 +486,28 @@ test("str() 键必须有处可查:本地 STRING_DEFAULTS 或宿主 boot.strings 
     `str() 键两处都查不到(webview 会显示原始键名): ${missing.join(', ')}`,
   );
 });
+
+test('序列报告折叠树(0.3.81):一元建树+根行种子展开,流式 chunk 树同窗,模板走 seq 树助手', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  // 一元:成功且带 data 建树,根行种子展开(与 applyCallResult 同构)
+  const unaryStart = src.indexOf("case 'stepUnaryResult'");
+  assert.ok(unaryStart >= 0, '缺 stepUnaryResult 分支');
+  const unaryBody = src.slice(unaryStart, src.indexOf("case 'stepStreamEnd'", unaryStart));
+  assert.ok(unaryBody.includes('window.ResultTree.buildResultTree(p.result.data)'), '一元步成功带 data 必须构建折叠树');
+  assert.ok(unaryBody.includes("nodes: { '': true }"), '一元折叠树根行必须种子展开');
+  // 流式:树行/字节数与 chunks 同窗口索引对齐
+  const chunkStart = src.indexOf("case 'stepChunk'");
+  const chunkBody = src.slice(chunkStart, src.indexOf("case 'stepUnaryResult'", chunkStart));
+  assert.ok(chunkBody.includes('pushBounded(rep[ev.index].chunkTrees'), '流步必须同窗维护 chunkTrees');
+  assert.ok(chunkBody.includes('pushBounded(rep[ev.index].chunkSizes'), '流步必须同窗维护 chunkSizes');
+  // 模板按名调用的助手齐备
+  for (const fn of ['seqTreeRows', 'seqToggleTreeNode', 'seqChunkSections', 'seqChunkTreeRows', 'toggleAllSeqReport']) {
+    assert.ok(src.includes(fn + ': function'), '缺 ' + fn);
+  }
+  // 0.3.80 整行折叠已撤,模板与普通结果同构
+  assert.ok(!src.includes('seqReportOpen'), '整行折叠态 seqReportOpen 应已移除');
+  const htmlSrc = fs.readFileSync(path.resolve('src/runner/webviewHtml.ts'), 'utf8');
+  assert.ok(htmlSrc.includes('seqTreeRows(entry.index)'), '模板一元须走 seqTreeRows');
+  assert.ok(htmlSrc.includes('seqChunkSections(entry.index)'), '模板流式须走 seqChunkSections');
+  assert.ok(!htmlSrc.includes('isSeqReportOpen'), '模板不得残留整行折叠调用');
+});

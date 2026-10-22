@@ -87,8 +87,9 @@ test('响应 metadata 折叠块锚点:一元/流式结果区各一份,标题与�
 
 test('响应折叠树锚点:一元/流式各一份树 + 原始 pre 兜底;chunk 折叠条与树方法齐备', () => {
   const html = render();
-  assert.equal(html.match(/class="result-body result-tree"/g)?.length, 1, '一元树恰好 1 处');
-  assert.equal(html.match(/class="stream-tree"/g)?.length, 1, '流式树恰好 1 处');
+  // 0.3.81 起序列报告区与普通结果同构各一份树:一元树/流式树均 2 处
+  assert.equal(html.match(/class="result-body result-tree"/g)?.length, 2, '一元树恰好 2 处(普通+序列报告)');
+  assert.equal(html.match(/class="stream-tree"/g)?.length, 2, '流式树恰好 2 处(普通+序列报告)');
   // 原始 <pre> 兜底仍在(错误/空流路径),一元与流式各 1
   assert.equal(html.match(/class="result-body"/g)?.length, 2);
   for (const anchor of [

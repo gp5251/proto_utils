@@ -845,12 +845,6 @@ input[type="checkbox"] {
   border-top: 1px solid var(--border);
   padding: 8px 0;
 }
-/* 0.3.80 序列报告行折叠:header 可点击切换 body 显隐 */
-.seq-report-toggle {
-  cursor: pointer;
-  user-select: none;
-}
-.seq-report-toggle:hover { background: var(--surface-hover); border-radius: var(--radius); }
 
 /* 0.3.67 回到顶部浮动按钮:fixed 右下角,滚动超阈值才显示(x-show 控制) */
 .back-top {
