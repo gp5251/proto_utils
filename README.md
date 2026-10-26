@@ -64,9 +64,25 @@ Workbench colors automatically follow VS Code light/dark theme (GitHub Dark for 
 - RPC Workbench: schema-driven request forms with Timestamp/Duration/wrapper helpers; unary, server-streaming, client-streaming, and bidi calls; responses shown in a collapsible JSON tree; request history and Copy as grpcurl
 - Environments: switch variable sets from `.proto-utils/environments.json`; use `{{name}}` in the server address, request fields, and Headers (keep secrets out of version control)
 - Call Sequences: chain methods for sequential execution, aborting on call or assertion failure; later steps can use `{{stepN.path}}` and environment variables; server streams support `chunks[i]`; named sequences persist to `.proto-utils/sequences.json` for save/load/delete
+- Project-level config: `.proto-utils/settings.json` (commit it to share with your team) overrides any `protoUtils.*` setting — flat dotted keys without the `protoUtils.` prefix; precedence: workbench address bar > project file > VS Code settings > defaults. Create it via **Proto Utils: Create Project Config File**
 - Diagnostics on `.proto` save or workbench load: syntax errors highlighted inline (narrowed to the offending token), missing types / duplicates flagged at reference and declaration sites; workbench error cards show red squiggles at error points
 
 ## Usage
+
+### Project-level Configuration
+
+Run **Proto Utils: Create Project Config File** to generate `.proto-utils/settings.json` with default-valued example keys. Keys are the setting IDs without the `protoUtils.` prefix:
+
+```json
+{
+  "runner.protoDir": "proto",
+  "runner.timeoutMs": 30000,
+  "codeGen.outputDir": "src/generated",
+  "scan.excludeDirs": ["third_party"]
+}
+```
+
+The file is meant to be committed — it gives the whole team the same defaults. Keys present in the file override VS Code settings (user and workspace); keys absent fall through. The server address edited in the workbench header still wins over everything. Changes apply live, except `runner.protoDir` / `scan.excludeDirs` which need a window reload (same as VS Code settings).
 
 ### Editing and Navigation
 

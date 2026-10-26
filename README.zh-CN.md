@@ -64,10 +64,26 @@
 - RPC 工作台:按 proto schema 自动生成请求表单,提供 Timestamp/Duration/wrapper 输入助手;支持一元、服务端流、客户端流与双向流;响应折叠树、请求历史与「复制为 grpcurl」
 - 环境变量:在 `.proto-utils/environments.json` 定义并切换变量集,服务器地址、请求字段与 Headers 可用 `{{name}}`（含密钥的环境文件请勿提交版本库）
 - 调用序列:把若干方法依次执行,调用或断言失败即中止;后步可用 `{{stepN.path}}` 与环境变量,服务端流可引 `chunks[i]`;命名序列持久化到 `.proto-utils/sequences.json`,可存/载/删
+- 项目级配置：`.proto-utils/settings.json`（进版本库、团队共享）可覆盖任意 `protoUtils.*` 设置——扁平点分键、不带 `protoUtils.` 前缀；优先级：工作台顶栏地址 > 项目文件 > VS Code 设置 > 默认值。用命令 **Proto Utils: 创建项目配置文件** 生成
 - 保存 `.proto` 文件或工作台加载 proto 后报告诊断:语法错就地飘红(可收窄到出错 token),缺失类型/重名在引用处与声明处飘红;工作台错误卡片同步以红色波浪线标出出错点
 
 
 ## 基本使用
+
+### 项目级配置
+
+运行命令 **Proto Utils: 创建项目配置文件** 生成 `.proto-utils/settings.json`，模板键值全部等于默认值（创建本身不改变行为）。键名 = 设置项去掉 `protoUtils.` 前缀：
+
+```json
+{
+  "runner.protoDir": "proto",
+  "runner.timeoutMs": 30000,
+  "codeGen.outputDir": "src/generated",
+  "scan.excludeDirs": ["third_party"]
+}
+```
+
+该文件用于提交进版本库，给全团队同一份默认值。文件里写了的键压过 VS Code 设置（用户级与工作区级），没写的键正常回退；工作台顶栏编辑的服务器地址仍优先于一切。改动即时生效，`runner.protoDir` / `scan.excludeDirs` 除外——与 VS Code 设置同款限制，需 reload 窗口。
 
 ### 编辑和跳转
 
