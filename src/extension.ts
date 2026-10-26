@@ -141,7 +141,8 @@ export async function activate(context: vscode.ExtensionContext) {
   // 与 VS Code settings 同款限制:扫描根/排除集烤在激活时,改 protoDir/excludeDirs 需 reload 窗口。
   const projectRoot = workspaceDirs[0];
   if (projectConfig && projectRoot) {
-    let lastWarnedConfigError: string | undefined = projectConfig.error;
+    // 初始 undefined = 尚未弹过任何警告:激活时文件已坏也能在首次 warnConfigError() 弹出
+    let lastWarnedConfigError: string | undefined;
     const warnConfigError = (): void => {
       const err = projectConfig.error;
       if (err && err !== lastWarnedConfigError) {

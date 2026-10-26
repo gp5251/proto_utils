@@ -463,7 +463,7 @@ activate 开头（19-23 行）改为：
         );
       }
     };
-    let lastWarnedConfigError: string | undefined = projectConfig.error;
+    let lastWarnedConfigError: string | undefined;
     warnConfigError(); // 激活时文件已坏也要提示一次
     const settingsWatcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(workspaceDirs[0], '.proto-utils/settings.json'),
