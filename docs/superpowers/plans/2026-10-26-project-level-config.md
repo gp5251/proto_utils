@@ -361,7 +361,7 @@ export function registerCodeGenCommand(
 
 ```ts
 function readConfig(projectGet: (key: string) => unknown): CodeGenConfig {
-  const cfg = vscode.workspace.getConfiguration('protoUtils');
+  const cfg = vscode.workspace.getConfiguration('protoUtils.codeGen');
   // 分层(0.3.82):项目文件 .proto-utils/settings.json 命中值压过 VS Code settings
   const get = <T>(key: string, dflt: T): T => {
     const v = projectGet(`codeGen.${key}`);

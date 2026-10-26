@@ -48,7 +48,7 @@ export async function activate(context: vscode.ExtensionContext) {
     () => index.build().then(() => callLens.refresh()),
   );
 
-  registerCodeGenCommand(context, frontend);
+  registerCodeGenCommand(context, frontend, () => undefined);
 
   // 诊断集合与防抖触发器先于工作台创建:onLoadSettled 回调闭包引用二者(0.3.40)。
   // 触发时机(ADR-0002 既定代价:编辑中态不报):保存 proto 时 + 工作台加载尘埃落定时。

@@ -14,6 +14,8 @@ import {
 export function registerCodeGenCommand(
   context: vscode.ExtensionContext,
   frontend: ProtoFrontend,
+  /** 项目级配置 get(0.3.82):命中 codeGen.* 键压过 VS Code settings */
+  projectGet: (key: string) => unknown,
 ): void {
   /** 加载 schema;解析失败时报告并返回 null(两个命令共用)。 */
   const loadSchema = (): ProtoSchema | null => {
@@ -91,7 +93,7 @@ export function registerCodeGenCommand(
       return;
     }
 
-    const outcome = await writeTypesFor(schema, filePath, readConfig(), readPathOptions(workspaceRoot));
+    const outcome = await writeTypesFor(schema, filePath, readConfig(projectGet), readPathOptions(workspaceRoot, projectGet));
     // 上游已拦截无产物情形,此处仅类型收窄
     if (outcome) {
       if (outcome.changed) {
@@ -127,8 +129,8 @@ export function registerCodeGenCommand(
     const schema = loadSchema();
     if (!schema) return;
 
-    const config = readConfig();
-    const pathOptions = readPathOptions(workspaceRoot);
+    const config = readConfig(projectGet);
+    const pathOptions = readPathOptions(workspaceRoot, projectGet);
 
     // file 平铺模式下同名 proto(package 模式下同包文件)会映射到同一输出文件互相覆盖:先检测再动笔
     const outPathOf = createOutputPathResolver(schema, pathOptions);
@@ -175,27 +177,37 @@ export function registerCodeGenCommand(
   context.subscriptions.push(cmd, allCmd);
 }
 
-function readConfig(): CodeGenConfig {
+function readConfig(projectGet: (key: string) => unknown): CodeGenConfig {
   const cfg = vscode.workspace.getConfiguration('protoUtils.codeGen');
+  // 分层(0.3.82):项目文件 .proto-utils/settings.json 命中值(全键 codeGen.*)压过 VS Code settings
+  const get = <T>(key: string, dflt: T): T => {
+    const v = projectGet(`codeGen.${key}`);
+    return v !== undefined && v !== null ? (v as T) : cfg.get<T>(key, dflt);
+  };
   // int64Style 非法值兜底 'number'(package.json 枚举之外的旧配置)
-  const int64StyleRaw = cfg.get<string>('int64Style', 'number');
+  const int64StyleRaw = get<string>('int64Style', 'number');
   const int64Style = int64StyleRaw === 'bigint' || int64StyleRaw === 'string' ? int64StyleRaw : 'number';
   return {
-    enumStyle: cfg.get<'enum' | 'union'>('enumStyle', 'enum'),
-    optionalMessageFields: cfg.get<boolean>('optionalMessageFields', true),
-    optionalScalarFields: cfg.get<boolean>('optionalScalarFields', false),
-    fieldNaming: cfg.get<'camelCase' | 'preserve'>('fieldNaming', 'camelCase'),
-    oneofStyle: cfg.get<'optional' | 'union'>('oneofStyle', 'optional'),
-    importExtension: cfg.get<'ts' | 'none'>('importExtension', 'ts'),
+    enumStyle: get<'enum' | 'union'>('enumStyle', 'enum'),
+    optionalMessageFields: get<boolean>('optionalMessageFields', true),
+    optionalScalarFields: get<boolean>('optionalScalarFields', false),
+    fieldNaming: get<'camelCase' | 'preserve'>('fieldNaming', 'camelCase'),
+    oneofStyle: get<'optional' | 'union'>('oneofStyle', 'optional'),
+    importExtension: get<'ts' | 'none'>('importExtension', 'ts'),
     int64Style,
   };
 }
 
-function readPathOptions(workspaceRoot: string): OutputPathOptions {
+function readPathOptions(workspaceRoot: string, projectGet: (key: string) => unknown): OutputPathOptions {
   const cfg = vscode.workspace.getConfiguration('protoUtils.codeGen');
+  // 分层同 readConfig:项目文件 codeGen.* 压过 VS Code settings
+  const pick = <T>(key: string, dflt: T): T => {
+    const v = projectGet(`codeGen.${key}`);
+    return v !== undefined && v !== null ? (v as T) : cfg.get<T>(key, dflt);
+  };
   return {
     workspaceRoot,
-    outputDir: cfg.get<string>('outputDir', 'generated'),
-    pathMapping: cfg.get<'package' | 'file'>('pathMapping', 'file'),
+    outputDir: pick<string>('outputDir', 'generated'),
+    pathMapping: pick<'package' | 'file'>('pathMapping', 'file'),
   };
 }
