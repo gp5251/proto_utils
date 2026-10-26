@@ -123,3 +123,15 @@ test('scan.excludeDirs:非数组/空配置 → 空排除集', () => {
   assert.equal(resolveScanExcludes(() => undefined, ROOT).names.size, 0);
   assert.equal(resolveScanExcludes((k) => (k === 'scan.excludeDirs' ? 'out' : undefined), ROOT).paths.length, 0);
 });
+
+test('项目级配置分层(0.3.82):projectGet ?? vscodeGet;persistedServer 仍最高', () => {
+  const project: Record<string, unknown> = { 'runner.server': 'proj:1', 'runner.timeoutMs': 3000 };
+  const vs: Record<string, unknown> = { 'runner.server': 'vs:2', 'runner.protoDir': 'protos' };
+  const layered = (k: string) => project[k] ?? vs[k];
+  const cfg = resolveRunnerConfig(layered, ROOT);
+  assert.equal(cfg.server, 'proj:1'); // 项目文件压过 VS Code 设置
+  assert.equal(cfg.timeoutMs, 3000);
+  assert.equal(cfg.protoDir, path.join(ROOT, 'protos')); // 项目文件没写的键回退 VS Code 设置
+  // 顶栏编辑持久化值 > 项目文件 runner.server
+  assert.equal(resolveRunnerConfig(layered, ROOT, 'top:9').server, 'top:9');
+});

@@ -58,7 +58,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(loadDiagnosticsTrigger);
 
   // ---- 调用面(懒加载:grpc-js/proto-loader 只在首次打开工作台时载入) ----
-  const workbench = new LazyWorkbench(context, scanExcludes, loadDiagnosticsTrigger.trigger);
+  const workbench = new LazyWorkbench(context, scanExcludes, loadDiagnosticsTrigger.trigger, () => undefined);
   context.subscriptions.push(
     vscode.commands.registerCommand('protoUtils.openRpcRunner', () => void workbench.reveal()),
     vscode.commands.registerCommand('protoUtils.callMethod', (args: { service: string; method: string }) => {
@@ -143,6 +143,8 @@ class LazyWorkbench {
     private readonly scanExcludes: ScanExcludes,
     /** 工作台 proto 加载尘埃落定(成功/部分错误/抛错)时回调:诊断平面借此补一次飘红(0.3.40) */
     private readonly onLoadSettled: () => void,
+    /** 项目级配置 get(0.3.82):.proto-utils/settings.json 命中值压过 VS Code settings;无工作区文件时恒 undefined */
+    private readonly projectGet: (key: string) => unknown,
   ) {}
 
   async reveal(prefill?: { service: string; method: string }): Promise<void> {
@@ -222,7 +224,7 @@ class LazyWorkbench {
     const environments = wsRoot ? new runner.Environments(wsRoot, this.context.workspaceState) : null;
     await environments?.reload();
     const runtimeConfig = () => {
-      const c = runner.resolveRunnerConfig(persistedServer);
+      const c = runner.resolveRunnerConfig(persistedServer, this.projectGet);
       return environments ? { ...c, server: runner.resolveVars(c.server, environments.vars()) as string } : c;
     };
     const deps = {
@@ -230,7 +232,7 @@ class LazyWorkbench {
       // 配置经 getConfig 每次调用现读(0.3.44):server/protoDir/TLS/超时改动即时生效,
       // 服务列表与实际调用两条路径读同一份配置,不再出现「列表新目录、调用旧目录」的劈叉。
       runner: new runner.GrpcCallRunner(runtimeConfig, registry),
-      getConfig: () => runner.resolveRunnerConfig(persistedServer),
+      getConfig: () => runner.resolveRunnerConfig(persistedServer, this.projectGet),
       onLoadSettled: this.onLoadSettled,
       // 顶栏连接状态点(0.3.54):与调用路径读同一份现读配置(server+TLS),配置改动即时生效;
       // TLS 配置错会在此抛错,session 按不可达处理(状态点转红),精确错误仍由实际调用面报出。

@@ -774,8 +774,12 @@ export class WorkbenchSession {
 export type WorkbenchPanelDeps = WorkbenchSessionDeps;
 
 /** 读取 protoUtils.runner.* 全量配置;protoDir 为空 = 工作区根,相对路径相对 workspace folder。
- *  persistedServer(0.3.75):顶栏编辑持久化值,优先于老配置项 runner.server。 */
-export function resolveRunnerConfig(persistedServer?: string | null): {
+ *  persistedServer(0.3.75):顶栏编辑持久化值,优先于老配置项 runner.server。
+ *  projectGet(0.3.82):项目文件 .proto-utils/settings.json 的 get,压过 VS Code settings(分层在调用方组合)。 */
+export function resolveRunnerConfig(
+  persistedServer?: string | null,
+  projectGet?: (key: string) => unknown,
+): {
   server: string;
   protoDir: string;
   tls: TlsSettings;
@@ -785,7 +789,11 @@ export function resolveRunnerConfig(persistedServer?: string | null): {
 } {
   const config = vscode.workspace.getConfiguration('protoUtils');
   const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  const resolved = resolveRunnerConfigPure((key) => config.get(key), root, persistedServer);
+  const resolved = resolveRunnerConfigPure(
+    (key) => (projectGet ? projectGet(key) : undefined) ?? config.get(key),
+    root,
+    persistedServer,
+  );
   return {
     server: resolved.server,
     protoDir: resolved.protoDir ?? '',
