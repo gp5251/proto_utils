@@ -3,6 +3,7 @@
   "command.generateTypes": "Proto Utils: Generate TypeScript Types",
   "command.generateAllTypes": "Proto Utils: Generate TypeScript Types (All Protos)",
   "command.openRpcRunner": "Proto Utils: Open RPC Workbench",
+  "command.createProjectConfig": "Proto Utils: Create Project Config File",
   "config.runner.protoDir": "Directory containing the .proto files themselves — imports resolve against it, so pointing at a parent directory breaks cross-file type resolution. Empty = workspace root; relative paths resolve against the workspace folder. When set, code generation also scans only this directory instead of the workspace. Requires a window reload to take effect.",
   "config.runner.tls": "Use TLS for RPC workbench calls (system root certificates). Enable together with the tls*Cert settings for self-signed CAs or mutual TLS",
   "config.runner.tlsRootCert": "PEM root CA certificate file for verifying the server (empty = system roots). Relative paths resolve against the workspace folder",

@@ -19,7 +19,8 @@
   "icon": "media/icon.png",
   "activationEvents": [
     "onLanguage:proto3",
-    "onCommand:protoUtils.openRpcRunner"
+    "onCommand:protoUtils.openRpcRunner",
+    "onCommand:protoUtils.createProjectConfig"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -55,6 +56,10 @@
       {
         "command": "protoUtils.openRpcRunner",
         "title": "%command.openRpcRunner%"
+      },
+      {
+        "command": "protoUtils.createProjectConfig",
+        "title": "%command.createProjectConfig%"
       }
     ],
     "menus": {
