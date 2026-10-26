@@ -11,13 +11,20 @@ import { createLoadDiagnosticsTrigger } from './loadDiagnostics';
 import { RetryableLazy } from './retryableLazy';
 import { resolveRunnerConfig as resolveRunnerConfigPure, resolveScanExcludes, ScanExcludes } from './runner/config';
 import { registerCodeGenCommand } from './codegen/command';
+import { ProjectConfig } from './projectConfig';
 import type { WorkbenchPanelManager } from './runner/webviewPanel';
 
 const PROTO_SELECTOR: vscode.DocumentSelector = { language: 'proto3', scheme: 'file' };
 
 export async function activate(context: vscode.ExtensionContext) {
   const workspaceDirs = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [];
-  const getSetting = (key: string): unknown => vscode.workspace.getConfiguration('protoUtils').get(key);
+  // 项目级配置(0.3.82):.proto-utils/settings.json 命中键压过 VS Code settings;
+  // 激活时读一次,文件 watcher 负责热更新(见下方 settingsWatcher)。
+  const projectConfig = workspaceDirs[0] ? new ProjectConfig(workspaceDirs[0]) : null;
+  await projectConfig?.reload();
+  const projectGet = (key: string): unknown => projectConfig?.get(key);
+  const getSetting = (key: string): unknown =>
+    projectGet(key) ?? vscode.workspace.getConfiguration('protoUtils').get(key);
   const { protoDir, protoDirExplicit } = resolveRunnerConfigPure(getSetting, workspaceDirs[0]);
   // 用户配置的扫描排除目录,runner/codegen/位置索引三层共用(0.3.13;索引层 0.3.44 起接入)
   const scanExcludes = resolveScanExcludes(getSetting, workspaceDirs[0]);
@@ -48,7 +55,7 @@ export async function activate(context: vscode.ExtensionContext) {
     () => index.build().then(() => callLens.refresh()),
   );
 
-  registerCodeGenCommand(context, frontend, () => undefined);
+  registerCodeGenCommand(context, frontend, projectGet);
 
   // 诊断集合与防抖触发器先于工作台创建:onLoadSettled 回调闭包引用二者(0.3.40)。
   // 触发时机(ADR-0002 既定代价:编辑中态不报):保存 proto 时 + 工作台加载尘埃落定时。
@@ -58,11 +65,29 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(loadDiagnosticsTrigger);
 
   // ---- 调用面(懒加载:grpc-js/proto-loader 只在首次打开工作台时载入) ----
-  const workbench = new LazyWorkbench(context, scanExcludes, loadDiagnosticsTrigger.trigger, () => undefined);
+  const workbench = new LazyWorkbench(context, scanExcludes, loadDiagnosticsTrigger.trigger, projectGet);
   context.subscriptions.push(
     vscode.commands.registerCommand('protoUtils.openRpcRunner', () => void workbench.reveal()),
     vscode.commands.registerCommand('protoUtils.callMethod', (args: { service: string; method: string }) => {
       void workbench.reveal({ service: args.service, method: args.method });
+    }),
+    // 创建项目配置文件(0.3.82):不存在则写模板并打开,已存在直接打开(Environments.ensureFile 同款交互)。
+    vscode.commands.registerCommand('protoUtils.createProjectConfig', async () => {
+      if (!projectConfig) {
+        void vscode.window.showInformationMessage(vscode.l10n.t('Proto Utils: No workspace folder open.'));
+        return;
+      }
+      try {
+        const file = await projectConfig.ensureFile();
+        await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(file));
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          vscode.l10n.t(
+            'Proto Utils: Failed to create project config file: {0}',
+            err instanceof Error ? err.message : String(err),
+          ),
+        );
+      }
     }),
   );
 
@@ -110,6 +135,38 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
     { dispose: () => clearTimeout(configReloadTimer) },
   );
+
+  // 项目级配置文件热更新(0.3.82):变更 → reload + 去重警告 + 走 0.3.70 的
+  // notifyConfigChanged(true)(推 config 纠顶栏显示 + 500ms 防抖重载服务列表)。
+  // 与 VS Code settings 同款限制:扫描根/排除集烤在激活时,改 protoDir/excludeDirs 需 reload 窗口。
+  const projectRoot = workspaceDirs[0];
+  if (projectConfig && projectRoot) {
+    let lastWarnedConfigError: string | undefined = projectConfig.error;
+    const warnConfigError = (): void => {
+      const err = projectConfig.error;
+      if (err && err !== lastWarnedConfigError) {
+        lastWarnedConfigError = err;
+        void vscode.window.showWarningMessage(
+          vscode.l10n.t('Proto Utils: Ignoring .proto-utils/settings.json: {0}', err),
+        );
+      }
+    };
+    warnConfigError(); // 激活时文件已坏也要提示一次
+    const settingsWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(projectRoot, '.proto-utils/settings.json'),
+    );
+    const onSettingsChanged = (): void => {
+      void projectConfig.reload().then(() => {
+        warnConfigError();
+        clearTimeout(configReloadTimer);
+        configReloadTimer = setTimeout(() => void workbench.notifyConfigChanged(true), 500);
+      });
+    };
+    settingsWatcher.onDidCreate(onSettingsChanged);
+    settingsWatcher.onDidChange(onSettingsChanged);
+    settingsWatcher.onDidDelete(onSettingsChanged);
+    context.subscriptions.push(settingsWatcher);
+  }
 
   // 打开时同样触发(0.3.70):此前仅保存/工作台 settled 才飘红,打开一个带
   // 缺失 import/语法错的文件看到的是干净编辑器,用户会以为文件没问题。
