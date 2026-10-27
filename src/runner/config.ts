@@ -93,6 +93,17 @@ export function isDirExcluded(name: string, fullPath: string, excludes: ScanExcl
   });
 }
 
+/**
+ * 文件是否落在某目录内(0.3.83,钉住文件的免钉判定)。
+ * 相对路径按 dir 解析;win32 走 normalizeForCompare 的不分大小写比较,
+ * 与 isDirExcluded 同一套路径比较语义。
+ */
+export function isInsideDir(file: string, dir: string): boolean {
+  const root = normalizeForCompare(path.resolve(dir));
+  const target = normalizeForCompare(path.resolve(file));
+  return target.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
+}
+
 /** 证书路径:空串/非字符串 → null;相对路径相对 workspace 根 join。 */
 function resolveCertPath(raw: unknown, workspaceRoot: string | undefined): string | null {
   if (typeof raw !== 'string') {

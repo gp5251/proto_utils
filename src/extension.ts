@@ -68,9 +68,14 @@ export async function activate(context: vscode.ExtensionContext) {
   const workbench = new LazyWorkbench(context, scanExcludes, loadDiagnosticsTrigger.trigger, projectGet);
   context.subscriptions.push(
     vscode.commands.registerCommand('protoUtils.openRpcRunner', () => void workbench.reveal()),
-    vscode.commands.registerCommand('protoUtils.callMethod', (args: { service: string; method: string }) => {
-      void workbench.reveal({ service: args.service, method: args.method });
-    }),
+    // protoFile(0.3.83):CodeLens 带上所在文件路径,工作台把 protoDir 之外的文件钉住,
+    // 服务列表与实际调用才都能解析到它(点哪个文件就能调哪个文件)。
+    vscode.commands.registerCommand(
+      'protoUtils.callMethod',
+      (args: { service: string; method: string; protoFile?: string }) => {
+        void workbench.reveal({ service: args.service, method: args.method, protoFile: args.protoFile });
+      },
+    ),
     // 创建项目配置文件(0.3.82):不存在则写模板并打开,已存在直接打开(Environments.ensureFile 同款交互)。
     vscode.commands.registerCommand('protoUtils.createProjectConfig', async () => {
       if (!projectConfig) {
@@ -205,7 +210,7 @@ class LazyWorkbench {
     private readonly projectGet: (key: string) => unknown,
   ) {}
 
-  async reveal(prefill?: { service: string; method: string }): Promise<void> {
+  async reveal(prefill?: { service: string; method: string; protoFile?: string }): Promise<void> {
     try {
       // 冷启动 reveal 触发懒加载(bundle import 拖入 grpc-js/protobufjs),可能数秒无反馈;
       // 弹通知进度提示。仅未启动时弹:已启动(含上次失败后的重试)直接复用同一 promise。

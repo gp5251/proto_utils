@@ -80,6 +80,8 @@ export function loadProtoDefinitions(protoFiles: string[], protoDir: string): Pr
  * 的全树同步扫描只做一次——此前每次 RPC 前都重扫整棵 proto 目录。
  * 失效两条路:resetProtoLoaderCache(watcher → registry.invalidate 的既有链路连带调用),
  * 以及 excludes 对象引用变化(会话内该引用恒定,仅多客户端/测试构造时出现)。
+ * 钉住文件(0.3.83)刻意不入缓存键:它由 findProtoFileForService 的钉住优先在查缓存
+ * 之前短路,故 ServiceRegistry.pin 无需清本缓存——点击 CodeLens 不会引发整树重扫。
  */
 interface ServiceFileCacheEntry {
   file: string | null;
@@ -104,12 +106,23 @@ export function clearServiceFileCache(): void {
  * - 裸短名(历史入口):宽松档,沿用「最多方法」启发式。
  * 精确档恒优先于宽松档;excludes 与服务列表扫描同源(0.3.44),陈旧拷贝不参选。
  * 结果经服务文件缓存(见上),proto 变更由 resetProtoLoaderCache 统一失效。
+ *
+ * pinnedFiles(0.3.83):CodeLens 点击的目录外文件,钉住优先且必须先于缓存与扫描——
+ * 目录外的服务在 protoDir 里根本扫不到,而缓存键不含钉住集,放在缓存之后会命中
+ * 此前缓存的 null 或错配文件。用户点的文件即权威定义源,同 fullName 在目录内另有
+ * 拷贝时也以它为准。
  */
 export function findProtoFileForService(
   protoDir: string,
   serviceName: string,
   excludes: ScanExcludes = EMPTY_SCAN_EXCLUDES,
+  pinnedFiles: readonly string[] = [],
 ): string | null {
+  const pinned = pickServiceFile(pinnedFiles, serviceName);
+  if (pinned) {
+    return pinned;
+  }
+
   const key = serviceFileCacheKey(protoDir, serviceName);
   const cached = serviceFileCache.get(key);
   if (cached && cached.excludes === excludes) {
@@ -126,13 +139,20 @@ function computeProtoFileForService(
   serviceName: string,
   excludes: ScanExcludes,
 ): string | null {
-  const protoFiles = scanProtoFiles(protoDir, excludes);
+  return pickServiceFile(scanProtoFiles(protoDir, excludes), serviceName);
+}
 
+/**
+ * 在给定文件集里按服务名竞选定义文件(扫描档与钉住档共用):
+ * 全限定名精确档恒优先于裸短名宽松档,同档取方法最多者。返回值统一 path.resolve
+ * 规范化,两条路径的结果可直接比较。
+ */
+function pickServiceFile(files: readonly string[], serviceName: string): string | null {
   let bestFile: string | null = null;
   let bestMethodCount = -1;
   let bestExact = false;
 
-  for (const file of protoFiles) {
+  for (const file of files) {
     let content: string;
     try {
       content = readProtoFile(file);
@@ -151,7 +171,7 @@ function computeProtoFileForService(
         (exact && !bestExact) ||
         (exact === bestExact && svc.methods.length > bestMethodCount);
       if (better) {
-        bestFile = file;
+        bestFile = path.resolve(file);
         bestMethodCount = svc.methods.length;
         bestExact = exact;
       }

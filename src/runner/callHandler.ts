@@ -4,7 +4,7 @@ import { findProtoFileForService } from './core/protoLoader';
 import { ServiceRegistry, SerializedMethod } from './serviceRegistry';
 import { buildRequestFromValues } from './utils/formParser';
 import { buildGrpcurlCommand } from './utils/grpcurl';
-import type { MetadataEntry, TlsSettings } from './config';
+import { isInsideDir, type MetadataEntry, type TlsSettings } from './config';
 import JSON5 from 'json5';
 import path from 'node:path';
 
@@ -121,6 +121,8 @@ export class GrpcCallRunner implements CallRunner {
           timeoutMs: cfg.timeoutMs,
           // 与服务列表同一份排除集:陈旧拷贝目录不参与服务定义文件竞选(0.3.44)
           scanExcludes: this.registry.scanExcludes,
+          // 钉住文件同步给调用面(0.3.83):列表能显示出来的目录外服务,也必须调得通
+          pinnedFiles: this.registry.pinnedFiles,
         }));
   }
 
@@ -251,8 +253,28 @@ export class GrpcCallRunner implements CallRunner {
     const cfg = this.getConfig();
     const t = await this.findTarget(cfg.protoDir, service, method);
     const fullName = t.fullName ?? service;
-    const protoFile = findProtoFileForService(cfg.protoDir, fullName, this.registry.scanExcludes);
+    const protoFile = findProtoFileForService(
+      cfg.protoDir,
+      fullName,
+      this.registry.scanExcludes,
+      this.registry.pinnedFiles,
+    );
     const streaming = !!(t.method?.requestStream || t.method?.responseStream);
+
+    // -import-path / -proto 的取法(0.3.83):定义文件在 protoDir 内则照旧给相对路径;
+    // 钉住的目录外文件相对化会产出 ..\..\x.proto 这类粘不进 shell 的路径,改用文件
+    // 自身目录作 import-path + 裸文件名作 proto,复制出去的命令才可直接执行。
+    let importPath = cfg.protoDir;
+    let relProto: string | undefined;
+    if (protoFile) {
+      if (isInsideDir(protoFile, cfg.protoDir)) {
+        relProto = path.relative(cfg.protoDir, protoFile).split(path.sep).join('/');
+      } else {
+        importPath = path.dirname(protoFile);
+        relProto = path.basename(protoFile);
+      }
+    }
+
     return buildGrpcurlCommand({
       server: cfg.server,
       serviceFullName: fullName,
@@ -261,8 +283,8 @@ export class GrpcCallRunner implements CallRunner {
       metadata,
       tls: cfg.tls,
       timeoutMs: streaming ? 0 : cfg.timeoutMs,
-      protoDir: cfg.protoDir,
-      protoFile: protoFile ? path.relative(cfg.protoDir, protoFile).split(path.sep).join('/') : undefined,
+      protoDir: importPath,
+      protoFile: relProto,
     });
   }
 }

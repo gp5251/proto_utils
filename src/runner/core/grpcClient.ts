@@ -120,14 +120,25 @@ export class GrpcClient {
   private readonly timeoutMs: number;
   /** 服务文件扫描排除集;与服务列表扫描同源(0.3.44),缺省不排除 */
   private readonly scanExcludes: ScanExcludes;
+  /**
+   * 钉住的 proto 文件(0.3.83):CodeLens「▶ 调用」点击的当前文件。目录外的服务在
+   * protoDir 里扫不到,解析时钉住优先,否则调用面报 Service not found。缺省空 = 既有行为。
+   */
+  private readonly pinnedFiles: readonly string[];
 
   constructor(
     private address: string,
-    options?: { credentials?: grpc.ChannelCredentials; timeoutMs?: number; scanExcludes?: ScanExcludes },
+    options?: {
+      credentials?: grpc.ChannelCredentials;
+      timeoutMs?: number;
+      scanExcludes?: ScanExcludes;
+      pinnedFiles?: readonly string[];
+    },
   ) {
     this.credentials = options?.credentials;
     this.timeoutMs = options?.timeoutMs ?? 0;
     this.scanExcludes = options?.scanExcludes ?? { names: new Set(), paths: [] };
+    this.pinnedFiles = options?.pinnedFiles ?? [];
   }
 
   async call(protoDir: string, options: CallOptions): Promise<CallResult> {
@@ -433,7 +444,7 @@ export class GrpcClient {
    * resolveMethod 的公共链;一元与服务端流共用。解析失败不抛,返回 { error }。
    */
   private resolveCall(protoDir: string, serviceName: string, methodName: string): ResolveOutcome {
-    const protoFile = findProtoFileForService(protoDir, serviceName, this.scanExcludes);
+    const protoFile = findProtoFileForService(protoDir, serviceName, this.scanExcludes, this.pinnedFiles);
     if (!protoFile) {
       return { error: l10n.t('Service "{0}" not found in proto definitions', serviceName) };
     }

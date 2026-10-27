@@ -53,7 +53,9 @@ export class ProtoCallLensProvider implements vscode.CodeLensProvider {
       return new vscode.CodeLens(range, {
         title: `▶ ${vscode.l10n.t('Call')} ${target.method}`,
         command: 'protoUtils.callMethod',
-        arguments: [{ service: target.serviceFullName, method: target.method }],
+        // protoFile(0.3.83):带上 lens 所在文件路径。工作台据此把 runner.protoDir 之外的
+        // 文件钉进服务列表,调用面也按钉住优先解析到它——点哪个文件就能调哪个文件。
+        arguments: [{ service: target.serviceFullName, method: target.method, protoFile: document.uri.fsPath }],
       });
     });
   }

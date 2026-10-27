@@ -15,6 +15,8 @@ import { GrpcClient, buildChannelCredentials, probeServerConnectivity } from '..
 
 const FRONTEND_DIR = path.resolve('testdata/frontend');
 const DUP_DIR = path.resolve('testdata/dupsvc');
+/** 不含 alpha.Echo 的目录:pinnedFiles 测试用它当「配窄了的 protoDir」。 */
+const RUNNER_DIR = path.resolve('testdata/runner');
 
 let server: grpc.Server;
 let client: GrpcClient;
@@ -280,6 +282,20 @@ test('scanExcludes 排除陈旧拷贝:无排除时 Send 落到缺方法的 vendo
   });
   assert.equal(withExclude.status, 'ok');
   if (withExclude.status === 'ok') assert.equal((withExclude.data as { from: string }).from, 'alpha');
+});
+
+test('pinnedFiles(0.3.83):protoDir 外的定义文件也能发起调用(CodeLens 点的文件不在配置目录内)', async () => {
+  // protoDir 指向一个不含 alpha.Echo 的目录:未钉住时调用面只能报 Service not found。
+  // 顺带钉住「钉住优先必须早于解析缓存」——本次调用会把 null 缓存在 (RUNNER_DIR, alpha.Echo) 键下。
+  const baseline = await client.call(RUNNER_DIR, { service: 'alpha.Echo', method: 'Send', request: {} });
+  assert.equal(baseline.status, 'error');
+  if (baseline.status === 'error') assert.match(baseline.error, /not found/);
+
+  // 钉住 DUP_DIR/alpha.proto(自包含,无 import)后:定义文件直接命中钉住文件,调用打到 alpha 实现
+  const pinned = new GrpcClient(serverAddress, { pinnedFiles: [path.join(DUP_DIR, 'alpha.proto')] });
+  const result = await pinned.call(RUNNER_DIR, { service: 'alpha.Echo', method: 'Send', request: {} });
+  assert.equal(result.status, 'ok');
+  if (result.status === 'ok') assert.equal((result.data as { from: string }).from, 'alpha');
 });
 
 test('unknown method error lists available methods', async () => {

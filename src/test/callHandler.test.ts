@@ -272,3 +272,39 @@ test('callServerStream: 委托给传输层并透传 handlers;cancel 幂等', asy
   handle.cancel();
   assert.equal(cancels, 1);
 });
+
+// ---- 钉住文件贯通调用面(0.3.83):CodeLens 点击的目录外 proto 也要能调 ----
+
+const PINNED_ALPHA = path.resolve('testdata/dupsvc/alpha.proto');
+
+test('GrpcCallRunner 默认工厂透传 registry.pinnedFiles:解析越过「Service not found」进到连接阶段', async () => {
+  const registry = new ServiceRegistry();
+  registry.pin(PINNED_ALPHA, RUNNER_DIR);
+  // 不注入 clientFactory → 走默认工厂(真实 GrpcClient)。服务定义解析发生在建连之前,
+  // 故 server 指向必然连不上的端口也能区分「钉住有没有透传」。
+  const runner = new GrpcCallRunner(() => ({ ...staticConfig(), server: '127.0.0.1:1' }), registry);
+  const payload = await runner.callUnary('alpha.Echo', 'Send', {});
+
+  assert.equal(payload.requestType, 'EchoReq', '服务列表侧:钉住文件的方法 schema 应已解析');
+  assert.equal(payload.result.status, 'error');
+  assert.ok(
+    !/not found in proto definitions/.test(payload.result.error ?? ''),
+    `调用侧应已解析到定义文件,错误该来自连接阶段,实际:${payload.result.error}`,
+  );
+});
+
+test('grpcurlCommand(0.3.83):钉住的目录外服务给出可执行的 -import-path/-proto,而非 ../..', async () => {
+  const registry = new ServiceRegistry();
+  registry.pin(PINNED_ALPHA, RUNNER_DIR);
+  const runner = new GrpcCallRunner(() => staticConfig(), registry, () => {
+    throw new Error('grpcurl 不经过传输层');
+  });
+
+  const cmd = await runner.grpcurlCommand('alpha.Echo', 'Send', { name: 'x' });
+  // 定义文件在 protoDir 之外:相对化会产出 ..\dupsvc\alpha.proto 这类粘不进去的路径,
+  // 必须改用文件自身目录作 -import-path + 裸文件名作 -proto,命令才可直接执行。
+  assert.ok(!cmd.includes('..'), `不该出现 ../.. 的相对路径:\n${cmd}`);
+  assert.match(cmd, /-import-path (?:'[^']*dupsvc'|[^\s]*dupsvc)/, `import-path 应指向 dupsvc:\n${cmd}`);
+  assert.match(cmd, /-proto '?alpha\.proto'?/, `proto 应为裸文件名:\n${cmd}`);
+  assert.match(cmd, /alpha\.Echo\/Send/, '服务/方法全限定名不变');
+});

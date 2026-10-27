@@ -5,6 +5,7 @@ import {
   WorkbenchHost,
   WorkbenchToWebview,
   WorkbenchPanelManager,
+  type WorkbenchPanelDeps,
 } from '../runner/webviewPanel';
 import { CallRunner, CallResultPayload } from '../runner/callHandler';
 import { ServicesPayload } from '../runner/serviceRegistry';
@@ -59,7 +60,14 @@ function makeDeps(overrides: {
   store?: SequenceStore;
   persistServer?: (server: string) => void;
 } = {}) {
-  const state = { invalidated: 0, protoDir: 'D:/protos' };
+  const state = {
+    invalidated: 0,
+    protoDir: 'D:/protos',
+    /** pin 调用记录(0.3.83):断言 reveal 把 CodeLens 的文件路径与当前 protoDir 一起交给 registry */
+    pinned: [] as Array<{ file: string; dir: string }>,
+    /** pin 的返回值:钉住集是否变化 */
+    pinResult: false,
+  };
   const deps = {
     registry: {
       load: async (_protoDir: string) => {
@@ -70,6 +78,10 @@ function makeDeps(overrides: {
         state.invalidated++;
       },
       peek: (_protoDir: string) => null as ServicesPayload | null,
+      pin: (file: string, dir: string) => {
+        state.pinned.push({ file, dir });
+        return state.pinResult;
+      },
     },
     runner: {
       callUnary: async () => {
@@ -648,6 +660,100 @@ test('面板单例:两次 reveal 只建一次,销毁后重建', () => {
   // prefill 委托给当前会话
   manager.reveal({ service: 'c.Greeter', method: 'SayHello' });
   assert.ok(manager.currentSession);
+});
+
+// ---- reveal 带 protoFile(0.3.83):CodeLens 点击的目录外文件钉住后可用 ----
+
+/** 建一个捕获 host 的 manager:测试要自己 emit('ready') 并检查出站消息序列。 */
+function makeCapturingManager(deps: WorkbenchPanelDeps) {
+  let captured: ReturnType<typeof makeHost> | null = null;
+  const manager = new WorkbenchPanelManager(deps, () => {
+    captured = makeHost();
+    return { host: captured.host, reveal: () => {} };
+  });
+  const host = (): ReturnType<typeof makeHost> => {
+    assert.ok(captured, '面板尚未创建');
+    return captured;
+  };
+  return { manager, host };
+}
+
+test('reveal 冷启动带 protoFile(0.3.83):先钉住再建面板,ready 后 prefill 照常冲出', async () => {
+  const { deps, state } = makeDeps();
+  state.pinResult = true;
+  const { manager, host } = makeCapturingManager(deps);
+
+  manager.reveal({ service: 'out.B', method: 'M2', protoFile: 'D:/elsewhere/b.proto' });
+  assert.deepEqual(
+    state.pinned,
+    [{ file: 'D:/elsewhere/b.proto', dir: 'D:/protos' }],
+    'pin 必须带上当前 protoDir(据此判断文件是否已在扫描范围内)',
+  );
+
+  host().emit({ type: 'ready' });
+  await nextTick();
+  assert.deepEqual(
+    host().posted.map((m) => m.type),
+    ['loading', 'services', 'prefill'],
+    '冷启动不额外重载:首次 load 就已含钉住文件',
+  );
+});
+
+test('reveal 热面板且钉住集变化(0.3.83):先重载服务列表再冲 prefill,不打在旧列表上', async () => {
+  const { deps, state } = makeDeps();
+  const { manager, host } = makeCapturingManager(deps);
+
+  manager.reveal();
+  host().emit({ type: 'ready' });
+  await nextTick();
+  const posted = host().posted;
+  posted.length = 0;
+
+  // 面板已就绪且空闲:此刻直发 prefill 会落在旧服务列表上(webview 报 prefillMiss),
+  // 故钉住集变化时必须强制排队,等重载后的列表送达再冲出。
+  state.pinResult = true;
+  manager.reveal({ service: 'out.B', method: 'M2', protoFile: 'D:/elsewhere/b.proto' });
+  await nextTick();
+
+  assert.deepEqual(state.pinned, [{ file: 'D:/elsewhere/b.proto', dir: 'D:/protos' }]);
+  assert.deepEqual(
+    posted.map((m) => m.type),
+    ['loading', 'services', 'prefill'],
+    'prefill 必须在新服务列表之后:顺序颠倒等于点了没反应',
+  );
+  assert.deepEqual(posted[posted.length - 1], { type: 'prefill', service: 'out.B', method: 'M2' });
+});
+
+test('reveal 带 protoFile 但钉住集未变(0.3.83):不重载,prefill 直发(热路径零开销)', async () => {
+  const { deps, state } = makeDeps();
+  const { manager, host } = makeCapturingManager(deps);
+
+  manager.reveal();
+  host().emit({ type: 'ready' });
+  await nextTick();
+  const posted = host().posted;
+  posted.length = 0;
+
+  // 文件已在 protoDir 内(pin 返回 false):重复点击不该引发任何重解析
+  state.pinResult = false;
+  manager.reveal({ service: 'c.Greeter', method: 'SayHello', protoFile: 'D:/protos/a.proto' });
+
+  assert.deepEqual(state.invalidated, 0, '钉住集未变不得失效缓存');
+  assert.deepEqual(posted.map((m) => m.type), ['prefill'], '就绪且空闲 → 直发,不触发 loading/services');
+});
+
+test('reveal 不带 protoFile(0.3.83):不触碰钉住逻辑,行为与既往一致', async () => {
+  const { deps, state } = makeDeps();
+  const { manager, host } = makeCapturingManager(deps);
+
+  manager.reveal({ service: 'c.Greeter', method: 'SayHello' });
+  assert.deepEqual(state.pinned, [], '无文件路径时不该调 pin');
+  host().emit({ type: 'ready' });
+  await nextTick();
+  assert.deepEqual(
+    host().posted.map((m) => m.type),
+    ['loading', 'services', 'prefill'],
+  );
 });
 
 test('面板关闭后 reload 仍清缓存,重开不渲染过期服务列表', async () => {

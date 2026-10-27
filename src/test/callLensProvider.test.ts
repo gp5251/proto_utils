@@ -54,3 +54,32 @@ test('provideCodeLenses:rpc 全删后返回空(此时无按钮是预期,不是 b
   );
   assert.equal(lenses.length, 0);
 });
+
+test('provideCodeLenses:lens 参数带上所在文件路径(0.3.83),目录外的 proto 也能被工作台钉住', async () => {
+  process.env.PROTO_UTILS_STUB_ROOT = ROOT;
+  const index = new SymbolIndex();
+  await index.build();
+
+  const text = fs.readFileSync(USER, 'utf8');
+  const lenses = new ProtoCallLensProvider(index).provideCodeLenses(fakeDocument(USER, text));
+  assert.ok(lenses.length > 0);
+  for (const lens of lenses) {
+    const args = lens.command!.arguments![0] as { service: string; method: string; protoFile?: string };
+    assert.equal(args.protoFile, USER, '必须带上文件路径:工作台据此把目录外的文件钉进服务列表');
+    assert.ok(args.service && args.method, 'service/method 不受影响');
+  }
+});
+
+test('provideCodeLenses:未保存的 untitled 文档也给 protoFile(钉不住也不该丢参数)', async () => {
+  process.env.PROTO_UTILS_STUB_ROOT = ROOT;
+  const index = new SymbolIndex();
+  await index.build();
+
+  const untitled = 'syntax = "proto3";\nservice S { rpc M(A) returns (A); }\nmessage A { string id = 1; }\n';
+  const lenses = new ProtoCallLensProvider(index).provideCodeLenses(
+    fakeDocument(path.join(ROOT, 'untitled-1.proto'), untitled),
+  );
+  assert.ok(lenses.length > 0);
+  const args = lenses[0].command!.arguments![0] as { protoFile?: string };
+  assert.equal(typeof args.protoFile, 'string', 'protoFile 恒为字符串;文件不存在时由 registry.pin 的存在性检查兜底');
+});

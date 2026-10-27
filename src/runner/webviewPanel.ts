@@ -83,7 +83,7 @@ export interface WorkbenchHost {
 }
 
 export interface WorkbenchSessionDeps {
-  registry: Pick<ServiceRegistry, 'load' | 'invalidate' | 'peek'>;
+  registry: Pick<ServiceRegistry, 'load' | 'invalidate' | 'peek' | 'pin'>;
   runner: CallRunner;
   getConfig(): { server: string; protoDir: string; metadata: MetadataEntry[]; connProbeIntervalMs?: number };
   /** 0.3.40:proto 加载尘埃落定(成功/部分错误/抛错)后回调,activation 侧借此补诊断飘红。可选,测试不受影响。 */
@@ -213,9 +213,20 @@ export class WorkbenchSession {
     });
   }
 
-  /** CodeLens 入口:webview 就绪且空闲则直发,否则排队到 services 送达后。重复调用只保留最后一次。 */
-  prefill(service: string, method: string): void {
-    if (this.webviewReady && !this.loadInFlight) {
+  /** webview 是否已收到过 ready;reveal 据此判断钉住后要不要重载服务列表(0.3.83)。 */
+  get isReady(): boolean {
+    return this.webviewReady;
+  }
+
+  /**
+   * CodeLens 入口:webview 就绪且空闲则直发,否则排队到 services 送达后。重复调用只保留最后一次。
+   *
+   * queue=true 强制排队(0.3.83):调用方刚钉住新文件、正要重载服务列表,此刻直发会落在
+   * 旧列表上让 webview 报 prefillMiss。显式传参而不是依赖「reload 会同步置起 loadInFlight」,
+   * 免把正确性挂在 async 函数首个 await 之前的同步副作用这种隐式时序上。
+   */
+  prefill(service: string, method: string, queue = false): void {
+    if (!queue && this.webviewReady && !this.loadInFlight) {
       this.send({ type: 'prefill', service, method });
       return;
     }
@@ -827,8 +838,18 @@ export class WorkbenchPanelManager {
     return this.active?.session ?? null;
   }
 
-  /** extension.ts 的入口:打开/聚焦面板;带 prefill 则排队到 webview 就绪后预选方法。 */
-  reveal(prefill?: { service: string; method: string }): void {
+  /**
+   * extension.ts 的入口:打开/聚焦面板;带 prefill 则排队到 webview 就绪后预选方法。
+   *
+   * protoFile(0.3.83):CodeLens「▶ 调用」所在文件的路径。落在 runner.protoDir 之外时
+   * 先钉住——服务列表与实际调用两条路径才都能解析到它,点哪个文件就能调哪个文件。
+   * 钉住集变化且会话已就绪时必须先重载再冲 prefill,否则 prefill 打在旧列表上等于点了没反应。
+   */
+  reveal(prefill?: { service: string; method: string; protoFile?: string }): void {
+    // 钉住先于建面板:工厂用 registry.peek 内嵌首帧服务列表,pin 已使旧缓存失效,不会内嵌过期数据
+    const pinnedChanged = prefill?.protoFile
+      ? this.deps.registry.pin(prefill.protoFile, this.deps.getConfig().protoDir)
+      : false;
     if (!this.active) {
       const panel = this.factory();
       const session = new WorkbenchSession(this.deps);
@@ -840,7 +861,12 @@ export class WorkbenchPanelManager {
     }
     this.active.panel.reveal();
     if (prefill) {
-      this.active.session.prefill(prefill.service, prefill.method);
+      const session = this.active.session;
+      // 冷启动不必重载:webview 尚未 ready,首次 loadAndSend 自然就带上钉住文件
+      if (pinnedChanged && session.isReady) {
+        void session.reload();
+      }
+      session.prefill(prefill.service, prefill.method, pinnedChanged);
     }
   }
 
