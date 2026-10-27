@@ -3,7 +3,7 @@
   "displayName": "Proto Utils",
   "l10n": "./l10n",
   "description": "%extension.description%",
-  "version": "0.3.82",
+  "version": "0.3.83",
   "publisher": "paulgui",
   "license": "MIT",
   "repository": {
