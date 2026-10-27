@@ -68,7 +68,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     emptyDirPre: l10n.t('Add <code>.proto</code> files to'),
     emptyDirPost: l10n.t(', or set <code>protoUtils.runner.protoDir</code> to your proto directory in Settings'),
     emptyNoDir: l10n.t(
-      'No workspace folder is open and no proto directory is configured. Open a folder with .proto files via "File → Open Folder", or configure <code>protoUtils.runner.protoDir</code> in Settings (absolute paths work).',
+      'No workspace folder is open and no proto directory is configured. Open a folder with .proto files via "File → Open Folder", configure <code>protoUtils.runner.protoDir</code> in Settings (absolute paths work), or open a .proto file and click the ▶ Call lens above an rpc method — no configuration needed.',
     ),
     methodCountSuffix: l10n.t(' methods'),
     copiedBadge: l10n.t('✓ Copied'),

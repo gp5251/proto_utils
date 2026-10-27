@@ -193,6 +193,15 @@ test('空态:未找到服务与无匹配结果两种标记', () => {
   assert.ok(html.includes('empty-state'));
 });
 
+test('空态文案(0.3.83):无工作区时补「打开 proto 点 ▶」这条零配置出路', () => {
+  const html = render();
+  // 此前这条空态只指路「打开文件夹」与「去设置里配 protoDir」,但 0.3.83 的钉住机制
+  // 让「直接打开 .proto 点方法上的 ▶」在毫无配置时也能用——空态不给出路等于把人挡在门外。
+  assert.ok(html.includes('No workspace folder is open'), '前置:无工作区空态仍在');
+  assert.match(html, /▶ Call lens above an rpc method/, '必须给出 CodeLens 这条出路');
+  assert.match(html, /no configuration needed/, '并说明它不需要任何配置');
+});
+
 test('交互结构:搜索、刷新按钮、流式徽标、取消按钮、prefill 锚点 id', () => {
   const html = render();
   assert.ok(html.includes('x-model="$store.search.query"'));
