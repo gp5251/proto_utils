@@ -172,5 +172,11 @@
   "Value (empty = unset)": "值（留空表示未设置）",
   "Proto Utils: Failed to open environments file: {0}": "Proto Utils: 打开环境文件失败：{0}",
   "Proto Utils: Ignoring .proto-utils/settings.json: {0}": "Proto Utils: 已忽略 .proto-utils/settings.json：{0}",
-  "Proto Utils: Failed to create project config file: {0}": "Proto Utils: 创建项目配置文件失败：{0}"
+  "Proto Utils: Failed to create project config file: {0}": "Proto Utils: 创建项目配置文件失败：{0}",
+  "Call Sequence": "调用序列",
+  "Server reachable": "服务器可达",
+  "Checking connection…": "正在检测连接…",
+  "Client/bidi streaming methods cannot join a sequence": "客户端/双向流方法不能加入序列",
+  "Open Settings": "打开设置",
+  "Go to Services": "前往服务列表"
 }

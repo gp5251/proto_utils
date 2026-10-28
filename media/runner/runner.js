@@ -172,8 +172,8 @@
           hintEl.style.display = nextConn === 'fail' ? '' : 'none';
         }
         // 0.3.57:跃迁瞬时提醒——fail→ok 恢复,ok→fail 断开;unknown 首探不打扰
-        if (prevConn === 'fail' && nextConn === 'ok') showNotice(connStore, str('connRestored'));
-        if (prevConn === 'ok' && nextConn === 'fail') showNotice(connStore, str('connLost'));
+        if (prevConn === 'fail' && nextConn === 'ok') showNotice(connStore, str('connRestored'), 'ok');
+        if (prevConn === 'ok' && nextConn === 'fail') showNotice(connStore, str('connLost'), 'err');
         break;
       }
       case 'seqEvent':
@@ -204,9 +204,9 @@
       case 'grpcurl':
         if (typeof msg.command === 'string') {
           navigator.clipboard.writeText(msg.command);
-          showNotice(workbenchStore(), str('grpcurlCopied'));
+          showNotice(workbenchStore(), str('grpcurlCopied'), 'ok');
         } else {
-          showNotice(workbenchStore(), str('grpcurlFailed', { error: msg.error || '' }));
+          showNotice(workbenchStore(), str('grpcurlFailed', { error: msg.error || '' }), 'err');
         }
         break;
     }
@@ -250,10 +250,13 @@
     }
   }
 
-  // 瞬时通知:refreshNotice 显示 2.5s 后自动消失;后到的提示覆盖先到的
+  // 瞬时通知:refreshNotice 显示 2.5s 后自动消失;后到的提示覆盖先到的。
+  // 0.3.84 kind 决定 toast 语义色(ok=绿/warn=黄/err=红)——此前成败共用成功绿,
+  // 「Connection lost」也渲染成绿胶囊。
   var noticeTimer = 0;
-  function showNotice(store, notice) {
+  function showNotice(store, notice, kind) {
     store.refreshNotice = notice;
+    store.refreshNoticeKind = kind === 'warn' || kind === 'err' ? kind : 'ok';
     clearTimeout(noticeTimer);
     noticeTimer = setTimeout(function () {
       store.refreshNotice = '';
@@ -267,7 +270,7 @@
       return; // 非刷新触发(初次加载/watcher 自动刷新)不打扰
     }
     store.refreshing = false;
-    showNotice(store, notice);
+    showNotice(store, notice, 'ok');
   }
 
   function tryApplyPrefill() {
@@ -303,6 +306,8 @@
       protoDir: typeof boot.protoDir === 'string' ? boot.protoDir : '',
       refreshing: false,
       refreshNotice: '',
+      // 0.3.84 toast 语义色(ok/warn/err),模板拼 .refresh-notice-<kind>
+      refreshNoticeKind: 'ok',
       // 后端连通性:unknown=未探测(灰),host 推 connState 后转 ok(绿)/fail(红)
       connState: 'unknown',
       // 顶视图切换(0.3.59):'services' 方法浏览 | 'sequence' 调用序列
@@ -383,6 +388,13 @@
           var e = workbenchStore().envError;
           return e ? str('envFileError', { error: e }) : '';
         },
+        // 0.3.84:状态点三态 tooltip(此前 7px 圆点无任何文字解释)
+        connTitle() {
+          var s = workbenchStore().connState;
+          if (s === 'ok') return str('connOk');
+          if (s === 'fail') return str('connUnreachable');
+          return str('connProbing');
+        },
       };
     });
 
@@ -422,6 +434,8 @@
       seqStopping: false,
       seqStatus: 'idle',
       seqNotice: '',
+      // 0.3.84 序列通知语义色,模板拼 .seq-notice-<kind>
+      seqNoticeKind: 'warn',
       // seqReport: index → {status, service, method, responseStream, values, durationMs, body, chunks, error}
       seqReport: {},
       // 0.3.81 序列报告折叠树展开态:index → {nodes, chunks};一元根行种子展开,流式 chunk 条默认收起
@@ -438,6 +452,8 @@
       // ---- 请求历史(0.3.78):宿主 workspaceState 持久化,全量推送;方法面板按 service+method 过滤 ----
       history: [],
       historyOpen: {},
+      // 0.3.84 Headers 折叠态(methodKey → bool,缺省 = 折叠);无自定义行时不再占首屏
+      headersOpen: {},
 
       // ---- 响应 JSON 折叠树(0.3.41):行构建与可见性遍历在 TS(全局 ResultTree) ----
       // resultTrees: methodKey → 根行数组(一元,applyCallResult 一次构建)
@@ -1163,6 +1179,37 @@
         return this.expandedServices[name] !== false;
       },
 
+      // ---- 0.3.84 顶栏/空态/折叠的展示助手 ----
+
+      // 页面标题随视图切换(此前序列视图仍写「RPC Services」)
+      headingText: function () {
+        var s = Alpine.store('str');
+        return Alpine.store('workbench').view === 'sequence' ? s.headingSequence : s.headingServices;
+      },
+
+      // 加入序列按钮的 tooltip:流式方法禁用时给出原因(禁用态保留指针事件才看得到)
+      seqAddTitle: function (m) {
+        return m && m.requestStream ? str('seqAddStreamUnsupported') : str('addToSequence');
+      },
+
+      // repeated message 的值是数组,占位符不能再用对象字面量
+      messagePlaceholder: function (field) {
+        return field && field.label === 'repeated' ? '[ { "key": "value" } ]' : '{ "key": "value" }';
+      },
+
+      isHeadersOpen: function (key) {
+        return this.headersOpen[key] === true;
+      },
+
+      toggleHeaders: function (key) {
+        this.headersOpen = Object.assign({}, this.headersOpen, { [key]: !this.isHeadersOpen(key) });
+      },
+
+      // 空态行动出口:让宿主打开 protoUtils 设置页
+      openSettings: function () {
+        sendMessage({ type: 'openSettings' });
+      },
+
       toggleMethod: function (svcName, methodName, method) {
         var key = this.methodKey(svcName, methodName);
         if (this.expandedMethod === key) {
@@ -1199,7 +1246,9 @@
         this.expandedMethod = key;
         this.$nextTick(function () {
           var el = document.getElementById('method-' + id + '-' + method.name);
-          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          // 0.3.84:尊重系统「减少动态效果」,平滑滚动改瞬时
+          var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          if (el) el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
         });
         return true;
       },
@@ -1398,7 +1447,7 @@
         this.setJsonError(key, null);
         this.setJsonWarnings(key, []);
         this.setFormError(key, '');
-        showNotice(workbenchStore(), str('historyRestored'));
+        showNotice(workbenchStore(), str('historyRestored'), 'ok');
       },
 
       cancelStream: function (svcName, methodName) {
@@ -1487,7 +1536,7 @@
         var cur = this.streams[key];
         if (cap > 0 && total >= cap && cur && !cur.done && !cur.capped) {
           this.streams = Object.assign({}, this.streams, { [key]: Object.assign({}, cur, { capped: true }) });
-          showNotice(workbenchStore(), str('streamCapReached', { count: total }));
+          showNotice(workbenchStore(), str('streamCapReached', { count: total }), 'warn');
           this.cancelStream(msg.service, msg.method);
         }
       },
@@ -1631,7 +1680,7 @@
         this.jsonText = Object.assign({}, this.jsonText, { [id]: this.jsonText[srcKey] || '' });
         this.seqTab = 'steps'; // 新加的步在序列 tab 可见
         // 0.3.66 加入后不切视图,仅瞬时提示;避免打断服务页浏览
-        showNotice(workbenchStore(), str('seqAdded', { method: m.name }));
+        showNotice(workbenchStore(), str('seqAdded', { method: m.name }), 'ok');
       },
 
       removeStep: function (i) {
@@ -1691,7 +1740,7 @@
       runSequence: function () {
         if (workbenchStore().connState === 'fail') return;
         if (this.seqRunning) return;
-        if (this.seqSteps.length === 0) { this.showSeqNotice(str('seqEmpty')); return; }
+        if (this.seqSteps.length === 0) { this.showSeqNotice(str('seqEmpty'), 'warn'); return; }
         this.seqReport = {};
         this.seqTreeOpen = {};
         this.seqNotice = '';
@@ -1724,8 +1773,8 @@
       },
 
       saveSequence: function () {
-        if (!(this.seqName || '').trim()) { this.showSeqNotice(str('seqNameRequired')); return; }
-        if (this.seqSteps.length === 0) { this.showSeqNotice(str('seqEmpty')); return; }
+        if (!(this.seqName || '').trim()) { this.showSeqNotice(str('seqNameRequired'), 'warn'); return; }
+        if (this.seqSteps.length === 0) { this.showSeqNotice(str('seqEmpty'), 'warn'); return; }
         // 同名覆盖确认在宿主侧(0.3.72):webview 的 confirm() 在 VS Code 沙箱 iframe
         // 被禁用(allow-modals 未设置),调用即抛错——这里只负责发消息
         sendMessage({ type: 'saveSequence', sequence: this.buildSequencePayload() });
@@ -1740,8 +1789,10 @@
         sendMessage({ type: 'deleteSequence', name: name });
       },
 
-      showSeqNotice: function (text) {
+      // 0.3.84 kind 决定 .seq-notice-<kind> 语义色(校验失败/中止不再与「完成」同灰)
+      showSeqNotice: function (text, kind) {
         this.seqNotice = text || '';
+        this.seqNoticeKind = kind === 'ok' || kind === 'err' ? kind : 'warn';
       },
 
       applySequences: function (list) {
@@ -1749,7 +1800,7 @@
       },
 
       applySequenceLoaded: function (seq) {
-        if (!seq) { this.showSeqNotice(str('seqLoadMiss')); return; }
+        if (!seq) { this.showSeqNotice(str('seqLoadMiss'), 'warn'); return; }
         var self = this;
         this.seqName = seq.name || '';
         this.seqSteps = [];
@@ -1787,7 +1838,7 @@
         var rep;
         switch (ev.type) {
           case 'validationFailed':
-            this.showSeqNotice(str('seqValidationFailed', { count: (ev.missing || []).length }));
+            this.showSeqNotice(str('seqValidationFailed', { count: (ev.missing || []).length }), 'err');
             break;
           case 'stepStart':
             rep = Object.assign({}, this.seqReport);
@@ -1862,9 +1913,9 @@
             this.seqRunning = false;
             this.seqStopping = false;
             this.seqStatus = ev.status;
-            if (ev.status === 'completed') this.showSeqNotice(str('seqCompleted'));
-            else if (ev.status === 'aborted') this.showSeqNotice(str('seqAborted'));
-            else if (ev.status === 'stopped') this.showSeqNotice(str('seqStopped'));
+            if (ev.status === 'completed') this.showSeqNotice(str('seqCompleted'), 'ok');
+            else if (ev.status === 'aborted') this.showSeqNotice(str('seqAborted'), 'err');
+            else if (ev.status === 'stopped') this.showSeqNotice(str('seqStopped'), 'warn');
             break;
         }
       },

@@ -15,7 +15,8 @@
   --border: #30363d;
   --text: #e6edf3;
   --text-dim: #8b949e;
-  --text-faint: #484f58;
+  /* 0.3.84:提亮到 AA(4.64:1 @surface)——折叠箭头/计数等弱提示此前 2.09:1 几乎不可见 */
+  --text-faint: #7d8590;
   --accent: #58a6ff;
   --accent-ring: #58a6ff1a; /* 焦点光晕 / stream 徽章底色(半透明) */
   --danger: #f85149;
@@ -42,7 +43,8 @@ body.vscode-high-contrast-light {
   --border: #d0d7de;
   --text: #1f2328;
   --text-dim: #59636e;
-  --text-faint: #8c959f;
+  /* 0.3.84:提亮到 AA(4.93:1 @surface) */
+  --text-faint: #656d76;
   --accent: #0969da;
   --accent-ring: #0969da33;
   --danger: #d1242f;
@@ -77,11 +79,12 @@ body {
   top: 0;
   z-index: 10;
 }
-.page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; gap: 16px; }
+/* 0.3.84:flex-wrap——并排编辑器列(容器 ~480px)下标题/tab/状态区此前不换行被裁切 */
+.page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; gap: 16px; flex-wrap: wrap; }
 .page-header .page-title { margin-bottom: 0; }
-.page-meta { font-size: 12px; color: var(--text-dim); display: flex; gap: 16px; align-items: center; justify-content: flex-end; }
+.page-meta { font-size: 12px; color: var(--text-dim); display: flex; gap: 16px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
 .page-meta span { display: flex; align-items: center; gap: 5px; }
-.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); display: inline-block; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); display: inline-block; cursor: help; }
 .dot.ok { background: var(--success); }
 .dot.fail { background: var(--danger); }
 .conn-hint { color: var(--danger); }
@@ -189,6 +192,8 @@ body {
   transition: background 0.15s;
   gap: 12px;
   scroll-margin-top: 60px;
+  /* 0.3.84:整行可点(此前仅方法名文字可点,hover 高亮整行却点不中,暗示与热区不一致) */
+  cursor: pointer;
 }
 .method-row:hover { background: var(--surface-hover); }
 .method-row-active { background: var(--surface-hover); }
@@ -223,7 +228,8 @@ body {
 }
 
 /* 服务名/方法名旁的复制按钮:常显弱态,hover 提亮;与 copy-badge 同位切换。
-   padding 撑大点击热区(约 23×22px),负 margin 抵消使布局不变。 */
+   padding 撑大点击热区(约 23×22px),负 margin 抵消使布局不变。
+   0.3.84:不再叠 opacity(弱色 × 0.65 实测约 1.9:1),直接用 dim 色表达弱态。 */
 .copy-icon {
   display: inline-flex;
   align-items: center;
@@ -233,14 +239,17 @@ body {
   margin: -3px 0 -3px 1px;
   cursor: pointer;
   border-radius: 3px;
-  color: var(--text-faint);
-  opacity: 0.65;
+  color: var(--text-dim);
 }
 
 .copy-icon:hover {
   color: var(--text);
-  opacity: 1;
   background: var(--surface-hover);
+}
+.copy-icon:focus-visible {
+  color: var(--text);
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .method-panel {
@@ -440,7 +449,8 @@ input[type="checkbox"] {
 }
 .btn:hover { background: var(--btn-hover); }
 .btn:active { background: var(--btn-bg); }
-.btn:disabled { opacity: 0.6; cursor: default; }
+/* 0.3.84:保留指针事件——禁用态的 title(如「流式方法不能加入序列」)需要 hover 才看得到 */
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .btn-secondary {
   background: var(--surface);
   color: var(--text);
@@ -448,7 +458,6 @@ input[type="checkbox"] {
   margin-top: 0;
 }
 .btn-secondary:hover { background: var(--surface-hover); }
-.btn:disabled { opacity: 0.55; cursor: default; pointer-events: none; }
 /* 0.3.68 瞬时通知改固定 toast:滚到一屏外也能看到(加入序列/刷新/连接跃迁/收满自动停)
    0.3.71 修复居中延迟:此前用 left:50% + transform:translateX(-50%) 居中,而本模板的
    x-transition.opacity 在进入过渡期间会向内联写入 transform( Alpine 的 enter.start/end
@@ -470,9 +479,12 @@ input[type="checkbox"] {
   background: var(--surface);
   box-shadow: 0 2px 8px rgb(0 0 0 / 30%);
   font-size: 12px;
-  color: var(--success);
   text-align: center;
 }
+/* 0.3.84 toast 语义色:成败/告警不再共用成功绿(此前「Connection lost」也是绿胶囊) */
+.refresh-notice-ok { color: var(--success); }
+.refresh-notice-warn { color: var(--warning); border-color: var(--warning); }
+.refresh-notice-err { color: var(--danger); border-color: var(--danger); }
 .btn-xs {
   padding: 4px 10px;
   font-size: 12px;
@@ -637,6 +649,31 @@ input[type="checkbox"] {
 }
 .header-remove { flex-shrink: 0; }
 
+/* ---- Headers 默认折叠(0.3.84):与 resp-meta 同观感,独立类名(resp-meta 计数被测试钉住) ----
+   此前每个方法面板顶部常显 Headers 行编辑器,没有自定义行时也占首屏。 */
+.headers-fold {
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.headers-fold-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 6px;
+}
+.headers-fold-toggle:hover { background: var(--surface-hover); }
+.headers-fold-count { font-weight: 400; color: var(--text-faint); }
+.headers-fold-body {
+  border-top: 1px solid var(--border);
+  padding: 8px 10px 10px;
+}
+.headers-fold-body .headers-editor { margin-bottom: 0; }
+
 /* ---- 响应 metadata(headers/trailers)折叠块:默认收起,有数据才渲染 ---- */
 .resp-meta {
   margin-bottom: 10px;
@@ -786,6 +823,10 @@ input[type="checkbox"] {
   color: var(--text-dim);
   font-size: 12px;
 }
+/* 0.3.84:序列通知语义色(校验失败/中止不再与「完成」同灰) */
+.seq-notice-ok { color: var(--success); }
+.seq-notice-warn { color: var(--warning); }
+.seq-notice-err { color: var(--danger); }
 
 .seq-saved-row {
   display: flex;
@@ -897,3 +938,29 @@ input[type="checkbox"] {
 .seq-assert-results { margin: 6px 0; padding: 7px 10px; border-radius: var(--radius); background: var(--bg); font-family: var(--mono); font-size: 12px; }
 .assert-pass { color: var(--success); }
 .assert-fail { color: var(--danger); }
+
+/* ---- 0.3.84 可访问性:键盘可达的折叠热区统一焦点环 ---- */
+.card-title-toggle:focus-visible,
+.method-name:focus-visible,
+.method-type-row-toggle:focus-visible,
+.resp-meta-toggle:focus-visible,
+.chunk-toggle:focus-visible,
+.headers-fold-toggle:focus-visible,
+.seq-step-toggle:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* 空态的行动按钮与文案拉开距离 */
+.empty-state .btn { margin-top: 14px; }
+
+/* 0.3.84:尊重系统「减少动态效果」——spinner/呼吸点/过渡全部停摆 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

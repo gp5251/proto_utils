@@ -40,6 +40,8 @@ export type WebviewToWorkbench =
   // ---- 0.3.78 环境 / grpcurl / client·bidi 流 ----
   | { type: 'setEnvironment'; name: string | null }
   | { type: 'editEnvironments' }
+  /** 0.3.84:空态「打开设置」行动按钮——直接落到 protoUtils 设置页,不让用户自己翻 */
+  | { type: 'openSettings' }
   | { type: 'exportGrpcurl'; service: string; method: string; values: Record<string, unknown>; metadata?: MetadataEntry[] }
   /** 打开 client-stream / bidi 会话(ADR-0013);结果复用 stream* 消息,取消复用 cancelStream */
   | { type: 'streamOpen'; service: string; method: string; metadata?: MetadataEntry[] }
@@ -363,6 +365,11 @@ export class WorkbenchSession {
         } catch (err) {
           void vscode.window.showErrorMessage(vscode.l10n.t('Proto Utils: Failed to open environments file: {0}', errText(err)));
         }
+        return;
+      }
+      case 'openSettings': {
+        // 0.3.84:空态行动按钮的宿主落点;query 预填 protoUtils 直接定位到本扩展设置
+        void vscode.commands.executeCommand('workbench.action.openSettings', 'protoUtils');
         return;
       }
       case 'exportGrpcurl': {

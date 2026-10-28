@@ -142,6 +142,9 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     addAssert: l10n.t('Add assertion'),
     assertPathPlaceholder: l10n.t('Path, e.g. data.id / count / durationMs'),
     assertExpectedPlaceholder: l10n.t('Expected value'),
+    // 0.3.84:空态行动按钮
+    openSettings: l10n.t('Open Settings'),
+    goToServices: l10n.t('Go to Services'),
   };
   const strings = {
     copy: l10n.t('Copy'),
@@ -188,6 +191,14 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     // 0.3.81 序列报告折叠树批量按钮(x-text 动态求值)
     expandAll: l10n.t('Expand all'),
     collapseAll: l10n.t('Collapse all'),
+    // 0.3.84 动态文案:标题随视图切换、状态点 tooltip、加入序列禁用原因
+    headingServices: l10n.t('RPC Services'),
+    headingSequence: l10n.t('Call Sequence'),
+    connOk: l10n.t('Server reachable'),
+    connProbing: l10n.t('Checking connection…'),
+    seqAddStreamUnsupported: l10n.t('Client/bidi streaming methods cannot join a sequence'),
+    // 0.3.84:seqAddTitle() 运行时读取(禁用态 tooltip 需要正常态文案作对照)
+    addToSequence: l10n.t('Add to sequence'),
   };
   const boot = {
     server: options.server,
@@ -218,7 +229,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
   <script nonce="${options.nonce}" defer src="${options.alpineScriptUri}"></script>
 </head>
 <body>
-  <div class="topbar">
+  <!-- 0.3.84:顶栏只承载搜索;序列视图下整条隐藏(此前残留 48px 空白带) -->
+  <div class="topbar" x-data x-cloak x-show="$store.workbench.view === 'services'">
     <div class="topbar-search" x-data x-cloak x-show="$store.workbench.view === 'services'">
       <input
         type="search"
@@ -230,7 +242,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
   </div>
   <div class="container" x-data="homePage" x-cloak>
     <div class="page-header">
-      <h1 class="page-title">${S.heading}</h1>
+      <!-- 0.3.84:标题随视图切换(此前序列视图仍写「RPC Services」) -->
+      <h1 class="page-title" x-text="headingText()">${S.heading}</h1>
 
       <div class="view-tabs">
         <button type="button" class="view-tab" :class="{ 'view-tab-active': $store.workbench.view === 'services' }" @click="setView('services')">${S.servicesTab}</button>
@@ -239,8 +252,9 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
 
       <div class="page-meta" x-data="pageMeta" x-cloak>
         <!-- 0.3.54:状态点绑定真实连通性(connState 由 host 探测推送;unknown=灰/ok=绿/fail=红) -->
+        <!-- 0.3.84:状态点补 tooltip(三态语义此前全靠一个 7px 圆点传达) -->
         <!-- 0.3.75:地址可点击原地编辑(Enter/失焦确认、Esc 取消),确认经 setServer 消息持久化;赋值全走组件方法(@alpinejs/csp) -->
-        <span><span class="dot" :class="$store.workbench.connState"></span><span class="server-addr" role="button" tabindex="0" title="${S.serverEditHint}" x-show="!editingServer" x-text="$store.workbench.server" @click="startEditServer()" @keydown.enter="startEditServer()"></span><input class="server-edit" type="text" spellcheck="false" autocomplete="off" x-show="editingServer" x-ref="serverInput" x-model="serverDraft" @keydown.enter="commitEditServer()" @keydown.escape="cancelEditServer()" @blur="commitEditServer()"><span class="conn-hint" x-show="$store.workbench.connState === 'fail'" x-text="$store.str.connUnreachable"></span></span>
+        <span><span class="dot" :class="$store.workbench.connState" :title="connTitle()"></span><span class="server-addr" role="button" tabindex="0" title="${S.serverEditHint}" x-show="!editingServer" x-text="$store.workbench.server" @click="startEditServer()" @keydown.enter="startEditServer()"></span><input class="server-edit" type="text" spellcheck="false" autocomplete="off" x-show="editingServer" x-ref="serverInput" x-model="serverDraft" @keydown.enter="commitEditServer()" @keydown.escape="cancelEditServer()" @blur="commitEditServer()"><span class="conn-hint" x-show="$store.workbench.connState === 'fail'" x-text="$store.str.connUnreachable"></span></span>
         <!-- 0.3.78 环境切换:无工作区时宿主不推快照,整块隐藏;地址含 {{var}} 时旁显替换结果 -->
         <span class="env-picker" x-show="$store.workbench.envSupported">
           <span class="server-resolved" x-show="resolvedServerText()" x-text="resolvedServerText()"></span>
@@ -258,9 +272,9 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
           <span x-show="!$store.workbench.refreshing">${S.refresh}</span>
           <span x-show="$store.workbench.refreshing"><span class="proto-loading-spinner"></span>${S.refreshing}</span>
         </button>
-        <!-- 0.3.70:全部收起服务卡片(大工作区逐个收太慢) -->
-        <button type="button" class="btn btn-secondary btn-xs" x-show="$store.workbench.services.length > 1" @click="collapseAllServices()">${S.collapseAllSvcs}</button>
-        <span class="refresh-notice" x-show="$store.workbench.refreshNotice" x-text="$store.workbench.refreshNotice" x-transition.opacity></span>
+        <!-- 0.3.70:全部收起服务卡片(大工作区逐个收太慢);0.3.84:序列视图无服务卡片,按钮一并隐藏 -->
+        <button type="button" class="btn btn-secondary btn-xs" x-show="$store.workbench.view === 'services' && $store.workbench.services.length > 1" @click="collapseAllServices()">${S.collapseAllSvcs}</button>
+        <span class="refresh-notice" :class="'refresh-notice-' + $store.workbench.refreshNoticeKind" role="status" aria-live="polite" x-show="$store.workbench.refreshNotice" x-text="$store.workbench.refreshNotice" x-transition.opacity></span>
       </div>
     </div>
 
@@ -292,11 +306,22 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
       <h2 style="font-size:16px">${S.emptyTitle}</h2>
       <p x-show="$store.workbench.protoDir">${S.emptyDirPre} <code x-text="$store.workbench.protoDir"></code>${S.emptyDirPost}</p>
       <p x-show="!$store.workbench.protoDir">${S.emptyNoDir}</p>
+      <!-- 0.3.84:空态给行动出口,不再只有一段说明文字 -->
+      <button type="button" class="btn btn-secondary" x-show="!$store.workbench.protoDir" @click="openSettings()">${S.openSettings}</button>
     </div>
 
     <template x-for="svc in filteredServices()" :key="svcId(svc)">
       <div class="card service-card">
-        <div class="card-title card-title-toggle" @click="toggleService(svcId(svc))">
+        <!-- 0.3.84:折叠热区补键盘可达(role/tabindex/aria-expanded + Enter/Space) -->
+        <div
+          class="card-title card-title-toggle"
+          role="button"
+          tabindex="0"
+          :aria-expanded="isServiceOpen(svcId(svc))"
+          @click="toggleService(svcId(svc))"
+          @keydown.enter.prevent="toggleService(svcId(svc))"
+          @keydown.space.prevent="toggleService(svcId(svc))"
+        >
           <span>
             <!-- 0.3.70:搜索命中高亮(子串整段/模糊按序) -->
             <template x-for="(seg, segIdx) in nameSegments(svc.name, query)" :key="segIdx"><span x-text="seg.text" :class="{ 'search-hit': seg.hit }"></span></template>
@@ -321,8 +346,18 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                 class="method-row"
                 :id="'method-' + svcId(svc) + '-' + m.name"
                 :class="{ 'method-row-active': isMethodOpen(svcId(svc), m.name) }"
+                @click="toggleMethod(svcId(svc), m.name, m)"
               >
-                <span class="method-name" @click="toggleMethod(svcId(svc), m.name, m)">
+                <!-- 0.3.84:整行可点;方法名是键盘可达的语义控件(.stop 防与行点击双触发) -->
+                <span
+                  class="method-name"
+                  role="button"
+                  tabindex="0"
+                  :aria-expanded="isMethodOpen(svcId(svc), m.name)"
+                  @click.stop="toggleMethod(svcId(svc), m.name, m)"
+                  @keydown.enter.prevent.stop="toggleMethod(svcId(svc), m.name, m)"
+                  @keydown.space.prevent.stop="toggleMethod(svcId(svc), m.name, m)"
+                >
                   <!-- 0.3.70:搜索命中高亮 -->
                   <template x-for="(seg, segIdx) in nameSegments(m.name, query)" :key="segIdx"><span x-text="seg.text" :class="{ 'search-hit': seg.hit }"></span></template>
                   <span
@@ -340,22 +375,38 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                   type="button"
                   class="btn btn-secondary btn-xs seq-add"
                   :disabled="m.requestStream"
-                  title="${S.addToSequence}"
+                  :title="seqAddTitle(m)"
                   @click.stop="addToSequence(svc, m)"
                 >+ ${S.addToSequence}</button>
                 <span class="collapse-icon" x-text="isMethodOpen(svcId(svc), m.name) ? '▼' : '▶'"></span>
               </div>
               <template x-if="isMethodOpen(svcId(svc), m.name)">
                 <div class="method-panel" @click.stop>
-                  <div class="headers-editor">
-                    <div class="headers-editor-head">
-                      <span class="headers-title">${S.headersTitle}</span>
-                      <button
-                        type="button"
-                        class="btn btn-secondary btn-xs"
-                        @click="addHeaderRow(methodKey(svcId(svc), m.name))"
-                      >${S.addHeader}</button>
+                  <!-- 0.3.84:Headers 改默认折叠(与响应 metadata 同款折叠块 + 计数徽章),
+                       无自定义行时不再占方法面板首屏 -->
+                  <div class="resp-meta headers-block">
+                    <div
+                      class="resp-meta-toggle"
+                      role="button"
+                      tabindex="0"
+                      :aria-expanded="isHeadersOpen(methodKey(svcId(svc), m.name))"
+                      @click="toggleHeaders(methodKey(svcId(svc), m.name))"
+                      @keydown.enter.prevent="toggleHeaders(methodKey(svcId(svc), m.name))"
+                      @keydown.space.prevent="toggleHeaders(methodKey(svcId(svc), m.name))"
+                    >
+                      <span class="collapse-icon" x-text="isHeadersOpen(methodKey(svcId(svc), m.name)) ? '▼' : '▶'"></span>
+                      <span>${S.headersTitle}</span>
+                      <span class="resp-meta-count" x-text="getHeaders(methodKey(svcId(svc), m.name)).length"></span>
                     </div>
+                    <div x-show="isHeadersOpen(methodKey(svcId(svc), m.name))" class="resp-meta-body">
+                    <div class="headers-editor">
+                      <div class="headers-editor-head">
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-xs"
+                          @click="addHeaderRow(methodKey(svcId(svc), m.name))"
+                        >${S.addHeader}</button>
+                      </div>
                     <template x-for="(h, hIdx) in getHeaders(methodKey(svcId(svc), m.name))" :key="hIdx">
                       <div class="header-row">
                         <input
@@ -382,9 +433,19 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                       </div>
                     </template>
                   </div>
+                    </div>
+                  </div>
                   <!-- 0.3.78 请求历史:按 service+method 过滤,点「恢复」回填入参与 headers -->
                   <div class="resp-meta history-block" x-show="historyFor(svcId(svc), m.name).length > 0">
-                    <div class="resp-meta-toggle" @click="toggleHistory(methodKey(svcId(svc), m.name))">
+                    <div
+                      class="resp-meta-toggle"
+                      role="button"
+                      tabindex="0"
+                      :aria-expanded="isHistoryOpen(methodKey(svcId(svc), m.name))"
+                      @click="toggleHistory(methodKey(svcId(svc), m.name))"
+                      @keydown.enter.prevent="toggleHistory(methodKey(svcId(svc), m.name))"
+                      @keydown.space.prevent="toggleHistory(methodKey(svcId(svc), m.name))"
+                    >
                       <span class="collapse-icon" x-text="isHistoryOpen(methodKey(svcId(svc), m.name)) ? '▼' : '▶'"></span>
                       <span>${S.historyTitle}</span>
                       <span class="resp-meta-count" x-text="historyFor(svcId(svc), m.name).length"></span>
@@ -404,7 +465,12 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                       <!-- 0.3.53:返回类型默认折叠,点标题行展开(resblk 作用域键,expandedRows 缺省即折叠) -->
                       <div
                         class="method-type-row method-type-row-toggle"
+                        role="button"
+                        tabindex="0"
+                        :aria-expanded="isRowOpen(rowKey('resblk', methodKey(svcId(svc), m.name)))"
                         @click.stop="toggleRow(rowKey('resblk', methodKey(svcId(svc), m.name)))"
+                        @keydown.enter.prevent.stop="toggleRow(rowKey('resblk', methodKey(svcId(svc), m.name)))"
+                        @keydown.space.prevent.stop="toggleRow(rowKey('resblk', methodKey(svcId(svc), m.name)))"
                       >
                         <span
                           class="collapse-icon"
@@ -581,7 +647,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                             <textarea
                               :value="getFieldValue(methodKey(svcId(svc), m.name), row.path)"
                               @input="setFieldValue(methodKey(svcId(svc), m.name), row.path, $event.target.value)"
-                              placeholder='{ "key": "value" }'
+                              :placeholder="messagePlaceholder(row.field)"
                             ></textarea>
                           </template>
                           <!-- 0.3.78 Timestamp/Duration/wrappers:单行文本,Timestamp 附「现在」一键填入 -->
@@ -737,7 +803,15 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                         ></button>
                       </div>
                       <div class="resp-meta" x-show="hasRespMeta(svcId(svc), m.name)">
-                        <div class="resp-meta-toggle" @click="toggleRespMeta(svcId(svc), m.name)">
+                        <div
+                          class="resp-meta-toggle"
+                          role="button"
+                          tabindex="0"
+                          :aria-expanded="isRespMetaOpen(svcId(svc), m.name)"
+                          @click="toggleRespMeta(svcId(svc), m.name)"
+                          @keydown.enter.prevent="toggleRespMeta(svcId(svc), m.name)"
+                          @keydown.space.prevent="toggleRespMeta(svcId(svc), m.name)"
+                        >
                           <span class="collapse-icon" x-text="isRespMetaOpen(svcId(svc), m.name) ? '▼' : '▶'"></span>
                           <span>${S.respMetaTitle}</span>
                           <span class="resp-meta-count" x-text="respMetaCountText(svcId(svc), m.name)"></span>
@@ -834,7 +908,15 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                       <!-- 0.3.70:流出错时错误横幅与已收 chunk 树并存(此前互斥,出错即丢已收数据) -->
                       <div x-show="streamErrorText(svcId(svc), m.name)" class="json-error stream-error-banner" x-text="streamErrorText(svcId(svc), m.name)"></div>
                       <div class="resp-meta" x-show="hasRespMeta(svcId(svc), m.name)">
-                        <div class="resp-meta-toggle" @click="toggleRespMeta(svcId(svc), m.name)">
+                        <div
+                          class="resp-meta-toggle"
+                          role="button"
+                          tabindex="0"
+                          :aria-expanded="isRespMetaOpen(svcId(svc), m.name)"
+                          @click="toggleRespMeta(svcId(svc), m.name)"
+                          @keydown.enter.prevent="toggleRespMeta(svcId(svc), m.name)"
+                          @keydown.space.prevent="toggleRespMeta(svcId(svc), m.name)"
+                        >
                           <span class="collapse-icon" x-text="isRespMetaOpen(svcId(svc), m.name) ? '▼' : '▶'"></span>
                           <span>${S.respMetaTitle}</span>
                           <span class="resp-meta-count" x-text="respMetaCountText(svcId(svc), m.name)"></span>
@@ -853,7 +935,15 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                       <div x-show="streamIsTreeable(svcId(svc), m.name) && !isRawOpen(methodKey(svcId(svc), m.name))" class="stream-tree">
                         <template x-for="sec in chunkSections(svcId(svc), m.name)" :key="sec.idx">
                           <div class="chunk-section">
-                            <div class="chunk-toggle" @click="toggleChunkTree(svcId(svc), m.name, sec.idx)">
+                            <div
+                              class="chunk-toggle"
+                              role="button"
+                              tabindex="0"
+                              :aria-expanded="isChunkTreeOpen(svcId(svc), m.name, sec.idx)"
+                              @click="toggleChunkTree(svcId(svc), m.name, sec.idx)"
+                              @keydown.enter.prevent="toggleChunkTree(svcId(svc), m.name, sec.idx)"
+                              @keydown.space.prevent="toggleChunkTree(svcId(svc), m.name, sec.idx)"
+                            >
                               <span class="collapse-icon" x-text="isChunkTreeOpen(svcId(svc), m.name, sec.idx) ? '▼' : '▶'"></span>
                               <span class="chunk-label" x-text="sec.label"></span>
                             </div>
@@ -914,7 +1004,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
           </button>
         </div>
         <p x-show="$store.workbench.connState === 'fail'" class="unsupported-hint" x-text="$store.str.svcUnavailable"></p>
-        <p x-show="seqNotice" class="seq-notice" x-text="seqNotice"></p>
+        <p x-show="seqNotice" class="seq-notice" :class="'seq-notice-' + seqNoticeKind" role="status" aria-live="polite" x-text="seqNotice"></p>
       </div>
 
       <!-- 序列内二级 tab(0.3.62):步骤编辑 / 运行报告 分容器,避免整页纵向堆叠过长;控件条常驻两者之上 -->
@@ -938,6 +1028,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
 
       <div class="empty-state" x-show="seqSteps.length === 0">
         <p>${S.seqEmptySteps}</p>
+        <!-- 0.3.84:空态给行动出口 -->
+        <button type="button" class="btn btn-secondary" @click="setView('services')">${S.goToServices}</button>
       </div>
 
       <template x-for="(step, sIdx) in seqSteps" :key="step.id">
@@ -945,7 +1037,16 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
           <div class="seq-step-head">
             <span class="seq-step-idx" x-text="'#' + (sIdx + 1)"></span>
             <!-- 0.3.63 步骤入参默认折叠:点方法名或折叠图标展开/收起 -->
-            <span class="seq-step-name seq-step-toggle" @click="toggleSeqStep(step.id)" x-text="step.method"></span>
+            <span
+              class="seq-step-name seq-step-toggle"
+              role="button"
+              tabindex="0"
+              :aria-expanded="isSeqStepOpen(step.id)"
+              @click="toggleSeqStep(step.id)"
+              @keydown.enter.prevent="toggleSeqStep(step.id)"
+              @keydown.space.prevent="toggleSeqStep(step.id)"
+              x-text="step.method"
+            ></span>
             <span class="seq-step-svc" x-text="step.service"></span>
             <span x-show="step.responseStream" class="method-stream-badge">stream</span>
             <span class="collapse-icon seq-step-toggle" @click="toggleSeqStep(step.id)" x-text="isSeqStepOpen(step.id) ? '▼' : '▶'"></span>
@@ -1030,7 +1131,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                         <input type="text" :value="getFieldValue(step.id, row.path)" @input="setFieldValue(step.id, row.path, $event.target.value)" placeholder="${S.enumPlaceholder}">
                       </template>
                       <template x-if="row.field.protoType === 'TYPE_MESSAGE' && !row.wkt">
-                        <textarea :value="getFieldValue(step.id, row.path)" @input="setFieldValue(step.id, row.path, $event.target.value)" placeholder='{ "key": "value" }'></textarea>
+                        <textarea :value="getFieldValue(step.id, row.path)" @input="setFieldValue(step.id, row.path, $event.target.value)" :placeholder="messagePlaceholder(row.field)"></textarea>
                       </template>
                       <template x-if="row.wkt">
                         <span class="wkt-input">
@@ -1165,7 +1266,15 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
             <div x-show="entry.responseStream && seqStreamTreeable(entry.index)" class="stream-tree">
               <template x-for="sec in seqChunkSections(entry.index)" :key="sec.idx">
                 <div class="chunk-section">
-                  <div class="chunk-toggle" @click="seqToggleChunkTree(entry.index, sec.idx)">
+                  <div
+                    class="chunk-toggle"
+                    role="button"
+                    tabindex="0"
+                    :aria-expanded="seqIsChunkTreeOpen(entry.index, sec.idx)"
+                    @click="seqToggleChunkTree(entry.index, sec.idx)"
+                    @keydown.enter.prevent="seqToggleChunkTree(entry.index, sec.idx)"
+                    @keydown.space.prevent="seqToggleChunkTree(entry.index, sec.idx)"
+                  >
                     <span class="collapse-icon" x-text="seqIsChunkTreeOpen(entry.index, sec.idx) ? '▼' : '▶'"></span>
                     <span class="chunk-label" x-text="sec.label"></span>
                   </div>
