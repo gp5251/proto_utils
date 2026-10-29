@@ -22,7 +22,8 @@
     chunkCount: '{count} messages',
     ignored: 'Ignored: {fields}',
     emptyLoadError: 'Unknown load error (empty message)',
-    prefillMiss: 'Call target not found: {service} · {method}. The service list may be outdated — click Refresh.',
+    scopeClearHint: 'Showing only the interfaces declared in this file (opened via the ▶ Call lens). Click to show every service in the proto directory.',
+    prefillMiss: 'Call target not found: {service} · {method}. If you just added or renamed this rpc, save the .proto file first, then click Refresh.',
     connUnreachable: 'Server unreachable',
     svcUnavailable: 'Service unavailable — click Refresh to retry',
     connRestored: 'Connection restored',
@@ -165,6 +166,10 @@
         scopeStore.scopedFile = typeof msg.file === 'string' && msg.file !== '' ? msg.file : '';
         break;
       }
+      case 'scopeLocked':
+        // 序列运行中拒绝 CodeLens 来源切换:走全局 toast,服务/序列视图都可见。
+        showNotice(workbenchStore(), msg.message, 'warn');
+        break;
       case 'connState': {
         // host 侧连通性探测结果(0.3.54):顶栏状态点 unknown=灰/ok=绿/fail=红
         var connStore = workbenchStore();
@@ -1229,6 +1234,12 @@
         if (!f) return '';
         var i = Math.max(f.lastIndexOf('/'), f.lastIndexOf('\\'));
         return i >= 0 ? f.slice(i + 1) : f;
+      },
+
+      // 顶栏只显 basename,悬浮时给出完整路径,并保留点击清除的说明。
+      scopeClearTitle: function () {
+        var f = Alpine.store('workbench').scopedFile || '';
+        return f ? f + '\n' + str('scopeClearHint') : '';
       },
 
       // 0.3.86 解除单文件作用域(顶栏标识点击 / 空态「显示全部服务」):请求宿主回到 protoDir 全量。

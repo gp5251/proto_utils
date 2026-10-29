@@ -193,13 +193,16 @@ test('空态:未找到服务与无匹配结果两种标记', () => {
   assert.ok(html.includes('empty-state'));
 });
 
-test('空态文案(0.3.83):无工作区时补「打开 proto 点 ▶」这条零配置出路', () => {
+test('空态文案:CodeLens 零配置只覆盖自包含/同目录 import,跨目录根仍需 protoDir', () => {
   const html = render();
-  // 此前这条空态只指路「打开文件夹」与「去设置里配 protoDir」,但 0.3.83 的钉住机制
-  // 让「直接打开 .proto 点方法上的 ▶」在毫无配置时也能用——空态不给出路等于把人挡在门外。
   assert.ok(html.includes('No workspace folder is open'), '前置:无工作区空态仍在');
   assert.match(html, /▶ Call lens above an rpc method/, '必须给出 CodeLens 这条出路');
-  assert.match(html, /no configuration needed/, '并说明它不需要任何配置');
+  assert.match(html, /without configuration for self-contained files and same-directory imports/, '零配置适用范围必须说清');
+  assert.match(
+    html,
+    /cross-directory import roots still require <code>protoUtils\.runner\.protoDir<\/code>/,
+    '不得再把跨目录 import 也承诺成零配置',
+  );
 });
 
 // ---- 单文件作用域(0.3.86):来源标识 + 作用域态空态 ----
@@ -214,6 +217,17 @@ test('顶栏来源标识(0.3.86):作用域态才显示,原生 button 点击发 c
   assert.ok(!tag[0].includes('style='), '禁止内联样式:视觉一律进 runner.css');
   // 文件名是动态的,必须经组件方法求值(长路径要截断,不能整条塞进窄顶栏)
   assert.ok(html.includes('x-text="scopeFileName()"'), '文件名走组件方法');
+});
+
+test('来源 chip 与空态文件名都能悬浮查看完整路径', () => {
+  const html = render();
+  const chip = html.match(/<button[^>]*class="[^"]*scope-chip[^"]*"[^>]*>/);
+  assert.ok(chip, '顶栏必须有来源 chip');
+  assert.ok(chip[0].includes(':title="scopeClearTitle()"'), 'chip tooltip 必须由组件组合完整路径与清除说明');
+  assert.ok(
+    html.includes('<code x-text="scopeFileName()" :title="$store.workbench.scopedFile"></code>'),
+    '作用域空态只显示 basename 时,也必须能悬浮查看完整路径',
+  );
 });
 
 test('boot 内嵌当前作用域文件(0.3.86):作用域态下重建面板,首帧就带来源标识', () => {

@@ -74,14 +74,11 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     emptyDirPre: l10n.t('Add <code>.proto</code> files to'),
     emptyDirPost: l10n.t(', or set <code>protoUtils.runner.protoDir</code> to your proto directory in Settings'),
     emptyNoDir: l10n.t(
-      'No workspace folder is open and no proto directory is configured. Open a folder with .proto files via "File → Open Folder", configure <code>protoUtils.runner.protoDir</code> in Settings (absolute paths work), or open a .proto file and click the ▶ Call lens above an rpc method — no configuration needed.',
+      'No workspace folder is open and no proto directory is configured. Open a folder with .proto files via "File → Open Folder", configure <code>protoUtils.runner.protoDir</code> in Settings (absolute paths work), or open a .proto file and click the ▶ Call lens above an rpc method. The lens works without configuration for self-contained files and same-directory imports; cross-directory import roots still require <code>protoUtils.runner.protoDir</code>.',
     ),
     // ---- 0.3.86 单文件作用域:顶栏来源标识 + 作用域态空态 ----
     // 都是静态串(直接进 markup,不经 Alpine 求值),故放 S 而非 boot.strings。
     scopeFrom: l10n.t('Source'),
-    scopeClearHint: l10n.t(
-      'Showing only the interfaces declared in this file (opened via the ▶ Call lens). Click to show every service in the proto directory.',
-    ),
     emptyScopedPre: l10n.t('No services are declared in'),
     emptyScopedPost: l10n.t(
       '. Only this file is in scope — click below to browse every service in the proto directory.',
@@ -177,7 +174,10 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     emptyLoadError: l10n.t('Unknown load error (empty message)'),
     respMetaHeader: l10n.t('header'),
     respMetaTrailer: l10n.t('trailer'),
-    prefillMiss: l10n.t('Call target not found: {service} · {method}. The service list may be outdated — click Refresh.'),
+    scopeClearHint: l10n.t(
+      'Showing only the interfaces declared in this file (opened via the ▶ Call lens). Click to show every service in the proto directory.',
+    ),
+    prefillMiss: l10n.t('Call target not found: {service} · {method}. If you just added or renamed this rpc, save the .proto file first, then click Refresh.'),
     connUnreachable: l10n.t('Server unreachable'),
     svcUnavailable: l10n.t('Service unavailable — click Refresh to retry'),
     connRestored: l10n.t('Connection restored'),
@@ -278,7 +278,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
              不必像 0.3.84 那批折叠热区一样手补 tabindex 与 Enter/Space。样式全在 runner.css。
              clearScope/scopeFileName 定义在 homePage 上,靠 Alpine 的向上作用域链解析到——
              与同一 page-meta 里的 collapseAllServices() 一个路子。 -->
-        <button type="button" class="btn btn-secondary btn-xs scope-chip" x-show="$store.workbench.scopedFile" title="${S.scopeClearHint}" @click="clearScope()">
+        <button type="button" class="btn btn-secondary btn-xs scope-chip" x-show="$store.workbench.scopedFile" :title="scopeClearTitle()" @click="clearScope()">
           <span class="scope-chip-label">${S.scopeFrom}</span>
           <span class="scope-chip-file" x-text="scopeFileName()"></span>
           <span class="scope-chip-x" aria-hidden="true">&times;</span>
@@ -334,7 +334,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
       <h2 style="font-size:16px">${S.emptyTitle}</h2>
       <!-- 0.3.86:三分支互斥。作用域态下列表为空 = 该文件没声明 service,与 protoDir 配得
            好不好毫无关系;沿用旧文案会让人去改一个根本不相干的设置。 -->
-      <p x-show="$store.workbench.scopedFile">${S.emptyScopedPre} <code x-text="scopeFileName()"></code>${S.emptyScopedPost}</p>
+      <p x-show="$store.workbench.scopedFile">${S.emptyScopedPre} <code x-text="scopeFileName()" :title="$store.workbench.scopedFile"></code>${S.emptyScopedPost}</p>
       <button type="button" class="btn btn-secondary" x-show="$store.workbench.scopedFile" @click="clearScope()">${S.showAllServices}</button>
       <p x-show="!$store.workbench.scopedFile && $store.workbench.protoDir">${S.emptyDirPre} <code x-text="$store.workbench.protoDir"></code>${S.emptyDirPost}</p>
       <p x-show="!$store.workbench.scopedFile && !$store.workbench.protoDir">${S.emptyNoDir}</p>

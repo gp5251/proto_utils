@@ -69,6 +69,8 @@ export type WorkbenchToWebview =
    * 本消息只服务其后的作用域切换(再点别的文件 / 点标识清除)。
    */
   | { type: 'scope'; file: string | null }
+  /** 序列运行中拒绝 CodeLens 来源切换:走全局 toast,服务/序列视图都可见。 */
+  | { type: 'scopeLocked'; message: string }
   /** 顶栏连接状态点:ok=通道可达,fail=不可达/超时/配置错(0.3.54) */
   | { type: 'connState'; state: 'ok' | 'fail' }
   // ---- 调用序列(0.3.59,ADR-0012) ----
@@ -113,6 +115,8 @@ export interface WorkbenchSessionDeps {
   };
   /** 0.3.78:请求历史;未注入则不记录 */
   history?: Pick<CallHistory, 'list' | 'add'>;
+  /** 作用域实际变化时同步精确文件 watcher;null 表示已回到 protoDir 全量。 */
+  onScopeChanged?(file: string | null): void;
 }
 
 interface CallTarget {
@@ -228,6 +232,21 @@ export class WorkbenchSession {
     return this.webviewReady;
   }
 
+  /** 是否有序列正在执行;运行期间锁定来源,避免后续步骤改用另一份定义。 */
+  get hasActiveSequence(): boolean {
+    return this.activeSequence !== null;
+  }
+
+  /** CodeLens 在序列运行中请求切换来源:保持现状并给服务/序列视图都可见的提示。 */
+  notifyScopeLocked(): void {
+    this.send({
+      type: 'scopeLocked',
+      message: vscode.l10n.t(
+        'A sequence is running. Wait for it to finish or stop it before changing the interface source.',
+      ),
+    });
+  }
+
   /**
    * CodeLens 入口:webview 就绪且空闲则直发,否则排队到 services 送达后。重复调用只保留最后一次。
    *
@@ -261,6 +280,7 @@ export class WorkbenchSession {
     if (!this.deps.registry.unpin()) {
       return;
     }
+    this.deps.onScopeChanged?.(null);
     this.pushScope();
     await this.reload();
   }
@@ -733,6 +753,9 @@ export class WorkbenchSession {
           'Sequences can reference services outside the current source filter. Click the source chip in the header (or "Show all services") to restore the full list, then run it again.',
         ),
       });
+      // webview 在发 runSequence 前已置 seqRunning=true;未创建引擎时没有自然 end,
+      // 必须补发 aborted,否则运行按钮永久禁用,清除作用域也救不回来。
+      this.send({ type: 'seqEvent', event: { type: 'end', status: 'aborted' } });
       return;
     }
     if (this.activeSequence) {
@@ -904,11 +927,21 @@ export class WorkbenchPanelManager {
    * prefill 若打在旧列表上,webview 查不到目标只会报 prefillMiss,等于点了没反应。
    */
   reveal(prefill?: { service: string; method: string; protoFile?: string }): void {
+    // 序列的每一步都会现读 registry/调用面的作用域。运行中若随 CodeLens 切换,
+    // 已通过整体校验的后续步会突然换成另一份定义;按既定交互锁定到序列结束。
+    if (prefill?.protoFile && this.active?.session.hasActiveSequence) {
+      this.active.panel.reveal();
+      this.active.session.notifyScopeLocked();
+      return;
+    }
     // 切作用域先于建面板:工厂要用 registry.peek 内嵌首帧服务列表、用 pinnedFile 内嵌 boot
     // 的来源标识,二者都必须是切换后的状态,否则首帧就是过期的。
     const scopeChanged = prefill?.protoFile
       ? this.deps.registry.scopeToProtoFile(prefill.protoFile, this.deps.getConfig().protoDir)
       : false;
+    if (scopeChanged) {
+      this.deps.onScopeChanged?.(this.deps.registry.pinnedFile);
+    }
     if (!this.active) {
       const panel = this.factory();
       const session = new WorkbenchSession(this.deps);

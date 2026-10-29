@@ -148,9 +148,12 @@ export class ServiceRegistry {
     }
 
     const result = loadProtoDefinitions(protoFiles, protoDir);
+    const scopedImportHint = this.scoped && result.errors.some((e) => e.includes('ENOENT'))
+      ? [l10n.t('Cross-directory import failed. Configure protoUtils.runner.protoDir to the import root, then click Refresh.')]
+      : [];
     const loaded: ServicesLoadResult = {
       services: serializeServicesForClient(result.services),
-      errors: [...errors, ...result.errors],
+      errors: [...errors, ...result.errors, ...scopedImportHint],
     };
     this.cached = loaded;
     this.cachedDir = protoDir;

@@ -59,6 +59,7 @@ function makeDeps(overrides: {
   probeConnection?: () => Promise<boolean>;
   store?: SequenceStore;
   persistServer?: (server: string) => void;
+  onScopeChanged?: (file: string | null) => void;
 } = {}) {
   const state = {
     invalidated: 0,
@@ -109,6 +110,7 @@ function makeDeps(overrides: {
     ...(overrides.probeConnection ? { probeConnection: overrides.probeConnection } : {}),
     ...(overrides.store ? { store: overrides.store } : {}),
     ...(overrides.persistServer ? { persistServer: overrides.persistServer } : {}),
+    ...(overrides.onScopeChanged ? { onScopeChanged: overrides.onScopeChanged } : {}),
   };
   return { deps, state };
 }
@@ -797,6 +799,32 @@ test('clearScope(0.3.86):顶栏清除来源标识 → unpin + 推 scope(null) + 
   assert.equal(state.invalidated, 1, '解除作用域必须失效缓存,否则重载仍返回收窄时的载荷');
 });
 
+test('reveal 作用域变化时通知精确 watcher 同步当前文件', () => {
+  const scopeChanges: Array<string | null> = [];
+  const { deps, state } = makeDeps({ onScopeChanged: (file) => scopeChanges.push(file) });
+  const { manager } = makeCapturingManager(deps);
+  state.scopeResult = true;
+  state.pinnedFile = 'D:/elsewhere/b.proto';
+
+  manager.reveal({ service: 'out.B', method: 'M2', protoFile: 'D:/elsewhere/b.proto' });
+
+  assert.deepEqual(scopeChanges, ['D:/elsewhere/b.proto'], '目录外文件必须交给精确 watcher');
+});
+
+test('clearScope 后通知精确 watcher 释放来源文件监听', async () => {
+  const scopeChanges: Array<string | null> = [];
+  const { deps, state } = makeDeps({ onScopeChanged: (file) => scopeChanges.push(file) });
+  const { host, emit } = makeHost();
+  new WorkbenchSession(deps).attach(host);
+  state.unpinResult = true;
+  state.pinnedFile = null;
+
+  emit({ type: 'clearScope' });
+  await nextTick();
+
+  assert.deepEqual(scopeChanges, [null], '清除来源必须释放目录外文件的精确 watcher');
+});
+
 test('clearScope(0.3.86):本来就没钉住 → 不推 scope 不重载(无操作)', async () => {
   const { deps, state } = makeDeps();
   const { host, posted, emit } = makeHost();
@@ -841,7 +869,9 @@ test('runSequence(0.3.86):作用域态下拦住启动并给可操作提示,不�
   assert.ok(notice, '必须给可见提示,不能静默');
   assert.match((notice as { message: string }).message, /source filter/i, '提示要指向顶栏来源标识');
   assert.match((notice as { message: string }).message, /Show all services/i, '并给出解除动作的名字');
-  assert.ok(!posted.some((m) => m.type === 'seqEvent'), '不该启动引擎:一启动就会误报方法失效');
+  const events = seqEvents(posted);
+  assert.deepEqual(events.map((e) => e.type), ['end'], '不启动引擎,但必须补一个结束事件复位前端 seqRunning');
+  assert.equal((events[0] as { status?: string }).status, 'aborted');
 });
 
 test('runSequence(0.3.86):未收窄时照常启动(拦截只作用于作用域态)', async () => {
@@ -864,6 +894,45 @@ test('runSequence(0.3.86):未收窄时照常启动(拦截只作用于作用域�
   await untilSeqEnd(posted);
   assert.ok(posted.some((m) => m.type === 'seqEvent'), '未收窄必须照常跑');
   assert.ok(!posted.some((m) => m.type === 'sequenceStoreError'), '不该有任何拦截提示');
+});
+
+test('reveal(序列运行中):锁定当前来源,不切换作用域并给全局可见提示', async () => {
+  const gate = Promise.withResolvers<CallResultPayload>();
+  const started = Promise.withResolvers<void>();
+  const { deps, state } = makeDeps({
+    loadResult: { services: SEQ_SERVICES, errors: [] },
+    runner: {
+      callUnary: () => {
+        started.resolve();
+        return gate.promise;
+      },
+    },
+  });
+  const { manager, host } = makeCapturingManager(deps);
+  manager.reveal();
+  host().emit({
+    type: 'runSequence',
+    sequence: {
+      name: 's',
+      steps: [{ service: 'Greeter', method: 'SayHello', mode: 'form', values: {}, responseStream: false }],
+    },
+  });
+  await started.promise;
+  host().posted.length = 0;
+  state.scopeResult = true;
+
+  try {
+    manager.reveal({ service: 'out.B', method: 'M2', protoFile: 'D:/elsewhere/b.proto' });
+    assert.deepEqual(state.scoped, [], '运行中的序列不得被后续 CodeLens 改变解析作用域');
+    assert.deepEqual(
+      host().posted.map((m) => m.type),
+      ['scopeLocked'],
+      '不切 scope、不重载、不 prefill;只提示等待完成或先停止',
+    );
+  } finally {
+    gate.resolve(okPayload);
+  }
+  await untilSeqEnd(host().posted);
 });
 
 test('面板关闭后 reload 仍清缓存,重开不渲染过期服务列表', async () => {

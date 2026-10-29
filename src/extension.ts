@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'node:path';
 import { ProtoDefinitionProvider } from './providers/definition';
 import { ProtoSemanticTokensProvider, SEMANTIC_LEGEND } from './providers/semanticTokens';
 import { ProtoCallLensProvider } from './providers/callLens';
@@ -12,6 +13,7 @@ import { RetryableLazy } from './retryableLazy';
 import { resolveRunnerConfig as resolveRunnerConfigPure, resolveScanExcludes, ScanExcludes } from './runner/config';
 import { registerCodeGenCommand } from './codegen/command';
 import { ProjectConfig } from './projectConfig';
+import { ScopedProtoWatcher } from './scopedProtoWatcher';
 import type { WorkbenchPanelManager } from './runner/webviewPanel';
 
 const PROTO_SELECTOR: vscode.DocumentSelector = { language: 'proto3', scheme: 'file' };
@@ -65,7 +67,13 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(loadDiagnosticsTrigger);
 
   // ---- 调用面(懒加载:grpc-js/proto-loader 只在首次打开工作台时载入) ----
-  const workbench = new LazyWorkbench(context, scanExcludes, loadDiagnosticsTrigger.trigger, projectGet);
+  const workbench = new LazyWorkbench(
+    context,
+    scanExcludes,
+    loadDiagnosticsTrigger.trigger,
+    projectGet,
+    () => onProtoChanged(),
+  );
   context.subscriptions.push(
     vscode.commands.registerCommand('protoUtils.openRpcRunner', () => void workbench.reveal()),
     // protoFile(0.3.83):CodeLens 带上所在文件路径,工作台把 protoDir 之外的文件钉住,
@@ -208,6 +216,8 @@ class LazyWorkbench {
     private readonly onLoadSettled: () => void,
     /** 项目级配置 get(0.3.82):.proto-utils/settings.json 命中值压过 VS Code settings;无工作区文件时恒 undefined */
     private readonly projectGet: (key: string) => unknown,
+    /** 目录外作用域文件与工作区全局 watcher 共用的 500ms 防抖重载入口。 */
+    private readonly onProtoChanged: () => void,
   ) {}
 
   async reveal(prefill?: { service: string; method: string; protoFile?: string }): Promise<void> {
@@ -274,6 +284,16 @@ class LazyWorkbench {
     // esbuild 对本路径 external,产物 out/runner/index.js 独立加载。
     const runner = require('./runner/index.js') as typeof import('./runner/index');
     const registry = new runner.ServiceRegistry(this.scanExcludes);
+    // 全局 **/*.proto watcher 覆盖不了工作区外的 CodeLens 来源;只精确监听当前钉住文件,
+    // 事件仍走同一个 500ms 防抖入口,作用域替换/清除与扩展销毁都会释放旧 watcher。
+    const scopedWatcher = new ScopedProtoWatcher(
+      (file) =>
+        vscode.workspace.createFileSystemWatcher(
+          new vscode.RelativePattern(path.dirname(file), path.basename(file)),
+        ),
+      this.onProtoChanged,
+    );
+    this.context.subscriptions.push(scopedWatcher);
     // 服务器地址持久化(0.3.75):顶栏原地编辑值存 workspaceState(按工作区隔离,与老配置项
     // window 作用域同语义);内存变量同步更新保证后续 getConfig/probe 立即读到新值,
     // 配置项声明已移除,settings.json 残值仅由 resolveRunnerConfig 作迁移默认回退。
@@ -297,6 +317,7 @@ class LazyWorkbench {
       runner: new runner.GrpcCallRunner(runtimeConfig, registry),
       getConfig: () => runner.resolveRunnerConfig(persistedServer, this.projectGet),
       onLoadSettled: this.onLoadSettled,
+      onScopeChanged: (file: string | null) => scopedWatcher.sync(file),
       // 顶栏连接状态点(0.3.54):与调用路径读同一份现读配置(server+TLS),配置改动即时生效;
       // TLS 配置错会在此抛错,session 按不可达处理(状态点转红),精确错误仍由实际调用面报出。
       probeConnection: () => {

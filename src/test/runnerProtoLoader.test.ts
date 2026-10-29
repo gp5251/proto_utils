@@ -374,6 +374,24 @@ test('scopeToProtoFile:钉住文件的同目录 import 照常解析(无需额外
   );
 });
 
+test('scopeToProtoFile:跨目录 import 解析失败时提示配置 protoDir 作为 import 根', async () => {
+  const { configured } = makePinFixture('scope-import-missing-');
+  const pinnedFile = path.join(path.dirname(configured), 'outside', 'b.proto');
+  fs.writeFileSync(
+    pinnedFile,
+    'syntax = "proto3";\npackage out;\nimport "shared/dep.proto";\nservice B { rpc M2(Req) returns (Req); }\n',
+  );
+
+  const registry = new ServiceRegistry();
+  registry.scopeToProtoFile(pinnedFile, configured);
+  const { services, errors } = await registry.load(configured);
+  assert.deepEqual(services, [], '缺失 import 时服务无法加载');
+  assert.ok(
+    errors.some((e) => e.includes('protoUtils.runner.protoDir') && /cross-directory import/i.test(e)),
+    `应给出跨目录 import 根的配置出口,实际错误:${errors.join('\n')}`,
+  );
+});
+
 test('scopeToProtoFile:只清服务列表缓存,protoCache 指纹门与 serviceFileCache 保留(0.3.48 卡顿教训)', async () => {
   const { configured, outsideFile } = makePinFixture('scope-cache-');
   const insideFile = path.join(configured, 'a.proto');

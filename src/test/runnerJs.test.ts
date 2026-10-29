@@ -160,6 +160,14 @@ test('prefill miss 必须可见:置 prefillNotice 并丢弃滞留,不得零反�
   assert.ok(src.includes('prefillMiss:'), '缺 miss 文案默认串');
 });
 
+test('prefillMiss 恢复指引:新增/改名 rpc 后先保存 proto,再刷新服务列表', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const htmlSrc = fs.readFileSync(path.resolve('src/runner/webviewHtml.ts'), 'utf8');
+  for (const text of [src, htmlSrc]) {
+    assert.match(text, /If you just added or renamed this rpc, save the \.proto file first, then click Refresh\./);
+  }
+});
+
 test('connState 消息路由(0.3.54):状态点 unknown 默认,host 推送后转 ok/fail', () => {
   const src = fs.readFileSync(RUNNER_JS, 'utf8');
   assert.ok(src.includes("case 'connState':"), '缺 connState 消息路由');
@@ -200,6 +208,16 @@ test('connState 跃迁提醒(0.3.57):fail→ok 提示恢复,ok→fail 提示断�
   assert.ok(src.includes('ResultTree.pushBounded(rep[ev.index].chunks'), '序列报告 chunk 须走 pushBounded 有界窗口');
   // 0.3.64 服务页流方法收满自动停:取消流并按完成态展示
   assert.ok(src.includes('streamCapReached'), '缺收满自动停的通知文案键');
+});
+
+test('scopeClearTitle:来源 chip 提示组合完整路径与清除说明', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const start = src.indexOf('scopeClearTitle: function');
+  assert.ok(start >= 0, '缺 scopeClearTitle 助手');
+  const body = src.slice(start, src.indexOf('clearScope: function', start));
+  assert.ok(body.includes("Alpine.store('workbench').scopedFile"), 'tooltip 必须读取完整来源路径');
+  assert.ok(body.includes("str('scopeClearHint')"), '完整路径后必须保留清除作用域说明');
+  assert.ok(src.includes('scopeClearHint:'), '缺清除说明的英文兜底串');
 });
 
 test('加入序列(0.3.66):不切视图,仅瞬时提示已加入', () => {
@@ -246,6 +264,18 @@ test('过滤命中面(0.3.58):fullName 只收子串/单段模糊,跨段散字子
   const body = src.slice(fsStart, fmEnd);
   assert.ok(body.includes('matchServiceName(q, svc)'), 'filteredServices/filteredMethods 必须走 matchServiceName');
   assert.ok(!body.includes('fuzzyMatch(q, svc.fullName)'), '不得再对 fullName 整串跑跨段模糊');
+});
+
+test('scopeLocked 消息路由:序列运行中拒绝切换来源须走全局 toast,两个视图都可见', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const start = src.indexOf("case 'scopeLocked':");
+  assert.ok(start >= 0, '缺 scopeLocked 消息路由');
+  const body = src.slice(start, src.indexOf('break;', start));
+  assert.ok(
+    body.includes("showNotice(workbenchStore(), msg.message, 'warn')"),
+    '锁定提示必须走全局 warn toast,不能只在序列视图内显示',
+  );
+  assert.ok(!body.includes('showSeqNotice'), '不得使用仅序列视图可见的提示通道');
 });
 
 test('序列消息路由与组件方法(0.3.59)齐备', () => {
