@@ -273,19 +273,19 @@ test('callServerStream: 委托给传输层并透传 handlers;cancel 幂等', asy
   assert.equal(cancels, 1);
 });
 
-// ---- 钉住文件贯通调用面(0.3.83):CodeLens 点击的目录外 proto 也要能调 ----
+// ---- 作用域文件贯通调用面(0.3.83 引入,0.3.86 改单文件):CodeLens 点的目录外 proto 也要能调 ----
 
 const PINNED_ALPHA = path.resolve('testdata/dupsvc/alpha.proto');
 
-test('GrpcCallRunner 默认工厂透传 registry.pinnedFiles:解析越过「Service not found」进到连接阶段', async () => {
+test('GrpcCallRunner 默认工厂透传 registry.pinnedFile:解析越过「Service not found」进到连接阶段', async () => {
   const registry = new ServiceRegistry();
-  registry.pin(PINNED_ALPHA, RUNNER_DIR);
+  registry.scopeToProtoFile(PINNED_ALPHA, RUNNER_DIR);
   // 不注入 clientFactory → 走默认工厂(真实 GrpcClient)。服务定义解析发生在建连之前,
-  // 故 server 指向必然连不上的端口也能区分「钉住有没有透传」。
+  // 故 server 指向必然连不上的端口也能区分「作用域有没有透传」。
   const runner = new GrpcCallRunner(() => ({ ...staticConfig(), server: '127.0.0.1:1' }), registry);
   const payload = await runner.callUnary('alpha.Echo', 'Send', {});
 
-  assert.equal(payload.requestType, 'EchoReq', '服务列表侧:钉住文件的方法 schema 应已解析');
+  assert.equal(payload.requestType, 'EchoReq', '服务列表侧:作用域文件的方法 schema 应已解析');
   assert.equal(payload.result.status, 'error');
   assert.ok(
     !/not found in proto definitions/.test(payload.result.error ?? ''),
@@ -293,9 +293,9 @@ test('GrpcCallRunner 默认工厂透传 registry.pinnedFiles:解析越过「Serv
   );
 });
 
-test('grpcurlCommand(0.3.83):钉住的目录外服务给出可执行的 -import-path/-proto,而非 ../..', async () => {
+test('grpcurlCommand(0.3.86):作用域内的目录外服务给出可执行的 -import-path/-proto,而非 ../..', async () => {
   const registry = new ServiceRegistry();
-  registry.pin(PINNED_ALPHA, RUNNER_DIR);
+  registry.scopeToProtoFile(PINNED_ALPHA, RUNNER_DIR);
   const runner = new GrpcCallRunner(() => staticConfig(), registry, () => {
     throw new Error('grpcurl 不经过传输层');
   });

@@ -42,6 +42,8 @@ export type WebviewToWorkbench =
   | { type: 'editEnvironments' }
   /** 0.3.84:空态「打开设置」行动按钮——直接落到 protoUtils 设置页,不让用户自己翻 */
   | { type: 'openSettings' }
+  /** 0.3.86:顶栏来源标识的清除入口——解除单文件作用域,列表回到 protoDir 全量 */
+  | { type: 'clearScope' }
   | { type: 'exportGrpcurl'; service: string; method: string; values: Record<string, unknown>; metadata?: MetadataEntry[] }
   /** 打开 client-stream / bidi 会话(ADR-0013);结果复用 stream* 消息,取消复用 cancelStream */
   | { type: 'streamOpen'; service: string; method: string; metadata?: MetadataEntry[] }
@@ -61,6 +63,12 @@ export type WorkbenchToWebview =
   | { type: 'prefill'; service: string; method: string }
   /** 0.3.70:runner.* 配置改动(server/protoDir)实时纠正顶栏显示与空态提示,无需重开面板。 */
   | { type: 'config'; server: string; protoDir: string }
+  /**
+   * 0.3.86:当前接口来源。file 非空 = 列表已收窄到该 proto 文件(点 CodeLens「▶ 调用」进入),
+   * 顶栏据此渲染可点清除的来源标识;null = protoDir 全量。面板创建时由 boot.scopedFile 内嵌,
+   * 本消息只服务其后的作用域切换(再点别的文件 / 点标识清除)。
+   */
+  | { type: 'scope'; file: string | null }
   /** 顶栏连接状态点:ok=通道可达,fail=不可达/超时/配置错(0.3.54) */
   | { type: 'connState'; state: 'ok' | 'fail' }
   // ---- 调用序列(0.3.59,ADR-0012) ----
@@ -85,7 +93,7 @@ export interface WorkbenchHost {
 }
 
 export interface WorkbenchSessionDeps {
-  registry: Pick<ServiceRegistry, 'load' | 'invalidate' | 'peek' | 'pin'>;
+  registry: Pick<ServiceRegistry, 'load' | 'invalidate' | 'peek' | 'scopeToProtoFile' | 'unpin' | 'pinnedFile'>;
   runner: CallRunner;
   getConfig(): { server: string; protoDir: string; metadata: MetadataEntry[]; connProbeIntervalMs?: number };
   /** 0.3.40:proto 加载尘埃落定(成功/部分错误/抛错)后回调,activation 侧借此补诊断飘红。可选,测试不受影响。 */
@@ -215,7 +223,7 @@ export class WorkbenchSession {
     });
   }
 
-  /** webview 是否已收到过 ready;reveal 据此判断钉住后要不要重载服务列表(0.3.83)。 */
+  /** webview 是否已收到过 ready;reveal 据此判断切作用域后要不要重载服务列表(0.3.83)。 */
   get isReady(): boolean {
     return this.webviewReady;
   }
@@ -223,7 +231,7 @@ export class WorkbenchSession {
   /**
    * CodeLens 入口:webview 就绪且空闲则直发,否则排队到 services 送达后。重复调用只保留最后一次。
    *
-   * queue=true 强制排队(0.3.83):调用方刚钉住新文件、正要重载服务列表,此刻直发会落在
+   * queue=true 强制排队(0.3.83):调用方刚切换作用域、正要重载服务列表,此刻直发会落在
    * 旧列表上让 webview 报 prefillMiss。显式传参而不是依赖「reload 会同步置起 loadInFlight」,
    * 免把正确性挂在 async 函数首个 await 之前的同步副作用这种隐式时序上。
    */
@@ -233,6 +241,28 @@ export class WorkbenchSession {
       return;
     }
     this.pendingPrefill = { service, method };
+  }
+
+  /**
+   * 把当前接口来源推给 webview(0.3.86),顶栏据此显隐「来源标识」。
+   * 只在作用域真的变化时调用(切换/清除两处),不挂在 loadAndSend 上——面板创建时
+   * boot.scopedFile 已内嵌初值,每次 load 都重推纯属噪声,还会打乱既有出站序列。
+   */
+  pushScope(): void {
+    this.send({ type: 'scope', file: this.deps.registry.pinnedFile });
+  }
+
+  /**
+   * 顶栏来源标识的清除入口(0.3.86):解除单文件作用域,列表回到 protoDir 全量。
+   * 先推 scope 让标识立刻消失(它与列表相互独立,不该等重载),再重载列表。
+   * 本来就没钉住时是无操作——不推消息也不重载,免得点一下白白重解析整棵树。
+   */
+  async clearScope(): Promise<void> {
+    if (!this.deps.registry.unpin()) {
+      return;
+    }
+    this.pushScope();
+    await this.reload();
   }
 
   /**
@@ -370,6 +400,11 @@ export class WorkbenchSession {
       case 'openSettings': {
         // 0.3.84:空态行动按钮的宿主落点;query 预填 protoUtils 直接定位到本扩展设置
         void vscode.commands.executeCommand('workbench.action.openSettings', 'protoUtils');
+        return;
+      }
+      case 'clearScope': {
+        // 0.3.86:顶栏来源标识点击清除 → 解除单文件作用域并重载回 protoDir 全量
+        await this.clearScope();
         return;
       }
       case 'exportGrpcurl': {
@@ -686,6 +721,20 @@ export class WorkbenchSession {
       this.send({ type: 'sequenceStoreError', message: vscode.l10n.t('Invalid sequence') });
       return;
     }
+    // 0.3.86:作用域态下 registry.load 只返回当前文件的服务,引擎的运行前整体校验
+    // (sequence.ts)会把引用了 protoDir 服务的步骤判成「方法失效」并中止——而那些方法
+    // 并未失效,只是不在这一个文件里。与其让错误信息说谎、或悄悄发出字段为空的请求,
+    // 不如直接拦住并说清怎么解除。彻底做法是给序列一条「protoDir ∪ 作用域文件」的
+    // 超集加载通道,但那要引入第三种 load 模式,收益不抵复杂度。
+    if (this.deps.registry.pinnedFile) {
+      this.send({
+        type: 'sequenceStoreError',
+        message: vscode.l10n.t(
+          'Sequences can reference services outside the current source filter. Click the source chip in the header (or "Show all services") to restore the full list, then run it again.',
+        ),
+      });
+      return;
+    }
     if (this.activeSequence) {
       return; // 已有运行中的序列:忽略(webview 侧按钮亦已禁用)
     }
@@ -848,14 +897,17 @@ export class WorkbenchPanelManager {
   /**
    * extension.ts 的入口:打开/聚焦面板;带 prefill 则排队到 webview 就绪后预选方法。
    *
-   * protoFile(0.3.83):CodeLens「▶ 调用」所在文件的路径。落在 runner.protoDir 之外时
-   * 先钉住——服务列表与实际调用两条路径才都能解析到它,点哪个文件就能调哪个文件。
-   * 钉住集变化且会话已就绪时必须先重载再冲 prefill,否则 prefill 打在旧列表上等于点了没反应。
+   * protoFile(0.3.83 引入,0.3.86 改替换式单文件作用域):CodeLens「▶ 调用」所在文件的路径。
+   * 落在 runner.protoDir 之外时把服务列表**收窄**到该文件(不再与 protoDir 取并集),顶栏随之
+   * 显示可点清除的来源标识;目录内文件则解除收窄、保持全量(见 scopeToProtoFile 注释)。
+   * 作用域变化且会话已就绪时的顺序是:推 scope(标识立刻更新)→ 重载列表 → 冲 prefill;
+   * prefill 若打在旧列表上,webview 查不到目标只会报 prefillMiss,等于点了没反应。
    */
   reveal(prefill?: { service: string; method: string; protoFile?: string }): void {
-    // 钉住先于建面板:工厂用 registry.peek 内嵌首帧服务列表,pin 已使旧缓存失效,不会内嵌过期数据
-    const pinnedChanged = prefill?.protoFile
-      ? this.deps.registry.pin(prefill.protoFile, this.deps.getConfig().protoDir)
+    // 切作用域先于建面板:工厂要用 registry.peek 内嵌首帧服务列表、用 pinnedFile 内嵌 boot
+    // 的来源标识,二者都必须是切换后的状态,否则首帧就是过期的。
+    const scopeChanged = prefill?.protoFile
+      ? this.deps.registry.scopeToProtoFile(prefill.protoFile, this.deps.getConfig().protoDir)
       : false;
     if (!this.active) {
       const panel = this.factory();
@@ -869,11 +921,13 @@ export class WorkbenchPanelManager {
     this.active.panel.reveal();
     if (prefill) {
       const session = this.active.session;
-      // 冷启动不必重载:webview 尚未 ready,首次 loadAndSend 自然就带上钉住文件
-      if (pinnedChanged && session.isReady) {
+      // 冷启动既不推 scope 也不重载:webview 尚未 ready(此时 postMessage 会丢),
+      // boot.scopedFile 已内嵌来源标识,首次 loadAndSend 自然就是收窄后的列表。
+      if (scopeChanged && session.isReady) {
+        session.pushScope();
         void session.reload();
       }
-      session.prefill(prefill.service, prefill.method, pinnedChanged);
+      session.prefill(prefill.service, prefill.method, scopeChanged);
     }
   }
 
@@ -926,6 +980,8 @@ export function createVscodePanelFactory(
       alpineScriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'alpine.min.js')).toString(),
       server: cfg.server,
       protoDir: cfg.protoDir,
+      // 0.3.86:作用域文件内嵌进 boot,重建面板首帧就带来源标识(不等 host 补推 scope)
+      scopedFile: deps.registry.pinnedFile,
       metadataDefault: cfg.metadata,
       initialServices: deps.registry.peek(cfg.protoDir) ?? undefined,
     });

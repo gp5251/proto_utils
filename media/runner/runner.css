@@ -928,6 +928,26 @@ input[type="checkbox"] {
 }
 .page-meta .server-resolved { color: var(--text-faint); font-family: var(--mono); }
 .page-meta .env-error { max-width: 220px; color: var(--danger); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 0.3.86 顶栏接口来源标识:作用域态(点 CodeLens「▶ 调用」进入)显示当前接口来自哪个 proto,
+   点击解除收窄回到 protoDir 全量。复用 .btn.btn-secondary.btn-xs 顺带拿到 display:inline-flex,
+   这恰好压住了 .page-meta span 的 display:flex(块级)——否则内层三个 span 会各占一行把 chip
+   撑高,与 ba53918 修的 duplex-controls 换行是同一类坑。改这里的 display 前请先想清楚这条。 */
+.page-meta .scope-chip { max-width: 280px; }
+.scope-chip-label { color: var(--text-faint); font-weight: 400; }
+/* min-width:0 是 flex 子项省略号生效的前提(否则子项不肯缩到内容宽度以下) */
+.scope-chip-file {
+  min-width: 0;
+  font-family: var(--mono);
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scope-chip-x { color: var(--text-faint); font-size: 13px; line-height: 1; }
+/* hover 才显「可清除」:× 转危险色 + 文件名点线下划线,与 .server-addr 的可点暗示同语言 */
+.page-meta .scope-chip:hover .scope-chip-x { color: var(--danger); }
+.page-meta .scope-chip:hover .scope-chip-file { text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
 .history-block { margin: 0 0 12px; }
 .history-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
 .history-time { flex: 1; font-family: var(--mono); font-size: 12px; color: var(--text-dim); }

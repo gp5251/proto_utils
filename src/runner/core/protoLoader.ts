@@ -80,8 +80,8 @@ export function loadProtoDefinitions(protoFiles: string[], protoDir: string): Pr
  * 的全树同步扫描只做一次——此前每次 RPC 前都重扫整棵 proto 目录。
  * 失效两条路:resetProtoLoaderCache(watcher → registry.invalidate 的既有链路连带调用),
  * 以及 excludes 对象引用变化(会话内该引用恒定,仅多客户端/测试构造时出现)。
- * 钉住文件(0.3.83)刻意不入缓存键:它由 findProtoFileForService 的钉住优先在查缓存
- * 之前短路,故 ServiceRegistry.pin 无需清本缓存——点击 CodeLens 不会引发整树重扫。
+ * 作用域文件(0.3.86)刻意不入缓存键:它由 findProtoFileForService 的作用域优先在查缓存
+ * 之前短路,故 ServiceRegistry 切换作用域无需清本缓存——点击 CodeLens 不会引发整树重扫。
  */
 interface ServiceFileCacheEntry {
   file: string | null;
@@ -107,20 +107,19 @@ export function clearServiceFileCache(): void {
  * 精确档恒优先于宽松档;excludes 与服务列表扫描同源(0.3.44),陈旧拷贝不参选。
  * 结果经服务文件缓存(见上),proto 变更由 resetProtoLoaderCache 统一失效。
  *
- * pinnedFiles(0.3.83):CodeLens 点击的目录外文件,钉住优先且必须先于缓存与扫描——
- * 目录外的服务在 protoDir 里根本扫不到,而缓存键不含钉住集,放在缓存之后会命中
- * 此前缓存的 null 或错配文件。用户点的文件即权威定义源,同 fullName 在目录内另有
- * 拷贝时也以它为准。
+ * scopedFile(0.3.83 引入,0.3.86 改单文件且不回落):作用域态下服务列表只含该文件的
+ * 接口,调用面必须同口径——命中就用它,未命中直接 null,**不回落 protoDir 扫描**。
+ * 回落会造出反向劈叉(列表里没有的服务却能被调用/grpcurl 导出),把错误藏得更深。
+ * 判定早于缓存:缓存键不含作用域,放后面会命中此前缓存的 null 或错配文件。
  */
 export function findProtoFileForService(
   protoDir: string,
   serviceName: string,
   excludes: ScanExcludes = EMPTY_SCAN_EXCLUDES,
-  pinnedFiles: readonly string[] = [],
+  scopedFile?: string | null,
 ): string | null {
-  const pinned = pickServiceFile(pinnedFiles, serviceName);
-  if (pinned) {
-    return pinned;
+  if (scopedFile) {
+    return pickServiceFile([scopedFile], serviceName);
   }
 
   const key = serviceFileCacheKey(protoDir, serviceName);

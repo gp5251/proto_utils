@@ -24,6 +24,12 @@ export interface WorkbenchHtmlOptions {
   server: string;
   /** 空态提示用的 proto 目录 */
   protoDir: string;
+  /**
+   * 当前作用域文件(0.3.86):非空 = 服务列表已收窄到该 proto 文件(点 CodeLens「▶ 调用」进入),
+   * 顶栏据此渲染来源标识。内嵌进 boot 而不是等 host 补推 scope 消息:面板销毁后重开必走创建
+   * 路径,不内嵌首帧会闪一下「无来源」再跳成「有来源」。
+   */
+  scopedFile?: string | null;
   /** runner.metadata 配置值:Headers 编辑器的初始行(0.3.35) */
   metadataDefault?: MetadataEntry[];
   /** 面板创建时已有缓存 services 可内嵌,避免闪烁;缺省走 loading 态等 postMessage */
@@ -70,6 +76,17 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     emptyNoDir: l10n.t(
       'No workspace folder is open and no proto directory is configured. Open a folder with .proto files via "File → Open Folder", configure <code>protoUtils.runner.protoDir</code> in Settings (absolute paths work), or open a .proto file and click the ▶ Call lens above an rpc method — no configuration needed.',
     ),
+    // ---- 0.3.86 单文件作用域:顶栏来源标识 + 作用域态空态 ----
+    // 都是静态串(直接进 markup,不经 Alpine 求值),故放 S 而非 boot.strings。
+    scopeFrom: l10n.t('Source'),
+    scopeClearHint: l10n.t(
+      'Showing only the interfaces declared in this file (opened via the ▶ Call lens). Click to show every service in the proto directory.',
+    ),
+    emptyScopedPre: l10n.t('No services are declared in'),
+    emptyScopedPost: l10n.t(
+      '. Only this file is in scope — click below to browse every service in the proto directory.',
+    ),
+    showAllServices: l10n.t('Show all services'),
     methodCountSuffix: l10n.t(' methods'),
     copiedBadge: l10n.t('✓ Copied'),
     responseTypeLabel: l10n.t('Response Type'),
@@ -203,6 +220,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
   const boot = {
     server: options.server,
     protoDir: options.protoDir,
+    scopedFile: options.scopedFile ?? null,
     metadata: options.metadataDefault ?? [],
     services: options.initialServices ?? null,
     strings,
@@ -255,6 +273,16 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
         <!-- 0.3.84:状态点补 tooltip(三态语义此前全靠一个 7px 圆点传达) -->
         <!-- 0.3.75:地址可点击原地编辑(Enter/失焦确认、Esc 取消),确认经 setServer 消息持久化;赋值全走组件方法(@alpinejs/csp) -->
         <span><span class="dot" :class="$store.workbench.connState" :title="connTitle()"></span><span class="server-addr" role="button" tabindex="0" title="${S.serverEditHint}" x-show="!editingServer" x-text="$store.workbench.server" @click="startEditServer()" @keydown.enter="startEditServer()"></span><input class="server-edit" type="text" spellcheck="false" autocomplete="off" x-show="editingServer" x-ref="serverInput" x-model="serverDraft" @keydown.enter="commitEditServer()" @keydown.escape="cancelEditServer()" @blur="commitEditServer()"><span class="conn-hint" x-show="$store.workbench.connState === 'fail'" x-text="$store.str.connUnreachable"></span></span>
+        <!-- 0.3.86:接口来源标识。作用域态(点 CodeLens「▶ 调用」进入)才显示,点击解除收窄回到
+             protoDir 全量。用原生 button 而非 role=button 的 span:键盘可达性由浏览器负责,
+             不必像 0.3.84 那批折叠热区一样手补 tabindex 与 Enter/Space。样式全在 runner.css。
+             clearScope/scopeFileName 定义在 homePage 上,靠 Alpine 的向上作用域链解析到——
+             与同一 page-meta 里的 collapseAllServices() 一个路子。 -->
+        <button type="button" class="btn btn-secondary btn-xs scope-chip" x-show="$store.workbench.scopedFile" title="${S.scopeClearHint}" @click="clearScope()">
+          <span class="scope-chip-label">${S.scopeFrom}</span>
+          <span class="scope-chip-file" x-text="scopeFileName()"></span>
+          <span class="scope-chip-x" aria-hidden="true">&times;</span>
+        </button>
         <!-- 0.3.78 环境切换:无工作区时宿主不推快照,整块隐藏;地址含 {{var}} 时旁显替换结果 -->
         <span class="env-picker" x-show="$store.workbench.envSupported">
           <span class="server-resolved" x-show="resolvedServerText()" x-text="resolvedServerText()"></span>
@@ -304,10 +332,14 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
 
     <div class="empty-state" x-show="$store.workbench.state === 'ready' && $store.workbench.services.length === 0 && !query.trim()">
       <h2 style="font-size:16px">${S.emptyTitle}</h2>
-      <p x-show="$store.workbench.protoDir">${S.emptyDirPre} <code x-text="$store.workbench.protoDir"></code>${S.emptyDirPost}</p>
-      <p x-show="!$store.workbench.protoDir">${S.emptyNoDir}</p>
+      <!-- 0.3.86:三分支互斥。作用域态下列表为空 = 该文件没声明 service,与 protoDir 配得
+           好不好毫无关系;沿用旧文案会让人去改一个根本不相干的设置。 -->
+      <p x-show="$store.workbench.scopedFile">${S.emptyScopedPre} <code x-text="scopeFileName()"></code>${S.emptyScopedPost}</p>
+      <button type="button" class="btn btn-secondary" x-show="$store.workbench.scopedFile" @click="clearScope()">${S.showAllServices}</button>
+      <p x-show="!$store.workbench.scopedFile && $store.workbench.protoDir">${S.emptyDirPre} <code x-text="$store.workbench.protoDir"></code>${S.emptyDirPost}</p>
+      <p x-show="!$store.workbench.scopedFile && !$store.workbench.protoDir">${S.emptyNoDir}</p>
       <!-- 0.3.84:空态给行动出口,不再只有一段说明文字 -->
-      <button type="button" class="btn btn-secondary" x-show="!$store.workbench.protoDir" @click="openSettings()">${S.openSettings}</button>
+      <button type="button" class="btn btn-secondary" x-show="!$store.workbench.scopedFile && !$store.workbench.protoDir" @click="openSettings()">${S.openSettings}</button>
     </div>
 
     <template x-for="svc in filteredServices()" :key="svcId(svc)">

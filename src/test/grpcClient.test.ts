@@ -15,7 +15,7 @@ import { GrpcClient, buildChannelCredentials, probeServerConnectivity } from '..
 
 const FRONTEND_DIR = path.resolve('testdata/frontend');
 const DUP_DIR = path.resolve('testdata/dupsvc');
-/** 不含 alpha.Echo 的目录:pinnedFiles 测试用它当「配窄了的 protoDir」。 */
+/** 不含 alpha.Echo 的目录:scopedFile 测试用它当「配窄了的 protoDir」。 */
 const RUNNER_DIR = path.resolve('testdata/runner');
 
 let server: grpc.Server;
@@ -284,18 +284,27 @@ test('scanExcludes 排除陈旧拷贝:无排除时 Send 落到缺方法的 vendo
   if (withExclude.status === 'ok') assert.equal((withExclude.data as { from: string }).from, 'alpha');
 });
 
-test('pinnedFiles(0.3.83):protoDir 外的定义文件也能发起调用(CodeLens 点的文件不在配置目录内)', async () => {
-  // protoDir 指向一个不含 alpha.Echo 的目录:未钉住时调用面只能报 Service not found。
-  // 顺带钉住「钉住优先必须早于解析缓存」——本次调用会把 null 缓存在 (RUNNER_DIR, alpha.Echo) 键下。
+test('scopedFile(0.3.86):protoDir 外的定义文件也能发起调用(CodeLens 点的文件不在配置目录内)', async () => {
+  // protoDir 指向一个不含 alpha.Echo 的目录:无作用域时调用面只能报 Service not found。
+  // 顺带钉住「作用域优先必须早于解析缓存」——本次调用会把 null 缓存在 (RUNNER_DIR, alpha.Echo) 键下。
   const baseline = await client.call(RUNNER_DIR, { service: 'alpha.Echo', method: 'Send', request: {} });
   assert.equal(baseline.status, 'error');
   if (baseline.status === 'error') assert.match(baseline.error, /not found/);
 
-  // 钉住 DUP_DIR/alpha.proto(自包含,无 import)后:定义文件直接命中钉住文件,调用打到 alpha 实现
-  const pinned = new GrpcClient(serverAddress, { pinnedFiles: [path.join(DUP_DIR, 'alpha.proto')] });
-  const result = await pinned.call(RUNNER_DIR, { service: 'alpha.Echo', method: 'Send', request: {} });
+  // 作用域切到 DUP_DIR/alpha.proto(自包含,无 import)后:定义文件直接命中它,调用打到 alpha 实现
+  const scoped = new GrpcClient(serverAddress, { scopedFile: path.join(DUP_DIR, 'alpha.proto') });
+  const result = await scoped.call(RUNNER_DIR, { service: 'alpha.Echo', method: 'Send', request: {} });
   assert.equal(result.status, 'ok');
   if (result.status === 'ok') assert.equal((result.data as { from: string }).from, 'alpha');
+});
+
+test('scopedFile(0.3.86):作用域文件里没有该服务 → 报 not found,不回落 protoDir 扫描', async () => {
+  // 列表已收窄到 alpha.proto,里面没有 c.Greeter;调用面必须同口径拒绝,
+  // 否则会造出「列表没有却能调」的反向劈叉。
+  const scoped = new GrpcClient(serverAddress, { scopedFile: path.join(DUP_DIR, 'alpha.proto') });
+  const result = await scoped.call(FRONTEND_DIR, { service: 'c.Greeter', method: 'SayHello', request: {} });
+  assert.equal(result.status, 'error');
+  if (result.status === 'error') assert.match(result.error, /not found/);
 });
 
 test('unknown method error lists available methods', async () => {

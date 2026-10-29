@@ -202,6 +202,43 @@ test('空态文案(0.3.83):无工作区时补「打开 proto 点 ▶」这条零
   assert.match(html, /no configuration needed/, '并说明它不需要任何配置');
 });
 
+// ---- 单文件作用域(0.3.86):来源标识 + 作用域态空态 ----
+
+test('顶栏来源标识(0.3.86):作用域态才显示,原生 button 点击发 clearScope,不用内联样式', () => {
+  const html = render();
+  const tag = html.match(/<button[^>]*class="[^"]*scope-chip[^"]*"[^>]*>/);
+  assert.ok(tag, '顶栏必须有来源标识 chip');
+  assert.ok(tag[0].includes('type="button"'), '原生 button:键盘可达性由浏览器负责,不必手补 role/tabindex');
+  assert.ok(tag[0].includes('x-show="$store.workbench.scopedFile"'), '未收窄时不该出现,否则用户以为列表被过滤了');
+  assert.ok(tag[0].includes('@click="clearScope()"'), '点击清除作用域,走组件方法(@alpinejs/csp 禁内联赋值)');
+  assert.ok(!tag[0].includes('style='), '禁止内联样式:视觉一律进 runner.css');
+  // 文件名是动态的,必须经组件方法求值(长路径要截断,不能整条塞进窄顶栏)
+  assert.ok(html.includes('x-text="scopeFileName()"'), '文件名走组件方法');
+});
+
+test('boot 内嵌当前作用域文件(0.3.86):作用域态下重建面板,首帧就带来源标识', () => {
+  // 面板销毁后重开必走创建路径(retainContextWhenHidden 只保隐藏态);
+  // 不内嵌就要等 host 补推 scope,首帧会闪一下「无来源」再跳成「有来源」。
+  assert.ok(
+    render({ scopedFile: 'D:/elsewhere/b.proto' }).includes('"scopedFile":"D:/elsewhere/b.proto"'),
+    'boot 必须带上作用域文件',
+  );
+  assert.ok(render().includes('"scopedFile":null'), '未收窄时内嵌 null,webview 据此隐藏标识');
+});
+
+test('空态(0.3.86):作用域态给专属文案与「显示全部服务」出口,不再误导用户去配 protoDir', () => {
+  const html = render();
+  // 作用域态下列表为空 = 该文件没有 service 定义,与 protoDir 配得好不好毫无关系。
+  // 沿用旧文案会让人去改一个根本不相干的设置。
+  assert.ok(html.includes('$store.workbench.scopedFile') && /emptyScoped|No services are declared in/.test(html),
+    '需要作用域态专属空态文案');
+  const showAll = html.match(/<button[^>]*@click="clearScope\(\)"[^>]*>/g) ?? [];
+  assert.ok(showAll.length >= 2, `空态里也要有清除出口(顶栏 chip + 空态按钮),实际 ${showAll.length} 处`);
+  // 旧的两条 protoDir 文案必须让位:作用域态下同时显示会自相矛盾
+  assert.match(html, /x-show="!\$store\.workbench\.scopedFile && \$store\.workbench\.protoDir"/, 'protoDir 文案仅在未收窄时显示');
+  assert.match(html, /x-show="!\$store\.workbench\.scopedFile && !\$store\.workbench\.protoDir"/, '无工作区文案仅在未收窄时显示');
+});
+
 test('交互结构:搜索、刷新按钮、流式徽标、取消按钮、prefill 锚点 id', () => {
   const html = render();
   assert.ok(html.includes('x-model="$store.search.query"'));

@@ -121,10 +121,10 @@ export class GrpcClient {
   /** 服务文件扫描排除集;与服务列表扫描同源(0.3.44),缺省不排除 */
   private readonly scanExcludes: ScanExcludes;
   /**
-   * 钉住的 proto 文件(0.3.83):CodeLens「▶ 调用」点击的当前文件。目录外的服务在
-   * protoDir 里扫不到,解析时钉住优先,否则调用面报 Service not found。缺省空 = 既有行为。
+   * 作用域文件(0.3.83 引入,0.3.86 改单文件):CodeLens「▶ 调用」点击的当前文件。
+   * 非空时服务定义只从该文件解析,与已收窄的服务列表同口径。缺省 null = 扫 protoDir。
    */
-  private readonly pinnedFiles: readonly string[];
+  private readonly scopedFile: string | null;
 
   constructor(
     private address: string,
@@ -132,13 +132,13 @@ export class GrpcClient {
       credentials?: grpc.ChannelCredentials;
       timeoutMs?: number;
       scanExcludes?: ScanExcludes;
-      pinnedFiles?: readonly string[];
+      scopedFile?: string | null;
     },
   ) {
     this.credentials = options?.credentials;
     this.timeoutMs = options?.timeoutMs ?? 0;
     this.scanExcludes = options?.scanExcludes ?? { names: new Set(), paths: [] };
-    this.pinnedFiles = options?.pinnedFiles ?? [];
+    this.scopedFile = options?.scopedFile ?? null;
   }
 
   async call(protoDir: string, options: CallOptions): Promise<CallResult> {
@@ -444,7 +444,7 @@ export class GrpcClient {
    * resolveMethod 的公共链;一元与服务端流共用。解析失败不抛,返回 { error }。
    */
   private resolveCall(protoDir: string, serviceName: string, methodName: string): ResolveOutcome {
-    const protoFile = findProtoFileForService(protoDir, serviceName, this.scanExcludes, this.pinnedFiles);
+    const protoFile = findProtoFileForService(protoDir, serviceName, this.scanExcludes, this.scopedFile);
     if (!protoFile) {
       return { error: l10n.t('Service "{0}" not found in proto definitions', serviceName) };
     }

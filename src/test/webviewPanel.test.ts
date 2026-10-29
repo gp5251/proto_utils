@@ -63,10 +63,15 @@ function makeDeps(overrides: {
   const state = {
     invalidated: 0,
     protoDir: 'D:/protos',
-    /** pin 调用记录(0.3.83):断言 reveal 把 CodeLens 的文件路径与当前 protoDir 一起交给 registry */
-    pinned: [] as Array<{ file: string; dir: string }>,
-    /** pin 的返回值:钉住集是否变化 */
-    pinResult: false,
+    /** scopeToProtoFile 调用记录(0.3.86):断言 reveal 把 CodeLens 的文件路径与当前 protoDir 一起交给 registry */
+    scoped: [] as Array<{ file: string; dir: string }>,
+    /** scopeToProtoFile 的返回值:作用域是否变化 */
+    scopeResult: false,
+    /** unpin 调用次数与返回值(顶栏来源标识的清除入口) */
+    unpins: 0,
+    unpinResult: false,
+    /** registry.pinnedFile:当前作用域文件,决定推给 webview 的 scope 消息内容 */
+    pinnedFile: null as string | null,
   };
   const deps = {
     registry: {
@@ -78,9 +83,16 @@ function makeDeps(overrides: {
         state.invalidated++;
       },
       peek: (_protoDir: string) => null as ServicesPayload | null,
-      pin: (file: string, dir: string) => {
-        state.pinned.push({ file, dir });
-        return state.pinResult;
+      scopeToProtoFile: (file: string, dir: string) => {
+        state.scoped.push({ file, dir });
+        return state.scopeResult;
+      },
+      unpin: () => {
+        state.unpins++;
+        return state.unpinResult;
+      },
+      get pinnedFile() {
+        return state.pinnedFile;
       },
     },
     runner: {
@@ -662,7 +674,7 @@ test('面板单例:两次 reveal 只建一次,销毁后重建', () => {
   assert.ok(manager.currentSession);
 });
 
-// ---- reveal 带 protoFile(0.3.83):CodeLens 点击的目录外文件钉住后可用 ----
+// ---- reveal 带 protoFile(0.3.83 引入,0.3.86 改替换式单文件作用域) ----
 
 /** 建一个捕获 host 的 manager:测试要自己 emit('ready') 并检查出站消息序列。 */
 function makeCapturingManager(deps: WorkbenchPanelDeps) {
@@ -678,16 +690,17 @@ function makeCapturingManager(deps: WorkbenchPanelDeps) {
   return { manager, host };
 }
 
-test('reveal 冷启动带 protoFile(0.3.83):先钉住再建面板,ready 后 prefill 照常冲出', async () => {
+test('reveal 冷启动带 protoFile(0.3.86):先切作用域再建面板,ready 后 prefill 照常冲出', async () => {
   const { deps, state } = makeDeps();
-  state.pinResult = true;
+  state.scopeResult = true;
+  state.pinnedFile = 'D:/elsewhere/b.proto';
   const { manager, host } = makeCapturingManager(deps);
 
   manager.reveal({ service: 'out.B', method: 'M2', protoFile: 'D:/elsewhere/b.proto' });
   assert.deepEqual(
-    state.pinned,
+    state.scoped,
     [{ file: 'D:/elsewhere/b.proto', dir: 'D:/protos' }],
-    'pin 必须带上当前 protoDir(据此判断文件是否已在扫描范围内)',
+    'scopeToProtoFile 必须带上当前 protoDir(据此判断文件是否已在扫描范围内)',
   );
 
   host().emit({ type: 'ready' });
@@ -695,11 +708,11 @@ test('reveal 冷启动带 protoFile(0.3.83):先钉住再建面板,ready 后 pref
   assert.deepEqual(
     host().posted.map((m) => m.type),
     ['loading', 'services', 'prefill'],
-    '冷启动不额外重载:首次 load 就已含钉住文件',
+    '冷启动不额外推 scope 也不重载:面板 HTML 的 boot 已带作用域,首次 load 就是收窄后的列表',
   );
 });
 
-test('reveal 热面板且钉住集变化(0.3.83):先重载服务列表再冲 prefill,不打在旧列表上', async () => {
+test('reveal 热面板且作用域变化(0.3.86):推 scope + 先重载列表再冲 prefill,不打在旧列表上', async () => {
   const { deps, state } = makeDeps();
   const { manager, host } = makeCapturingManager(deps);
 
@@ -710,21 +723,23 @@ test('reveal 热面板且钉住集变化(0.3.83):先重载服务列表再冲 pre
   posted.length = 0;
 
   // 面板已就绪且空闲:此刻直发 prefill 会落在旧服务列表上(webview 报 prefillMiss),
-  // 故钉住集变化时必须强制排队,等重载后的列表送达再冲出。
-  state.pinResult = true;
+  // 故作用域变化时必须强制排队,等重载后的列表送达再冲出。
+  state.scopeResult = true;
+  state.pinnedFile = 'D:/elsewhere/b.proto';
   manager.reveal({ service: 'out.B', method: 'M2', protoFile: 'D:/elsewhere/b.proto' });
   await nextTick();
 
-  assert.deepEqual(state.pinned, [{ file: 'D:/elsewhere/b.proto', dir: 'D:/protos' }]);
+  assert.deepEqual(state.scoped, [{ file: 'D:/elsewhere/b.proto', dir: 'D:/protos' }]);
   assert.deepEqual(
     posted.map((m) => m.type),
-    ['loading', 'services', 'prefill'],
-    'prefill 必须在新服务列表之后:顺序颠倒等于点了没反应',
+    ['scope', 'loading', 'services', 'prefill'],
+    '来源标识先行(与列表独立),prefill 必须在新服务列表之后:顺序颠倒等于点了没反应',
   );
+  assert.deepEqual(posted[0], { type: 'scope', file: 'D:/elsewhere/b.proto' });
   assert.deepEqual(posted[posted.length - 1], { type: 'prefill', service: 'out.B', method: 'M2' });
 });
 
-test('reveal 带 protoFile 但钉住集未变(0.3.83):不重载,prefill 直发(热路径零开销)', async () => {
+test('reveal 带 protoFile 但作用域未变(0.3.86):不重载不推 scope,prefill 直发(热路径零开销)', async () => {
   const { deps, state } = makeDeps();
   const { manager, host } = makeCapturingManager(deps);
 
@@ -734,26 +749,121 @@ test('reveal 带 protoFile 但钉住集未变(0.3.83):不重载,prefill 直发(�
   const posted = host().posted;
   posted.length = 0;
 
-  // 文件已在 protoDir 内(pin 返回 false):重复点击不该引发任何重解析
-  state.pinResult = false;
+  // 文件已在 protoDir 内(scopeToProtoFile 返回 false):重复点击不该引发任何重解析
+  state.scopeResult = false;
   manager.reveal({ service: 'c.Greeter', method: 'SayHello', protoFile: 'D:/protos/a.proto' });
 
-  assert.deepEqual(state.invalidated, 0, '钉住集未变不得失效缓存');
-  assert.deepEqual(posted.map((m) => m.type), ['prefill'], '就绪且空闲 → 直发,不触发 loading/services');
+  assert.deepEqual(state.invalidated, 0, '作用域未变不得失效缓存');
+  assert.deepEqual(posted.map((m) => m.type), ['prefill'], '就绪且空闲 → 直发,不触发 scope/loading/services');
 });
 
-test('reveal 不带 protoFile(0.3.83):不触碰钉住逻辑,行为与既往一致', async () => {
+test('reveal 不带 protoFile(0.3.86):不触碰作用域逻辑,行为与既往一致', async () => {
   const { deps, state } = makeDeps();
   const { manager, host } = makeCapturingManager(deps);
 
   manager.reveal({ service: 'c.Greeter', method: 'SayHello' });
-  assert.deepEqual(state.pinned, [], '无文件路径时不该调 pin');
+  assert.deepEqual(state.scoped, [], '无文件路径时不该调 scopeToProtoFile');
   host().emit({ type: 'ready' });
   await nextTick();
   assert.deepEqual(
     host().posted.map((m) => m.type),
     ['loading', 'services', 'prefill'],
   );
+});
+
+test('clearScope(0.3.86):顶栏清除来源标识 → unpin + 推 scope(null) + 重载回 protoDir 全量', async () => {
+  const { deps, state } = makeDeps();
+  const { host, posted, emit } = makeHost();
+  const session = new WorkbenchSession(deps);
+  session.attach(host);
+
+  state.pinnedFile = 'D:/elsewhere/b.proto';
+  emit({ type: 'ready' });
+  await nextTick();
+  posted.length = 0;
+
+  state.unpinResult = true;
+  state.pinnedFile = null; // unpin 后 registry 的作用域已空
+  emit({ type: 'clearScope' });
+  await nextTick();
+
+  assert.equal(state.unpins, 1, '必须调 unpin');
+  assert.deepEqual(
+    posted.map((m) => m.type),
+    ['scope', 'loading', 'services'],
+    '标识先消失(scope null),列表随后重载回全量',
+  );
+  assert.deepEqual(posted[0], { type: 'scope', file: null });
+  assert.equal(state.invalidated, 1, '解除作用域必须失效缓存,否则重载仍返回收窄时的载荷');
+});
+
+test('clearScope(0.3.86):本来就没钉住 → 不推 scope 不重载(无操作)', async () => {
+  const { deps, state } = makeDeps();
+  const { host, posted, emit } = makeHost();
+  const session = new WorkbenchSession(deps);
+  session.attach(host);
+
+  emit({ type: 'ready' });
+  await nextTick();
+  posted.length = 0;
+
+  state.unpinResult = false;
+  emit({ type: 'clearScope' });
+  await nextTick();
+
+  assert.equal(state.unpins, 1);
+  assert.deepEqual(posted, [], '作用域没变就不该有任何出站消息');
+  assert.equal(state.invalidated, 0);
+});
+
+test('runSequence(0.3.86):作用域态下拦住启动并给可操作提示,不误报「方法失效」', async () => {
+  // 收窄后 registry.load 只返回该文件的服务,序列的运行前整体校验(sequence.ts)会据此
+  // 把引用了 protoDir 服务的步骤判成「方法失效」并中止——而那些方法好得很,只是不在这
+  // 一个文件里。宁可直接拦住并说清怎么解除,也不能让错误信息说谎。
+  const { deps, state } = makeDeps();
+  const { host, posted, emit } = makeHost();
+  new WorkbenchSession(deps).attach(host);
+  emit({ type: 'ready' });
+  await nextTick();
+  posted.length = 0;
+
+  state.pinnedFile = 'D:/elsewhere/b.proto';
+  emit({
+    type: 'runSequence',
+    sequence: {
+      name: 's',
+      steps: [{ service: 'Greeter', method: 'SayHello', mode: 'form', values: {}, responseStream: false }],
+    },
+  });
+  await nextTick();
+
+  const notice = posted.find((m) => m.type === 'sequenceStoreError');
+  assert.ok(notice, '必须给可见提示,不能静默');
+  assert.match((notice as { message: string }).message, /source filter/i, '提示要指向顶栏来源标识');
+  assert.match((notice as { message: string }).message, /Show all services/i, '并给出解除动作的名字');
+  assert.ok(!posted.some((m) => m.type === 'seqEvent'), '不该启动引擎:一启动就会误报方法失效');
+});
+
+test('runSequence(0.3.86):未收窄时照常启动(拦截只作用于作用域态)', async () => {
+  const { deps, state } = makeDeps();
+  const runner: Partial<CallRunner> = { callUnary: async () => okPayload };
+  const { host, posted, emit } = makeHost();
+  new WorkbenchSession({ ...deps, runner: { ...deps.runner, ...runner } as CallRunner }).attach(host);
+  emit({ type: 'ready' });
+  await nextTick();
+  posted.length = 0;
+
+  state.pinnedFile = null;
+  emit({
+    type: 'runSequence',
+    sequence: {
+      name: 's',
+      steps: [{ service: 'Greeter', method: 'SayHello', mode: 'form', values: {}, responseStream: false }],
+    },
+  });
+  await untilSeqEnd(posted);
+  assert.ok(posted.some((m) => m.type === 'seqEvent'), '未收窄必须照常跑');
+  assert.ok(!posted.some((m) => m.type === 'sequenceStoreError'), '不该有任何拦截提示');
 });
 
 test('面板关闭后 reload 仍清缓存,重开不渲染过期服务列表', async () => {

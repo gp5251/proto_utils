@@ -248,7 +248,7 @@ test('registry.invalidate 保留 protoCache 指纹门:未变文件不重 loadSyn
   assert.ok(services.some((s) => s.fullName === 'p.Svc'), 'invalidate 后仍能加载服务');
 });
 
-// ---- 钉住文件(0.3.83):CodeLens 点击的 proto 文件不必落在 runner.protoDir 内 ----
+// ---- 作用域钉住(0.3.83 引入,0.3.86 改替换式单文件):点 ▶ 只看当前文件的接口 ----
 
 /** 造两个互不包含的目录:configured 作为 protoDir,outside 放待钉住的 proto。 */
 function makePinFixture(prefix: string): { configured: string; outside: string; outsideFile: string } {
@@ -269,50 +269,85 @@ function makePinFixture(prefix: string): { configured: string; outside: string; 
   return { configured, outside, outsideFile };
 }
 
-test('registry.pin:protoDir 外的文件钉住后进入服务列表', async () => {
-  const { configured, outsideFile } = makePinFixture('pin-outside-');
+test('scopeToProtoFile:目录外文件钉住后,列表只含该文件的服务(0.3.86 不再与 protoDir 取并集)', async () => {
+  const { configured, outsideFile } = makePinFixture('scope-outside-');
   const registry = new ServiceRegistry();
 
   const before = await registry.load(configured);
-  assert.ok(before.services.some((s) => s.fullName === 'cfg.A'), '配置目录内的服务本就该在');
-  assert.ok(!before.services.some((s) => s.fullName === 'out.B'), '钉住前不得出现目录外的服务');
+  assert.ok(before.services.some((s) => s.fullName === 'cfg.A'), '未钉住时是 protoDir 全量');
+  assert.equal(registry.pinnedFile, null);
 
-  assert.equal(registry.pin(outsideFile, configured), true, '首次钉住应报告变化(调用方据此重载)');
-  assert.equal(registry.pin(outsideFile, configured), false, '重复钉住不应报告变化(避免无谓重载)');
+  assert.equal(registry.scopeToProtoFile(outsideFile, configured), true, '首次钉住应报告变化(调用方据此重载)');
+  assert.equal(registry.scopeToProtoFile(outsideFile, configured), false, '重复钉住不应报告变化(避免无谓重载)');
 
   const after = await registry.load(configured);
-  assert.ok(after.services.some((s) => s.fullName === 'out.B'), '钉住文件的服务必须进列表');
-  assert.ok(after.services.some((s) => s.fullName === 'cfg.A'), '原目录服务不受影响');
-  assert.deepEqual(registry.pinnedFiles, [path.resolve(outsideFile)]);
+  assert.deepEqual(
+    after.services.map((s) => s.fullName),
+    ['out.B'],
+    '钉住态只看当前文件:protoDir 的服务不得混进来',
+  );
+  assert.equal(registry.pinnedFile, path.resolve(outsideFile));
 });
 
-test('registry.pin:protoDir 内的文件不钉住,同一份缓存原样复用(热路径零开销)', async () => {
-  const { configured } = makePinFixture('pin-inside-');
+test('scopeToProtoFile:目录内文件不钉住,列表保持 protoDir 全量且缓存原样复用(热路径零开销)', async () => {
+  const { configured } = makePinFixture('scope-inside-');
   const inside = path.join(configured, 'a.proto');
   const registry = new ServiceRegistry();
 
   const first = await registry.load(configured);
-  assert.equal(registry.pin(inside, configured), false, '已在扫描范围内,钉住是多余的');
-  assert.deepEqual(registry.pinnedFiles, []);
+  assert.equal(registry.scopeToProtoFile(inside, configured), false, '已在扫描范围内,钉住是多余的');
+  assert.equal(registry.pinnedFile, null);
   assert.equal(await registry.load(configured), first, '未钉住则必须复用同一份缓存实例,不得触发重解析');
 });
 
-test('registry.load:protoDir 不存在时钉住文件仍撑起服务列表(错误并列上报)', async () => {
-  const { outsideFile } = makePinFixture('pin-nodir-');
+test('scopeToProtoFile:钉住态下点目录内文件 → 解除钉住,列表回到 protoDir 全量', async () => {
+  // 「目录内不收窄、保持全量」的必然推论:否则点目录内文件的 ▶ 之后,
+  // 列表会卡在先前那个目录外文件上,与「保持全量」自相矛盾。
+  const { configured, outsideFile } = makePinFixture('scope-unpin-');
+  const inside = path.join(configured, 'a.proto');
+  const registry = new ServiceRegistry();
+
+  registry.scopeToProtoFile(outsideFile, configured);
+  assert.deepEqual((await registry.load(configured)).services.map((s) => s.fullName), ['out.B']);
+
+  assert.equal(registry.scopeToProtoFile(inside, configured), true, '解除钉住是一次作用域变化,必须报告');
+  assert.equal(registry.pinnedFile, null);
+  const after = await registry.load(configured);
+  assert.deepEqual(
+    after.services.map((s) => s.fullName),
+    ['cfg.A'],
+    '列表必须回到 protoDir 全量',
+  );
+});
+
+test('unpin:解除钉住并报告变化;未钉住时返回 false(顶栏清除按钮的宿主落点)', async () => {
+  const { configured, outsideFile } = makePinFixture('scope-unpin-only-');
+  const registry = new ServiceRegistry();
+
+  assert.equal(registry.unpin(), false, '本来就没钉住,清除是无操作');
+  registry.scopeToProtoFile(outsideFile, configured);
+  assert.equal(registry.unpin(), true);
+  assert.equal(registry.pinnedFile, null);
+  assert.deepEqual((await registry.load(configured)).services.map((s) => s.fullName), ['cfg.A']);
+  assert.equal(registry.unpin(), false, '重复清除不报变化,避免无谓重载');
+});
+
+test('load:钉住态下 protoDir 不存在也照常出服务,且不报 protoDir 错(该态下 protoDir 无关)', async () => {
+  const { outsideFile } = makePinFixture('scope-nodir-');
   const missing = path.join(path.dirname(outsideFile), 'no-such-dir');
   const registry = new ServiceRegistry();
 
-  registry.pin(outsideFile, missing);
+  registry.scopeToProtoFile(outsideFile, missing);
   const { services, errors } = await registry.load(missing);
-  assert.ok(services.some((s) => s.fullName === 'out.B'), '配置目录坏掉也不该让点击入口一无所获');
-  assert.ok(errors.some((e) => e.includes('not found')), 'protoDir 缺失仍如实上报,不被钉住结果掩盖');
+  assert.deepEqual(services.map((s) => s.fullName), ['out.B'], '配置目录坏掉也不该让点击入口一无所获');
+  assert.deepEqual(errors, [], '钉住态不扫 protoDir,它的缺失与此时的列表无关,不该拿它吓用户');
 });
 
-test('registry.pin:钉住文件的同目录 import 照常解析(无需额外 include 根)', async () => {
+test('scopeToProtoFile:钉住文件的同目录 import 照常解析(无需额外 include 根)', async () => {
   // 钉住 <outside>/pkg/b.proto,它 import "dep.proto" 且 dep.proto 就在同目录。
   // proto-loader 对 includeDirs 全落空的 import 回退到「origin 文件所在目录」,
   // 故追加 dirname(钉住文件) 是空操作——本测试钉住这一事实,防将来画蛇添足。
-  const { configured } = makePinFixture('pin-import-');
+  const { configured } = makePinFixture('scope-import-');
   const pkgDir = path.join(path.dirname(configured), 'outside', 'pkg');
   fs.mkdirSync(pkgDir, { recursive: true });
   fs.writeFileSync(
@@ -326,7 +361,7 @@ test('registry.pin:钉住文件的同目录 import 照常解析(无需额外 inc
   );
 
   const registry = new ServiceRegistry();
-  registry.pin(pinnedFile, configured);
+  registry.scopeToProtoFile(pinnedFile, configured);
   const { services, errors } = await registry.load(configured);
   assert.deepEqual(errors, [], '同目录 import 不该产生解析错误');
 
@@ -339,8 +374,8 @@ test('registry.pin:钉住文件的同目录 import 照常解析(无需额外 inc
   );
 });
 
-test('registry.pin:只清服务列表缓存,protoCache 指纹门与 serviceFileCache 保留(0.3.48 卡顿教训)', async () => {
-  const { configured, outsideFile } = makePinFixture('pin-cache-');
+test('scopeToProtoFile:只清服务列表缓存,protoCache 指纹门与 serviceFileCache 保留(0.3.48 卡顿教训)', async () => {
+  const { configured, outsideFile } = makePinFixture('scope-cache-');
   const insideFile = path.join(configured, 'a.proto');
   const registry = new ServiceRegistry();
 
@@ -349,8 +384,8 @@ test('registry.pin:只清服务列表缓存,protoCache 指纹门与 serviceFileC
   // 预热「服务→定义文件」解析缓存:钉住后必须仍命中,不得整树重扫(同步 IO,卡顿根因)
   assert.ok(findProtoFileForService(configured, 'cfg.A')?.endsWith('a.proto'));
 
-  registry.pin(outsideFile, configured);
-  assert.equal(getPackageDefinition(insideFile, configured), defBefore, 'pin 不得盲清 protoCache');
+  registry.scopeToProtoFile(outsideFile, configured);
+  assert.equal(getPackageDefinition(insideFile, configured), defBefore, '钉住不得盲清 protoCache');
 
   // 沿用本文件既有的观察手法:写入方法更多的竞争文件,未失效前必须仍命中旧答案
   fs.writeFileSync(
@@ -359,45 +394,68 @@ test('registry.pin:只清服务列表缓存,protoCache 指纹门与 serviceFileC
   );
   assert.ok(
     findProtoFileForService(configured, 'cfg.A')?.endsWith('a.proto'),
-    'pin 不得连带清 serviceFileCache:否则每次点击 CodeLens 都重扫整棵 protoDir',
+    '钉住不得连带清 serviceFileCache:否则每次点击 CodeLens 都重扫整棵 protoDir',
   );
 });
 
-test('registry.pin:文件不存在时不钉住(未保存的 untitled 文档点 ▶ 不该脏钉)', () => {  const { configured } = makePinFixture('pin-missing-');
+test('scopeToProtoFile:文件不存在时不钉住也不动既有作用域(untitled 文档点 ▶ 不该脏钉)', () => {
+  const { configured, outsideFile } = makePinFixture('scope-missing-');
   const registry = new ServiceRegistry();
   const ghost = path.join(path.dirname(configured), 'outside', 'ghost.proto');
-  assert.equal(
-    registry.pin(ghost, configured),
-    false,
-    '不存在的文件钉不住:否则每次点击都报告变化并触发一次无谓的服务列表重载',
-  );
-  assert.deepEqual(registry.pinnedFiles, []);
+
+  assert.equal(registry.scopeToProtoFile(ghost, configured), false, '不存在的文件钉不住,也不该报变化');
+  assert.equal(registry.pinnedFile, null);
+
+  // 已钉住时点了一个不存在的文件:保持原作用域,不能把用户踢回全量列表
+  registry.scopeToProtoFile(outsideFile, configured);
+  assert.equal(registry.scopeToProtoFile(ghost, configured), false);
+  assert.equal(registry.pinnedFile, path.resolve(outsideFile), '既有钉住不得被无效文件顶掉');
 });
 
-test('registry.pin:protoDir 为空串(无工作区文件夹)时照样钉住,不误判为「已在范围内」', () => {
+test('scopeToProtoFile:protoDir 为空串(无工作区文件夹)时照样钉住,不误判为「已在范围内」', () => {
   // 无工作区时 resolveRunnerConfig 给出 protoDir='',而 path.resolve('') === cwd:
   // 不特判就会把仓库内任何文件都判成「在 protoDir 内」→ 永不钉住 → 服务列表恒空。
   // 这正是「单独打开一个 proto 文件点 ▶」的场景。
   const registry = new ServiceRegistry();
   const file = path.resolve('testdata/dupsvc/alpha.proto');
-  assert.equal(registry.pin(file, ''), true, '空 protoDir 等于没有范围,存在的文件就该钉住');
-  assert.deepEqual(registry.pinnedFiles, [file]);
+  assert.equal(registry.scopeToProtoFile(file, ''), true, '空 protoDir 等于没有范围,存在的文件就该钉住');
+  assert.equal(registry.pinnedFile, file);
 });
 
-// ---- 钉住优先的服务定义文件解析(0.3.83):调用面靠它找到目录外的定义文件 ----
+test('替换式:钉住第二个文件时第一个自动失效(作用域恒为单个文件)', async () => {
+  const { configured, outside } = makePinFixture('scope-replace-');
+  const first = path.join(outside, 'b.proto');
+  const second = path.join(outside, 'c.proto');
+  fs.writeFileSync(
+    second,
+    'syntax = "proto3";\npackage out;\nservice C { rpc M3(P) returns (P); }\nmessage P { string id = 1; }\n',
+  );
 
-test('findProtoFileForService:钉住文件让 protoDir 内扫不到的服务可解析', () => {
-  const { configured, outsideFile } = makePinFixture('find-pin-');
+  const registry = new ServiceRegistry();
+  registry.scopeToProtoFile(first, configured);
+  assert.equal(registry.scopeToProtoFile(second, configured), true, '换文件是一次作用域变化');
+  assert.equal(registry.pinnedFile, path.resolve(second));
+  assert.deepEqual(
+    (await registry.load(configured)).services.map((s) => s.fullName),
+    ['out.C'],
+    '列表只含最新点击的文件,不累积',
+  );
+});
+
+// ---- 作用域下的服务定义文件解析:调用面靠它找到定义文件 ----
+
+test('findProtoFileForService:作用域文件让 protoDir 内扫不到的服务可解析', () => {
+  const { configured, outsideFile } = makePinFixture('find-scope-');
   assert.equal(findProtoFileForService(configured, 'out.B'), null, '未钉住:protoDir 里确实没有 out.B');
   assert.equal(
-    findProtoFileForService(configured, 'out.B', EMPTY_SCAN_EXCLUDES, [outsideFile]),
+    findProtoFileForService(configured, 'out.B', EMPTY_SCAN_EXCLUDES, outsideFile),
     path.resolve(outsideFile),
     '钉住后必须直接命中点击的文件,否则调用面报 Service not found',
   );
 });
 
-test('findProtoFileForService:同 fullName 在 protoDir 内也有拷贝时,仍以钉住(点击)的文件为准', () => {
-  const { configured, outsideFile } = makePinFixture('find-pin-dup-');
+test('findProtoFileForService:同 fullName 在 protoDir 内也有拷贝时,仍以作用域文件为准', () => {
+  const { configured, outsideFile } = makePinFixture('find-scope-dup-');
   // 目录内放一个同 fullName 但方法更多的拷贝:不钉住时「最多方法」启发式会选它
   fs.writeFileSync(
     path.join(configured, 'stale_b.proto'),
@@ -409,30 +467,65 @@ test('findProtoFileForService:同 fullName 在 protoDir 内也有拷贝时,仍�
     '前置条件:未钉住时目录内拷贝(方法更多)胜出',
   );
   assert.equal(
-    findProtoFileForService(configured, 'out.B', EMPTY_SCAN_EXCLUDES, [outsideFile]),
+    findProtoFileForService(configured, 'out.B', EMPTY_SCAN_EXCLUDES, outsideFile),
     path.resolve(outsideFile),
-    '钉住优先必须早于缓存与扫描:用户点的就是这个文件,它是权威定义源',
+    '作用域优先必须早于缓存与扫描:用户点的就是这个文件,它是权威定义源',
   );
 });
 
-test('findProtoFileForService:钉住集为空时行为与既往完全一致(不回归)', () => {
-  const { configured } = makePinFixture('find-pin-empty-');
+test('findProtoFileForService:无作用域文件时行为与既往完全一致(不回归)', () => {
+  const { configured } = makePinFixture('find-scope-none-');
   assert.equal(
-    findProtoFileForService(configured, 'cfg.A', EMPTY_SCAN_EXCLUDES, []),
+    findProtoFileForService(configured, 'cfg.A', EMPTY_SCAN_EXCLUDES, null),
     findProtoFileForService(configured, 'cfg.A'),
-    '空钉住集不得改变既有解析结果',
+    'null 作用域不得改变既有解析结果',
   );
   assert.equal(
-    findProtoFileForService(configured, 'nope.Missing', EMPTY_SCAN_EXCLUDES, []),
+    findProtoFileForService(configured, 'nope.Missing', EMPTY_SCAN_EXCLUDES, null),
     null,
-    '钉住文件里没有该服务时仍按 protoDir 扫描判定,扫不到即 null',
+    '扫不到即 null',
   );
 });
 
-test('findProtoFileForService:钉住文件里查无此服务时回落到 protoDir 扫描', () => {
-  const { configured, outsideFile } = makePinFixture('find-pin-fallback-');
-  assert.ok(
-    findProtoFileForService(configured, 'cfg.A', EMPTY_SCAN_EXCLUDES, [outsideFile])?.endsWith('a.proto'),
-    '钉住的是 out.B 的文件,查 cfg.A 必须仍从 protoDir 扫到',
+test('findProtoFileForService:作用域文件里没有该服务 → null,不回落 protoDir 扫描(列表与调用口径必须一致)', () => {
+  // 0.3.83 的回落语义会让「列表按作用域收窄、调用却能命中目录内同名服务」两边劈叉;
+  // 收窄后列表里根本不会出现该服务,回落只会把错误藏到更深的地方。
+  const { configured, outsideFile } = makePinFixture('find-scope-nofallback-');
+  assert.ok(findProtoFileForService(configured, 'cfg.A')?.endsWith('a.proto'), '前置:全量态能扫到 cfg.A');
+  assert.equal(
+    findProtoFileForService(configured, 'cfg.A', EMPTY_SCAN_EXCLUDES, outsideFile),
+    null,
+    '钉住的是 out.B 的文件,查 cfg.A 必须返回 null',
+  );
+});
+
+test('同 fullName 方法分散两处:钉住态下列表与调用口径一致(消除「列表有、调不通」)', async () => {
+  // 0.3.83 的并集语义下,列表会显示 A+B 的并集,而调用只认钉住文件 → 点 A 报 Method not found。
+  // 收窄为单文件作用域后两边同源,该劈叉不复存在。
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'scope-split-'));
+  const configured = path.join(root, 'configured');
+  const outside = path.join(root, 'outside');
+  fs.mkdirSync(configured);
+  fs.mkdirSync(outside);
+  fs.writeFileSync(
+    path.join(configured, 'svc.proto'),
+    'syntax = "proto3";\npackage p;\nservice S { rpc A(X) returns (X); }\nmessage X { string id = 1; }\n',
+  );
+  const pinnedFile = path.join(outside, 'pinned.proto');
+  fs.writeFileSync(
+    pinnedFile,
+    'syntax = "proto3";\npackage p;\nservice S { rpc B(X) returns (X); }\nmessage X { string id = 1; }\n',
+  );
+
+  const registry = new ServiceRegistry();
+  registry.scopeToProtoFile(pinnedFile, configured);
+  const { services } = await registry.load(configured);
+  const methods = services.find((s) => s.fullName === 'p.S')?.methods.map((m) => m.name);
+  assert.deepEqual(methods, ['B'], '列表只含作用域文件声明的方法,不得并集进 A');
+
+  assert.equal(
+    findProtoFileForService(configured, 'p.S', EMPTY_SCAN_EXCLUDES, registry.pinnedFile),
+    path.resolve(pinnedFile),
+    '调用面解析到的正是列表来源的同一个文件',
   );
 });

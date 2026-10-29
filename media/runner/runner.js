@@ -158,6 +158,13 @@
         if (typeof msg.protoDir === 'string') cfgStore.protoDir = msg.protoDir;
         break;
       }
+      case 'scope': {
+        // 0.3.86 接口来源:宿主在作用域切换(点别的文件的 ▶)与清除时推。
+        // null/空串/非字符串一律归一为空串 = 未收窄,顶栏标识随之隐藏。
+        var scopeStore = workbenchStore();
+        scopeStore.scopedFile = typeof msg.file === 'string' && msg.file !== '' ? msg.file : '';
+        break;
+      }
       case 'connState': {
         // host 侧连通性探测结果(0.3.54):顶栏状态点 unknown=灰/ok=绿/fail=红
         var connStore = workbenchStore();
@@ -304,6 +311,10 @@
       prefillNotice: '',
       server: typeof boot.server === 'string' ? boot.server : '',
       protoDir: typeof boot.protoDir === 'string' ? boot.protoDir : '',
+      // 0.3.86 单文件作用域:非空 = 列表只含该 proto 文件的接口(点 CodeLens「▶ 调用」进入),
+      // 顶栏据此显示来源标识。boot 内嵌初值(面板重建首帧即正确),其后由 host 的 scope 消息更新。
+      // 统一用空串表示「未收窄」,模板 x-show 直接判真假,不必区分 null/undefined。
+      scopedFile: typeof boot.scopedFile === 'string' ? boot.scopedFile : '',
       refreshing: false,
       refreshNotice: '',
       // 0.3.84 toast 语义色(ok/warn/err),模板拼 .refresh-notice-<kind>
@@ -1208,6 +1219,23 @@
       // 空态行动出口:让宿主打开 protoUtils 设置页
       openSettings: function () {
         sendMessage({ type: 'openSettings' });
+      },
+
+      // 0.3.86 单文件作用域:顶栏来源标识与空态都用它取显示名。
+      // 只显基名——顶栏很窄,整条绝对路径会把 server/环境/刷新挤掉行;完整路径交给 title。
+      // 两种分隔符都切:宿主给的是 fsPath,win32 是反斜杠。
+      scopeFileName: function () {
+        var f = Alpine.store('workbench').scopedFile || '';
+        if (!f) return '';
+        var i = Math.max(f.lastIndexOf('/'), f.lastIndexOf('\\'));
+        return i >= 0 ? f.slice(i + 1) : f;
+      },
+
+      // 0.3.86 解除单文件作用域(顶栏标识点击 / 空态「显示全部服务」):请求宿主回到 protoDir 全量。
+      // 本地不先改 store——宿主 unpin 后会推 scope 消息,以它为准;抢先改会在宿主拒绝
+      // (本就没钉住)时留下一条再也清不掉的假标识,正是 0.3.69 conn-hint 残留那类坑。
+      clearScope: function () {
+        sendMessage({ type: 'clearScope' });
       },
 
       toggleMethod: function (svcName, methodName, method) {

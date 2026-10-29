@@ -121,8 +121,8 @@ export class GrpcCallRunner implements CallRunner {
           timeoutMs: cfg.timeoutMs,
           // 与服务列表同一份排除集:陈旧拷贝目录不参与服务定义文件竞选(0.3.44)
           scanExcludes: this.registry.scanExcludes,
-          // 钉住文件同步给调用面(0.3.83):列表能显示出来的目录外服务,也必须调得通
-          pinnedFiles: this.registry.pinnedFiles,
+          // 作用域文件同步给调用面(0.3.86):列表收窄到哪个文件,调用就只认哪个文件
+          scopedFile: this.registry.pinnedFile,
         }));
   }
 
@@ -257,7 +257,7 @@ export class GrpcCallRunner implements CallRunner {
       cfg.protoDir,
       fullName,
       this.registry.scanExcludes,
-      this.registry.pinnedFiles,
+      this.registry.pinnedFile,
     );
     const streaming = !!(t.method?.requestStream || t.method?.responseStream);
 
