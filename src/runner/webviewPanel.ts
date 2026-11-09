@@ -61,6 +61,8 @@ export type WorkbenchToWebview =
   | { type: 'streamTrailers'; service: string; method: string; trailers: MetadataEntry[] }
   | { type: 'streamEnd'; service: string; method: string; durationMs: number }
   | { type: 'prefill'; service: string; method: string }
+  /** 命令打开工作台(无 prefill)时让顶栏搜索框自动聚焦;冷启动排队到 webview ready 后冲出。 */
+  | { type: 'focusSearch' }
   /** 0.3.70:runner.* 配置改动(server/protoDir)实时纠正顶栏显示与空态提示,无需重开面板。 */
   | { type: 'config'; server: string; protoDir: string }
   /**
@@ -207,6 +209,8 @@ export class WorkbenchSession {
   /** loadInFlight 期间到来的重载请求塌缩为此标志,当前 load 收尾后补跑一次(0.3.48)。 */
   private reloadQueued = false;
   private pendingPrefill: CallTarget | null = null;
+  /** 命令打开工作台(无 prefill)时待冲出的搜索框聚焦;冷启动 webview 未就绪先挂起。 */
+  private pendingFocusSearch = false;
   private readonly streams = new Map<string, ActiveStream>();
   /** 自动重探定时器;同一时刻至多一个,dispose 时清除。 */
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -260,6 +264,19 @@ export class WorkbenchSession {
       return;
     }
     this.pendingPrefill = { service, method };
+  }
+
+  /**
+   * 命令打开工作台(无 prefill)时让顶栏搜索框自动聚焦。webview 已就绪则直发;
+   * 冷启动尚未 ready 时挂起,由 dispatch 的 ready 分支冲出——与 prefill 同理,
+   * 此刻 postMessage 会丢。CodeLens 带 prefill 的入口不走这里(目标是打开具体方法)。
+   */
+  focusSearch(): void {
+    if (this.webviewReady) {
+      this.send({ type: 'focusSearch' });
+      return;
+    }
+    this.pendingFocusSearch = true;
   }
 
   /**
@@ -319,6 +336,11 @@ export class WorkbenchSession {
     switch (message.type) {
       case 'ready': {
         this.webviewReady = true;
+        // 冷启动挂起的搜索框聚焦在此冲出(不依赖服务列表,ready 即可聚焦)。
+        if (this.pendingFocusSearch) {
+          this.pendingFocusSearch = false;
+          this.send({ type: 'focusSearch' });
+        }
         this.pushEnvironments();
         if (this.deps.history) this.send({ type: 'history', entries: this.deps.history.list() });
         // prefill 由 loadAndSend 的 finally 统一冲出(见其注释),此处不重复
@@ -961,6 +983,9 @@ export class WorkbenchPanelManager {
         void session.reload();
       }
       session.prefill(prefill.service, prefill.method, scopeChanged);
+    } else {
+      // 命令直接打开工作台(无跳转目标):让搜索框自动聚焦,免用户再点一次。
+      this.active.session.focusSearch();
     }
   }
 

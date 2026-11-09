@@ -773,6 +773,48 @@ test('reveal 不带 protoFile(0.3.86):不触碰作用域逻辑,行为与既往�
   );
 });
 
+test('reveal 无 prefill(命令打开):冷启动挂起,ready 后冲出 focusSearch 让搜索框聚焦', async () => {
+  const { deps } = makeDeps();
+  const { manager, host } = makeCapturingManager(deps);
+
+  manager.reveal();
+  assert.deepEqual(host().posted, [], 'webview 未就绪不得直发(postMessage 会丢)');
+
+  host().emit({ type: 'ready' });
+  await nextTick();
+  assert.deepEqual(
+    host().posted.map((m) => m.type),
+    ['focusSearch', 'loading', 'services'],
+    '聚焦不依赖服务列表,ready 即先冲出',
+  );
+});
+
+test('reveal 无 prefill(命令打开):热面板再次 reveal 直发 focusSearch', async () => {
+  const { deps } = makeDeps();
+  const { manager, host } = makeCapturingManager(deps);
+
+  manager.reveal();
+  host().emit({ type: 'ready' });
+  await nextTick();
+  host().posted.length = 0;
+
+  manager.reveal();
+  assert.deepEqual(host().posted.map((m) => m.type), ['focusSearch'], '就绪后直发,无需再等 ready');
+});
+
+test('reveal 带 prefill(CodeLens 跳方法):不抢焦点,不发 focusSearch', async () => {
+  const { deps } = makeDeps();
+  const { manager, host } = makeCapturingManager(deps);
+
+  manager.reveal({ service: 'c.Greeter', method: 'SayHello' });
+  host().emit({ type: 'ready' });
+  await nextTick();
+  assert.ok(
+    !host().posted.some((m) => m.type === 'focusSearch'),
+    'CodeLens 目标是打开具体方法,不该把焦点塞进搜索框',
+  );
+});
+
 test('clearScope(0.3.86):顶栏清除来源标识 → unpin + 推 scope(null) + 重载回 protoDir 全量', async () => {
   const { deps, state } = makeDeps();
   const { host, posted, emit } = makeHost();

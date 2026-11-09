@@ -251,6 +251,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
   <div class="topbar" x-data x-cloak x-show="$store.workbench.view === 'services'">
     <div class="topbar-search" x-data x-cloak x-show="$store.workbench.view === 'services'">
       <input
+        id="service-search"
         type="search"
         x-model="$store.search.query"
         placeholder="${S.searchPlaceholder}"

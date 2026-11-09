@@ -152,6 +152,14 @@
         pendingPrefill = { service: msg.service, method: msg.method };
         tryApplyPrefill();
         break;
+      case 'focusSearch': {
+        // 命令打开工作台(无 prefill)时让搜索框自动聚焦。顶栏搜索在 homePage 组件作用域之外
+        // (独立 x-data),$refs 触达不到,沿用 .conn-hint 的命令式 DOM 兜底。序列视图下
+        // 该框 x-show 为 display:none,聚焦是安全无操作。
+        var searchEl = document.getElementById('service-search');
+        if (searchEl) searchEl.focus();
+        break;
+      }
       case 'config': {
         // 0.3.70 runner.* 配置改动:顶栏 server 与空态 protoDir 实时纠正(此前烤在 HTML 里,要重开面板)
         var cfgStore = workbenchStore();
