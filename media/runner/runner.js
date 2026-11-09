@@ -153,7 +153,7 @@
         tryApplyPrefill();
         break;
       case 'focusSearch': {
-        // 命令打开工作台(无 prefill)时让搜索框自动聚焦。顶栏搜索在 homePage 组件作用域之外
+        // 0.3.88 命令打开工作台(无 prefill)时让搜索框自动聚焦。顶栏搜索在 homePage 组件作用域之外
         // (独立 x-data),$refs 触达不到,沿用 .conn-hint 的命令式 DOM 兜底。序列视图下
         // 该框 x-show 为 display:none,聚焦是安全无操作。
         var searchEl = document.getElementById('service-search');

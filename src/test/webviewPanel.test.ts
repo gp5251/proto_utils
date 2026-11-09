@@ -773,7 +773,7 @@ test('reveal 不带 protoFile(0.3.86):不触碰作用域逻辑,行为与既往�
   );
 });
 
-test('reveal 无 prefill(命令打开):冷启动挂起,ready 后冲出 focusSearch 让搜索框聚焦', async () => {
+test('reveal 无 prefill(命令打开,0.3.88):冷启动挂起,ready 后冲出 focusSearch 让搜索框聚焦', async () => {
   const { deps } = makeDeps();
   const { manager, host } = makeCapturingManager(deps);
 
@@ -789,7 +789,7 @@ test('reveal 无 prefill(命令打开):冷启动挂起,ready 后冲出 focusSear
   );
 });
 
-test('reveal 无 prefill(命令打开):热面板再次 reveal 直发 focusSearch', async () => {
+test('reveal 无 prefill(命令打开,0.3.88):热面板再次 reveal 直发 focusSearch', async () => {
   const { deps } = makeDeps();
   const { manager, host } = makeCapturingManager(deps);
 
@@ -802,7 +802,7 @@ test('reveal 无 prefill(命令打开):热面板再次 reveal 直发 focusSearch
   assert.deepEqual(host().posted.map((m) => m.type), ['focusSearch'], '就绪后直发,无需再等 ready');
 });
 
-test('reveal 带 prefill(CodeLens 跳方法):不抢焦点,不发 focusSearch', async () => {
+test('reveal 带 prefill(CodeLens 跳方法,0.3.88):不抢焦点,不发 focusSearch', async () => {
   const { deps } = makeDeps();
   const { manager, host } = makeCapturingManager(deps);
 
