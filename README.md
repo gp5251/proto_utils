@@ -13,7 +13,7 @@ Zero external dependencies — no need to install `protoc`, `buf`, or any CLI to
 | 🔍 **Go-to-Definition & Hover** | Type navigation within same file / imports / package namespace; hover shows type summary and leading comments |
 | 🧭 **Outline Navigation** | `message` / `enum` / `service` / rpc methods all appear in Outline and Symbol Search |
 | 🏗 **TS Type Generation** | `message` / `enum` / `repeated` / `map` / `oneof` → TypeScript; `service` → `<Name>Client` interface (all 4 streaming directions) |
-| 📞 **RPC Workbench** | Schema-driven forms; all four gRPC call directions; environments, history, grpcurl export, and collapsible response tree |
+| 📞 **RPC Workbench** | Schema-driven forms; all four gRPC call directions; environments, history, grpcurl export, collapsible response tree, and zero-config single-file scope from the Call lens |
 | 🔁 **Call Sequences** | Chain rpc methods with `{{stepN.path}}` / environment variables and step assertions; named sequences persist to workspace |
 | 🩺 **Live Diagnostics** | Inline syntax errors, missing types and duplicate names highlighted at reference sites; one-click import fix |
 
@@ -47,7 +47,7 @@ Workbench colors automatically follow VS Code light/dark theme (GitHub Dark for 
 
 1. Open a workspace containing `.proto` files — the extension indexes automatically.
 2. **Generate types**: right-click a `.proto` file → *Generate TypeScript Types*, or `Ctrl+Shift+P` to run batch generation.
-3. **Call gRPC**: click the "▶ Call" CodeLens above any rpc method, fill the form and send — click the server address in the workbench header to edit it in place (remembered per workspace), and point `protoUtils.runner.protoDir` to your proto directory in settings.
+3. **Call gRPC**: click the "▶ Call" CodeLens above any rpc method, fill the form and send. The lens needs no configuration for a self-contained proto or same-directory imports; set `protoUtils.runner.protoDir` when imports cross directories, or when you want every service in a directory browsable in one list. Click the server address in the workbench header to edit it in place (remembered per workspace).
 
 ## Features
 
@@ -60,10 +60,10 @@ Workbench colors automatically follow VS Code light/dark theme (GitHub Dark for 
 - Generates `service` as client call interfaces (`<Name>Client`, streaming directions expressed with `AsyncIterable`)
 - Auto-generates TypeScript `import type` from cross-file type references (`.ts` suffix by default; same-name types across modules get deterministic aliases)
 - Single-file or batch generation for all protos
-- "▶ Call" CodeLens above rpc methods opens the RPC Workbench with method pre-selected
+- "▶ Call" CodeLens above rpc methods opens the RPC Workbench with the method pre-selected — and, for files outside `protoUtils.runner.protoDir`, scopes it to that single file so calling works with no configuration at all
 - RPC Workbench: schema-driven request forms with Timestamp/Duration/wrapper helpers; unary, server-streaming, client-streaming, and bidi calls; responses shown in a collapsible JSON tree; request history and Copy as grpcurl
 - Environments: switch variable sets from `.proto-utils/environments.json`; use `{{name}}` in the server address, request fields, and Headers (keep secrets out of version control)
-- Call Sequences: chain methods for sequential execution, aborting on call or assertion failure; later steps can use `{{stepN.path}}` and environment variables; server streams support `chunks[i]`; named sequences persist to `.proto-utils/sequences.json` for save/load/delete
+- Call Sequences: chain methods for sequential execution, aborting on call or assertion failure; later steps can use `{{stepN.path}}` and environment variables; server streams support `chunks[i]`; per-step response assertions (`eq` / `neq` / `contains` / `exists` / `notExists` / `lt` / `gt`); named sequences persist to `.proto-utils/sequences.json` for save/load/delete
 - Project-level config: `.proto-utils/settings.json` (commit it to share with your team) overrides any `protoUtils.*` setting — flat dotted keys without the `protoUtils.` prefix; precedence: workbench address bar > project file > VS Code settings > defaults. Create it via **Proto Utils: Create Project Config File**
 - Diagnostics on `.proto` save or workbench load: syntax errors highlighted inline (narrowed to the offending token), missing types / duplicates flagged at reference and declaration sites; workbench error cards show red squiggles at error points
 
@@ -148,15 +148,27 @@ Cross-file request/response types get auto-generated `import type` (with `.ts` s
 
 ### Calling RPCs (RPC Workbench)
 
-In `.proto` files, a "▶ Call" CodeLens appears above each rpc method. Clicking it opens the RPC Workbench with the method pre-selected. You can also run **Proto Utils: Open RPC Workbench** from the Command Palette or right-click context menu to manually select service and method.
+In `.proto` files, a "▶ Call" CodeLens appears above each rpc method. Clicking it opens the RPC Workbench with the method pre-selected; for a file outside `protoUtils.runner.protoDir` it also scopes the workbench to that file (see below). You can also run **Proto Utils: Open RPC Workbench** from the Command Palette or right-click context menu to manually select service and method.
 
 - Forms are auto-generated from the request message field schema; nested messages edit as JSON/JSON5 (supports comments, trailing commas, single quotes, unquoted keys).
 - Unary call responses display in a collapsible JSON tree with nested objects/arrays collapsed by default, expandable level by level; long strings truncated; "Expand All / Collapse All" shortcut buttons included. Server-streaming responses fold by chunk, cancellable at any time; long streams retain only the latest 200 chunks of folded data and raw JSON (count remains true total), preventing unbounded memory/page growth. Raw JSON remains copyable. Stream methods support a "Max Messages" setting (default 100, `0` = unlimited) — auto-stops and shows "Complete" when limit reached.
 - Response area includes a "Response metadata" collapsible section showing server headers and trailers (binary `-bin` keys displayed as base64); appears only when data exists.
 - Proto file changes (save, external modification) auto-refresh the service list without losing form state.
 - Search box uses fuzzy matching (subsequence, case-insensitive): `ldp` matches `ExecuteOpenLDProg`; substring matching still works.
-- Client-streaming and bidirectional streaming not yet supported (see `docs/adr/0007`).
+- Client-streaming and bidirectional calls use an explicit session (see `docs/adr/0013`): **Open stream**, write the current form as one message at a time, then **End sending**; bidi responses fold by chunk and cancel exactly like server streams.
 - Workbench UI colors follow VS Code light/dark theme automatically (GitHub Dark / GitHub Light fixed palettes, see `docs/adr/0011`).
+- Headers editor collapses by default with a row-count badge; every collapse hotspot (service, method, schema, headers, history, response metadata, chunk, sequence step) is keyboard-operable via Enter/Space and exposes `aria-expanded`; toasts are `aria-live` and colored by outcome; spinners and smooth scrolling step down under `prefers-reduced-motion`.
+
+#### Interface Source (Single-file Scope)
+
+Clicking the "▶ Call" lens on a file **outside** `protoUtils.runner.protoDir` — or with no proto directory configured at all — scopes the workbench to that one file: the service list shows only the interfaces it declares, and both calls and Copy as grpcurl resolve against it. Files already inside `protoDir` are not scoped, since the directory scan covers them and narrowing would only hide services.
+
+- The header shows a **Source** chip with the file name (hover for the full path). Click it to clear the scope and browse every service in the proto directory.
+- A scoped file that declares no `service` gets its own empty state with a **Show all services** action, instead of advice about `protoDir`.
+- Cross-directory `import` still needs `protoUtils.runner.protoDir` pointed at the import root; when such an import fails, the error card says exactly that and points you to Refresh.
+- The scoped file is watched individually, so external edits refresh the list even when it lives outside the workspace (same 500 ms debounce as the workspace-wide watcher). If it is deleted, the workbench reports it by path.
+- Sequences cannot run while scoped — a sequence may reference services outside the current filter, so the workbench asks you to clear the source rather than reporting valid steps as broken.
+- While a sequence is running the source is locked: clicking another file's lens keeps the current scope and explains why.
 
 #### Call Sequences (Execute Multiple Methods in Order)
 
@@ -166,9 +178,11 @@ The "Sequence" tab at the top of the workbench organizes multiple rpc methods in
 - Each step's input uses the same form / JSON dual-mode editing as single method calls; steps are collapsed by default, expandable for editing.
 - Per-step "Headers Override": merged by key over global `runner.metadata` at runtime — same key: step-level wins; different keys: appended.
 - Stream receive limit: per-step "Max Messages" (default 100, `0` = unlimited); auto-ends the stream step (success) and advances to next when limit reached.
+- Per-step assertions: compare a path in the step output (`data.id`, `chunks[i].data.x`, `count`, `dropped`, `durationMs`) using `eq` / `neq` / `contains` / `exists` / `notExists` / `lt` / `gt`; a failing assertion aborts the chain exactly like a call error and is named in the report.
 - Data pipeline: write `{{stepN.path}}` in later step inputs to reference step N's response, e.g. `{{step0.data.token}}`, `{{step0.chunks[1].data.id}}` (server streams by chunk index). When the placeholder occupies the entire value, the original JSON type is preserved; embedded in a string, it performs concatenation; if value is unavailable, that step fails and aborts the chain. Forward/self-references are flagged red at edit time.
 - Server-streaming steps advance after natural end or clicking "End & Continue"; click "Stop" at any time to abort the entire chain.
-- Any step failure (gRPC error / empty placeholder) aborts immediately, skipping remaining steps; pre-run validation checks all steps' methods still exist — invalid steps prevent launch and are named.
+- Any step failure (gRPC error / empty placeholder / failed assertion) aborts immediately, skipping remaining steps; pre-run validation checks all steps' methods still exist — invalid steps prevent launch and are named.
+- Sequences run against the full service list: if the workbench is scoped to a single file, clear the header **Source** chip first (see "Interface Source").
 - Run report shows per-step status, duration, and response body (streams show each chunk); entire report copyable.
 - Named sequences persist to workspace `.proto-utils/sequences.json` (version-controlled, team-shareable) with save / load / delete; persistence unavailable without an open workspace, but execution is unaffected.
 
@@ -267,259 +281,3 @@ If a file has no package, it falls back to `"file"` mode path rules.
 | `message` | `interface` |
 | `enum` | `enum` or string literal union type |
 | `service` | `<Name>Client` call interface (see "Service Client Interface Generation") |
-# Proto Utils
-
-<p align="center">
-  <img src="media/icon.png" width="96" alt="Proto Utils">
-</p>
-
-面向 VS Code 的 Proto3 一体化插件:**语法高亮 · 跳转定义 · 悬停文档 · TypeScript 类型生成 · 编辑器内 gRPC 调用**。
-零外部依赖——无需安装 `protoc`、`buf` 或任何命令行工具。
-
-## 功能总览
-
-| 能力 | 说明 |
-| --- | --- |
-| 🖋 **语言服务** | Proto3 语法高亮,内置标量与自定义类型着色区分 |
-| 🔍 **跳转与悬停** | 同文件 / import / package 命名空间的类型跳转;悬停显示类型摘要与前导注释 |
-| 🧭 **大纲导航** | `message` / `enum` / `service` / rpc 方法全部进入大纲与符号搜索 |
-| 🏗 **TS 类型生成** | `message` / `enum` / `repeated` / `map` / `oneof` → TypeScript;`service` → `<Name>Client` 调用接口(四种流式方向) |
-| 📞 **RPC 工作台** | 按 schema 自动生成请求表单,直接调用一元 / 服务端流 gRPC 方法,响应折叠树展示 |
-| 🔁 **调用序列** | 把若干 rpc 方法排成一条依次执行;后步可用 `{{stepN.path}}` 引用前步响应(数据管道);命名序列存工作区可复用 |
-| 🩺 **实时诊断** | 语法错就地飘红、缺失类型与重名在引用处标红,支持一键补 import |
-
-## 界面速览
-
-### RPC 工作台
-
-按 proto schema 自动生成的请求表单:每个字段带类型徽标、可选/必填标记与 proto 注释;嵌套 message 与枚举就地展开;Headers 编辑器随调用携带 metadata。
-
-![RPC 工作台](docs/images/rpc-workbench.png)
-
-### 一元调用 · 响应折叠树
-
-响应数据以 DevTools 风格折叠树逐级展示,长字符串截断、int64 以字符串往返保持精度;「Response metadata」折叠块展示服务器返回的 headers/trailers。
-
-![响应折叠树](docs/images/rpc-result.png)
-
-### 服务端流 · 分 chunk 折叠
-
-服务端流按 chunk 折叠展示,可单独展开某条消息,随时取消;长流只保留最近 200 条,计数仍为真实总量。
-
-![服务端流](docs/images/rpc-stream.png)
-
-### 亮色主题
-
-工作台配色自动跟随 VS Code 明/暗主题切换(暗色 GitHub Dark、亮色 GitHub Light)。
-
-![亮色主题](docs/images/rpc-workbench-light.png)
-
-## 快速上手
-
-1. 打开包含 `.proto` 文件的工作区,插件自动索引。
-2. **生成类型**:右键 `.proto` 文件 → *Generate TypeScript Types*,或 `Ctrl+Shift+P` 运行全量生成。
-3. **调用 gRPC**:rpc 方法上方点击「▶ 调用」,在工作台填表发送——点击工作台顶栏的服务器地址可原地编辑并自动记住(按工作区隔离,默认 `localhost:50051`),`protoUtils.runner.protoDir` 仍在设置里指向 proto 目录。
-
-## 功能
-
-- 为 `.proto` 文件提供 Proto3 语法高亮
-- 区分内置标量类型和自定义类型
-- 支持同文件、导入文件和 package 命名空间中的类型定义跳转
-- 悬停在类型引用或定义上时显示类型摘要(种类 + 限定名)与定义处前导注释
-- 大纲/符号导航:列出 `message`、`enum`、`service` 及 service 下的 rpc 方法
-- 将 `message`、`enum`、`repeated`、`map` 和 `oneof` 生成为 TypeScript 类型
-- 将 `service` 生成为客户端调用接口(`<Name>Client`,流式方向用 `AsyncIterable` 表达)
-- 根据多个 `.proto` 文件之间的类型引用生成 TypeScript `import type`(默认带 `.ts` 后缀;跨模块同名类型自动取别名,避免重复标识符)
-- 单文件生成或一键全量生成全部 proto
-- 在 rpc 方法上方提供「▶ 调用」CodeLens,一键打开 RPC 工作台并预选方法
-- RPC 工作台:按 proto schema 自动生成请求表单,发起一元与服务端流调用;响应数据以可折叠 JSON 树展示(嵌套对象/数组逐级展开收起)
-- 调用序列:在工作台把若干方法排成一条依次执行,首步失败即中止;后步入参可用 `{{stepN.path}}` 引用前步响应(整值保类型、字符串内插值、服务端流可引 `chunks[i]`);服务端流步骤可手动「结束并继续」;命名序列持久化到 `.proto-utils/sequences.json`,可存/载/删
-- 保存 `.proto` 文件或工作台加载 proto 后报告诊断:语法错就地飘红(可收窄到出错 token),缺失类型/重名在引用处与声明处飘红;工作台错误卡片同步以红色波浪线标出出错点
-
-
-## 基本使用
-
-### 编辑和跳转
-
-在工作区中打开 `.proto` 文件后，插件会自动激活并索引工作区内的 Proto3 文件。
-
-- 语法高亮会自动生效。
-- 按住 `Ctrl` 并点击类型名称，可跳转到对应的 `message` 或 `enum` 定义。
-- macOS 使用 `Cmd` + 点击。
-
-跨文件跳转需要目标类型所在的文件位于当前 VS Code 工作区中，并通过 Proto `import` 或 package 名称可解析。
-
-### 生成 TypeScript 类型
-
-可以通过以下任一方式生成类型：
-
-1. 在编辑器或资源管理器中右键点击 `.proto` 文件，选择 **Proto Utils: Generate TypeScript Types**（仅当前文件）或 **Proto Utils: Generate TypeScript Types (All Protos)**（全部 proto，含跨文件 import 目标）。
-2. 打开命令面板运行同名命令。使用命令面板的单文件命令时，应先打开目标 `.proto` 文件。
-
-默认情况下，生成文件写入工作区的 `generated/` 目录。若 Proto 文件为 `protos/account/user.proto`（且 proto 都在 `protos/` 下）：
-
-```proto
-syntax = "proto3";
-
-package account.profile;
-
-message User {
-  string user_name = 1;
-  repeated string roles = 2;
-}
-```
-
-默认(`pathMapping: "file"`)输出路径为：
-
-```text
-generated/user.ts
-```
-
-生成内容类似：
-
-```ts
-// Generated by proto-utils. Do not edit.
-
-export interface User {
-  userName: string;
-  roles: string[];
-}
-```
-
-每次执行生成命令都会覆盖对应的输出文件，请勿手动修改生成文件。
-
-#### service 生成客户端调用接口
-
-每个 `service` 生成一个 `<Name>Client` 接口,方法签名的请求/响应类型按流式方向推导:
-
-| RPC 形态 | 生成的签名 |
-| --- | --- |
-| 一元 | `(request: Req) => Promise<Resp>` |
-| 服务端流 | `(request: Req) => AsyncIterable<Resp>` |
-| 客户端流 | `(request: AsyncIterable<Req>) => Promise<Resp>` |
-| 双向流 | `(request: AsyncIterable<Req>) => AsyncIterable<Resp>` |
-
-跨文件的请求/响应类型自动生成 `import type`(默认带 `.ts` 后缀,可用 `protoUtils.codeGen.importExtension` 关闭);不同模块的同名类型(如两处 `ResponseStatus`)会自动按路径取确定性别名,避免重复标识符报错。
-
-### 调用 RPC(RPC 工作台)
-
-在 `.proto` 文件中,每个 rpc 方法上方都会出现「▶ 调用」CodeLens。点击后 RPC 工作台打开并预选该方法;也可以通过命令面板运行 **Proto Utils: Open RPC Workbench**,或右键 `.proto` 编辑器选择同名命令,手动选择服务和方法。
-
-- 表单按请求消息的字段 schema 自动生成,嵌套 message 以 JSON/JSON5 编辑(支持注释、尾逗号、单引号、裸键名)。
-- 一元调用在响应区以可折叠 JSON 树展示结果,嵌套对象/数组默认收起、逐级展开,长字符串截断,附「全部展开/全部收起」快捷按钮;服务端流调用按 chunk 折叠展示,可随时取消;长流只保留最近 200 条的折叠数据与原始 JSON(计数仍为真实总量),防止内存与页面被无限撑大。原始 JSON 仍可一键复制。流方法可配「最大消息数」(缺省 100,`0` = 不限),收满自动停止并按「完成」展示。
-- 响应区带「Response metadata / 响应 metadata」折叠块,展示服务器返回的 headers 与 trailers(二进制 `-bin` 键以 base64 显示),有数据才出现。
-- proto 文件变更(保存、外部修改)会自动刷新服务列表,不丢表单状态。
-- 搜索框为模糊匹配(子序列,大小写不敏感):`ldp` 可命中 `ExecuteOpenLDProg`;子串命中仍然有效。
-- client-streaming 与双向流暂不支持(见 `docs/adr/0007`)。
-- 工作台界面配色自动跟随 VS Code 明/暗主题(暗色为 GitHub Dark、亮色为 GitHub Light 固定配色,见 `docs/adr/0011`)。
-
-#### 调用序列(依次执行多个方法)
-
-工作台顶部的「序列」页签把若干 rpc 方法组织成一条调用序列,一次触发依序执行:
-
-- 在服务页展开方法,点「+ 加入序列」把该方法连同当前入参快照追加为一步;同一方法可重复加入(各带独立入参),序列内可上下调序、移除。
-- 每步入参沿用表单 / JSON 双模式编辑,与单方法调用一致;步骤默认折叠,展开后可编辑。
-- 每步可配「Headers 覆盖」:运行时按 key 合并于全局 `runner.metadata` 之上,同名 key 步级优先、异 key 追加。
-- 流接收上限:每步可配「最大消息数」(缺省 100,`0` = 不限);收满即自动结束该流步骤(成功)并推进下一步。
-- 数据管道:后步入参里写 `{{stepN.path}}` 引用第 N 步的响应,如 `{{step0.data.token}}`、`{{step0.chunks[1].data.id}}`(服务端流按 chunk 索引)。占位符独占整个值时保留原始 JSON 类型,嵌在字符串中则做拼接;取不到值该步失败并中止整条。前向/自引用在编辑时即标红。
-- 服务端流步骤在自然结束或点「结束并继续」后推进下一步;任意时刻可点「停止」中止整条。
-- 任一步失败(gRPC 错误 / 占位符取空)即中止,后续不执行;启动前整体校验所有步的方法是否仍存在,有失效步则不启动并点名。
-- 运行报告逐步展示状态、耗时与响应体(流为各 chunk),可整段复制。
-- 命名序列持久化到工作区 `.proto-utils/sequences.json`(进版本库、可团队共享),支持保存 / 加载 / 删除;未打开工作区时持久化不可用,但运行不受影响。
-
-工作台依赖的设置:
-
-| 配置项 | 默认值 | 作用 |
-| --- | --- | --- |
-| `protoUtils.runner.protoDir` | `""` | proto 目录,**必须指向 .proto 文件所在目录本身**(import 相对它解析,指到父目录会导致跨文件类型解析失败);空 = 工作区根;相对路径相对 workspace folder 解析。**显式配置后,代码生成也只扫描该目录**(不再扫工作区) |
-| `protoUtils.runner.tls` | `false` | 是否使用 TLS 通道(默认明文) |
-| `protoUtils.runner.tlsRootCert` | `""` | 根证书 PEM 路径;空 = 系统默认 CA;相对路径相对 workspace folder 解析 |
-| `protoUtils.runner.tlsClientCert` | `""` | 客户端证书 PEM 路径(双向 TLS;须与 `tlsClientKey` 成对配置) |
-| `protoUtils.runner.tlsClientKey` | `""` | 客户端私钥 PEM 路径(双向 TLS;须与 `tlsClientCert` 成对配置) |
-| `protoUtils.runner.metadata` | `[]` | 每次调用默认携带的请求头,一行一条 `"Key: Value"`;工作台 Headers 编辑器可在每次调用前增删 |
-| `protoUtils.runner.timeoutMs` | `15000` | 一元调用超时(毫秒),走 grpc deadline;`0` = 不限。服务端流始终不限时 |
-| `protoUtils.runner.connProbeIntervalMs` | `5000` | 连接自动探测间隔(毫秒);`0` = 关闭周期自动探测(仅打开/刷新/地址改动时探测) |
-
-#### TLS、请求头与超时
-
-- **TLS**:开启 `runner.tls` 后按 `createSsl` 语义建通道——只配 `tlsRootCert` 为单向 TLS;再成对配置 `tlsClientCert`/`tlsClientKey` 为双向 TLS(只给一个会在调用时报错)。PEM 路径支持绝对路径或相对 workspace folder。
-- **请求头(metadata)**:`runner.metadata` 里的条目作为每个方法 Headers 编辑器的初始值;在编辑器里增删改只影响后续调用,不回写设置。空 key 的行会被丢弃。
-- **超时**:一元调用在 `timeoutMs` 后未响应即返回 `DEADLINE_EXCEEDED`(0 = 不限);服务端流不受此限,可随时手动取消。
-- **int64 往返**:`int64`/`uint64`/`sint64`/`fixed64`/`sfixed64` 字段以字符串往返(表单用文本输入,响应里也是字符串),避免超过 2^53 的数值被截断;请求侧直接填十进制字符串即可。32 位整型仍为数字。
-
-**从 rpc_runner 迁移**:把 `rpc.config.json` 里的 `protoDir` 值抄到上述 VS Code 设置,`server` 值点击工作台顶栏的服务器地址原地填入(settings.json 里残留的老 `protoUtils.runner.server` 也仍作初始默认生效)。`port` 与 `generatedDir` 已删除(不再有 HTTP 服务与 proto-loader-gen-types 生成)。工作台与 gRPC 依赖(@grpc/grpc-js)采用懒加载,只在首次打开工作台时载入,不影响编辑功能激活速度。
-
-修改 `protoUtils.runner.*` 设置后,下一次调用/刷新即按新配置执行,无需重开工作台(0.3.44 起)。服务器地址自 0.3.75 起不再是配置项:点击工作台顶栏地址原地编辑,下一次调用/探测立即生效并按工作区记住。
-
-## 配置
-
-在 VS Code 设置中搜索 `Proto Utils`，或在工作区的 `.vscode/settings.json` 中配置 `protoUtils.codeGen.*`。
-
-| 配置项 | 类型与可选值 | 默认值 | 作用 |
-| --- | --- | --- | --- |
-| `protoUtils.codeGen.outputDir` | `string` | `"generated"` | 输出目录，相对于工作区根目录 |
-| `protoUtils.codeGen.enumStyle` | `"enum"` \| `"union"` | `"enum"` | 将 Proto enum 生成为 TypeScript enum 或字符串字面量联合类型 |
-| `protoUtils.codeGen.optionalMessageFields` | `boolean` | `true` | 是否为非 repeated 的 message 类型字段添加 `?` |
-| `protoUtils.codeGen.optionalScalarFields` | `boolean` | `false` | 是否为标量字段添加 `?` |
-| `protoUtils.codeGen.fieldNaming` | `"camelCase"` \| `"preserve"` | `"camelCase"` | 将字段名转换为 camelCase，或保留 Proto 原始名称 |
-| `protoUtils.codeGen.pathMapping` | `"file"` \| `"package"` | `"file"` | 输出路径映射:相对 proto 公共根镜像目录结构,或按 package 语句 |
-| `protoUtils.codeGen.importExtension` | `"ts"` \| `"none"` | `"ts"` | 生成的 import 路径是否带 `.ts` 后缀 |
-| `protoUtils.codeGen.oneofStyle` | `"optional"` \| `"union"` | `"optional"` | 将 oneof 生成为可选字段或互斥联合类型 |
-| `protoUtils.codeGen.int64Style` | `"number"` \| `"bigint"` \| `"string"` | `"number"` | 64 位整数类型(int64/uint64/sint64/fixed64/sfixed64)的 TypeScript 映射 |
-| `protoUtils.scan.excludeDirs` | `string[]` | `[]` | 扫描 proto 时额外跳过的目录(runner 与代码生成共用);条目为目录名、workspace 相对路径或绝对路径 |
-
-示例配置：
-
-```json
-{
-  "protoUtils.codeGen.outputDir": "src/generated",
-  "protoUtils.codeGen.enumStyle": "union",
-  "protoUtils.codeGen.optionalMessageFields": true,
-  "protoUtils.codeGen.optionalScalarFields": false,
-  "protoUtils.codeGen.fieldNaming": "camelCase",
-  "protoUtils.codeGen.pathMapping": "file",
-  "protoUtils.codeGen.importExtension": "ts",
-  "protoUtils.codeGen.oneofStyle": "union",
-  "protoUtils.scan.excludeDirs": ["third_party"]
-}
-```
-
-### 输出路径映射
-
-默认 `"file"` 模式:先取所有 proto 文件的最长公共目录作为根,输出保留相对该根的目录结构。proto 全部平级时输出就是平铺:
-
-```text
-protos/user.proto                    → <outputDir>/user.ts            (所有 proto 平级位于 protos/)
-protos/account/admin/x.proto         → <outputDir>/account/admin/x.ts  (公共根为 protos/ 时保留子结构)
-```
-
-使用 `"package"` 时，插件根据 package 语句生成路径：
-
-```proto
-package my.service;
-```
-
-对应：
-
-```text
-<outputDir>/my/service.ts
-```
-
-如果文件没有 package，则回退到 `"file"` 模式的路径规则。
-
-## 类型映射
-
-| Proto3 类型 | TypeScript 类型 |
-| --- | --- |
-| `double`、`float` | `number` |
-| 各种 32 位整数类型(`int32`、`uint32`、`sint32`、`fixed32`、`sfixed32`) | `number` |
-| 各种 64 位整数类型(`int64`、`uint64`、`sint64`、`fixed64`、`sfixed64`) | `number`(默认;由 `protoUtils.codeGen.int64Style` 决定,可为 `bigint` 或 `string`) |
-| `bool` | `boolean` |
-| `string` | `string` |
-| `bytes` | `Uint8Array` |
-| `repeated T` | `T[]` |
-| `map<K, V>` | `Record<K, V>` |
-| `message` | `interface` |
-| `enum` | `enum` 或字符串字面量联合类型 |
-| `service` | `<Name>Client` 调用接口(见「service 生成客户端调用接口」) |
-

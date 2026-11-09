@@ -10,8 +10,10 @@
 
 1. **语法高亮** — TextMate grammar 即时基础着色 + Semantic Tokens 语义增强（区分自定义类型与内置类型）
 2. **跳转到定义** — 同文件、跨文件（import 链）、package 命名空间全解析
-3. **Code-gen** — 从 proto 生成纯 TS interface/type/enum，7 项用户可配置行为，右键菜单 + 命令面板触发
-4. **RPC 工作台** — 编辑器内直接发起 gRPC 调用（一元 + 服务端流），rpc 方法上方 CodeLens 入口（见 docs/adr 0001~0007 的合并决策）
+3. **Code-gen** — 从 proto 生成纯 TS interface/type/enum 与 `<Name>Client` 调用接口，`codeGen.*` 共 9 项可配置行为，右键菜单 + 命令面板触发
+4. **RPC 工作台** — 编辑器内直接发起 gRPC 调用（一元 / 服务端流 / 客户端流 / 双向流），rpc 方法上方 CodeLens 入口；点到的文件若在 `runner.protoDir` 之外，工作台收窄为单文件作用域（见 docs/adr 0001~0007、0011、0013、0015）
+5. **调用序列** — 把若干方法排成一条依序执行，后步以 `{{stepN.path}}` 引用前步响应（数据管道），步级 Headers 覆盖 / 流接收上限 / 响应断言，首个失败步即中止整条；命名序列持久化到工作区（ADR-0012）
+6. **配置与数据分层** — `.proto-utils/settings.json` 项目级设置（ADR-0014）、`.proto-utils/environments.json` 环境变量、`.proto-utils/sequences.json` 命名序列；服务器地址自 0.3.75 起不是配置项，存 extension workspaceState
 
 > 依赖说明（2026-07-31 修订，ADR-0002/0004）：编辑面（高亮/跳转/codegen）保持零外部运行时依赖；调用面（RPC 工作台）引入 `@grpc/grpc-js` 与 `@grpc/proto-loader`，经懒加载隔离，首次打开工作台时才载入。原「零外部依赖/内置 proto3 parser」表述随自研 parser 退役废止。
 
@@ -71,12 +73,16 @@
    - `runner.protoDir` / `runner.tls*` / `runner.metadata` / `runner.timeoutMs` / `runner.connProbeIntervalMs`(调用面,见 docs/adr 0001~0007)
    - 服务器地址(0.3.75 起非配置项):工作台顶栏原地编辑,存 extension workspaceState(按工作区隔离);回退链 = 持久化值 ?? 老 `runner.server` 设置残值 ?? `localhost:50051`
    - `scan.excludeDirs` (string[], default `[]`,runner 与 codegen 共用)
+   - 项目级配置(ADR-0014):`.proto-utils/settings.json` 以去掉 `protoUtils.` 前缀的扁平点分键覆盖任意设置;优先级 = 工作台顶栏地址 > 项目文件 > VS Code 设置(工作区 > 用户) > 默认值;`runner.protoDir` / `scan.excludeDirs` 改动需 reload 窗口(与 VS Code 设置同款限制)
+   - 工作区数据文件:`.proto-utils/environments.json`(自由变量,`{{name}}` 在服务器地址 / 请求字段 / Headers 全链替换,文件 watcher 热重载)、`.proto-utils/sequences.json`(命名序列)
 
 8. **Trigger mechanisms** — Code-gen is triggered via: (a) right-click context menu on `.proto` files in the editor and explorer, (b) command palette command `protoUtils.generateTypes`.
 
 9. **Architecture: pure VSCode Extension API** — No LSP server. All providers (semantic tokens, definition) are registered in-process. Keeps the extension lightweight and fast to activate.
 
 10. **Proto3 only** — No proto2 support. The parser rejects `syntax = "proto2"` and proto2-only constructs (`required`, `optional` keyword, `extensions`, `extend`).
+
+11. **CodeLens 单文件作用域(ADR-0015)** — CodeLens 把所在 protoFile 交给调用面,`ServiceRegistry` 据此收窄:仅当该文件在 `runner.protoDir` 之外(或没配目录 / 没开工作区)时钉住,目录内不收窄;作用域态下 `load` 只加载这一个文件、不扫目录,调用与 grpcurl 导出按同一口径解析。目录外文件由 `ScopedProtoWatcher` 精确监听,与全局 watcher 共用 500ms 防抖入口。作用域态禁止运行序列(否则会把「不在这个文件里」误报成「方法失效」),序列运行中拒绝切换来源。
 
 ## Testing Decisions
 
@@ -97,6 +103,23 @@
 - Assert: exact TypeScript output string for each configuration combination
 - Coverage targets: all config toggles, cross-file imports producing correct TS import statements, edge cases (empty message, deeply nested, all field types, multiple oneofs under union style)
 
+**Seam 3: 调用面(`ServiceRegistry` / `CallHandler` / `GrpcClient` / `SequenceRunner`,ADR-0001/0012/0013/0015)**
+- Input: 真实 proto 文件(`testdata/`)+ 配置对象 + 桩化通道与文件系统
+- Assert: 服务/方法提取形状、单文件作用域的三分支(目录外钉住 / 目录内不收窄 / 文件不存在不动既有作用域)、占位符与环境变量解析、步级断言求值、序列事件流(`end` / `aborted`)、grpcurl 命令文本、gRPC 错误格式化
+- Coverage targets: 作用域文件已删与跨目录 import 失败的指引文案、序列运行中锁来源、流接收上限与 chunk 有界窗口
+
+**Seam 4: Webview 契约(`webviewHtml` / `webviewPanel`)**
+- Input: 渲染选项与 boot 载荷 / 入站消息序列(桩 webview)
+- Assert: 生成的 markup 与注入的 l10n 串、宿主↔webview 消息形状(含 `scope`、`scopeLocked`、`seqEvent`)、首帧内嵌的服务列表与作用域标识
+
+**Seam 5: 生命周期小件(`ScopedProtoWatcher` / `RetryableLazy` / `ProtoCache`)**
+- Input: fake watcher / 计数工厂 / 指纹输入
+- Assert: 作用域替换与销毁时旧 watcher 必被释放、懒加载失败可重试、指纹门命中不重复解析
+
+**手写 media 代码的守卫:** `media/runner/runner.js` 无 Alpine 夹具(仓库既定),以「语法可解析 + 关键调用顺序的源码断言」防错位编辑吞行(0.3.41 的 `applyCallResult` 事故)。
+
+**l10n 守护:** `src` 下所有 `vscode.l10n.t('...')` 源串必须出现在 `l10n/bundle.l10n.zh-cn.json`,且翻译包不得残留源码已删的键——双向校验。
+
 **Partially unit-tested:** VSCode providers (semantic tokens, definition, hover, CodeLens) — pure selection logic is tested against a `vscode` stub (`scripts/vscodeStub.ts`); full editor integration is validated via manual extension host debugging.
 
 **Test runner:** Node's built-in `node:test` + `assert`. No framework.
@@ -105,12 +128,12 @@
 
 - Proto2 support
 - Runtime serialization code generation (encode/decode)
-- gRPC service client/server stub generation
+- gRPC service client/server stub generation（运行时 stub 不做;codegen 只出 `<Name>Client` 纯类型接口）
 - Formatting / auto-fix for proto files
 - Linting / validation rules beyond parse errors
 - Cross-editor support (LSP)
 - Watch mode / auto-generate on save
-- `google.protobuf` well-known types mapping (Timestamp → Date, etc.) — future enhancement
+- codegen 侧的 `google.protobuf` well-known types 映射（Timestamp → Date 等）— future enhancement;调用面已有 WKT 人性化输入（Timestamp RFC 3339 / Duration `1.5s` / wrapper 裸标量,0.3.78）
 - Proto file creation scaffolding / snippets
 
 ## Further Notes

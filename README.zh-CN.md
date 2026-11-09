@@ -13,7 +13,7 @@
 | 🔍 **跳转与悬停** | 同文件 / import / package 命名空间的类型跳转;悬停显示类型摘要与前导注释 |
 | 🧭 **大纲导航** | `message` / `enum` / `service` / rpc 方法全部进入大纲与符号搜索 |
 | 🏗 **TS 类型生成** | `message` / `enum` / `repeated` / `map` / `oneof` → TypeScript;`service` → `<Name>Client` 调用接口(四种流式方向) |
-| 📞 **RPC 工作台** | Schema 表单、四种 gRPC 调用方向、环境变量、历史、grpcurl 导出与响应折叠树 |
+| 📞 **RPC 工作台** | Schema 表单、四种 gRPC 调用方向、环境变量、历史、grpcurl 导出、响应折叠树,以及「▶ 调用」带来的零配置单文件作用域 |
 | 🔁 **调用序列** | 用 `{{stepN.path}}` / 环境变量串联 rpc 方法并添加步骤断言;命名序列存工作区可复用 |
 | 🩺 **实时诊断** | 语法错就地飘红、缺失类型与重名在引用处标红,支持一键补 import |
 
@@ -46,8 +46,8 @@
 ## 快速上手
 
 1. 打开包含 `.proto` 文件的工作区,插件自动索引。
-2. **生成类型**:右键 `.proto` 文件 → *Generate TypeScript Types*,或 `Ctrl+Shift+P` 运行全量生成。
-3. **调用 gRPC**:rpc 方法上方点击「▶ 调用」,在工作台填表发送——点击工作台顶栏的服务器地址可原地编辑并自动记住(按工作区隔离,默认 `localhost:50051`),`protoUtils.runner.protoDir` 仍在设置里指向 proto 目录。
+2. **生成类型**:右键 `.proto` 文件 → *生成 TypeScript 类型*,或 `Ctrl+Shift+P` 运行全量生成。
+3. **调用 gRPC**:rpc 方法上方点击「▶ 调用」,在工作台填表发送。自包含的 proto 与同目录 import 无需任何配置;import 跨目录、或想在一个列表里浏览整个目录的服务时,再把 `protoUtils.runner.protoDir` 指向 proto 目录。点击工作台顶栏的服务器地址可原地编辑并自动记住(按工作区隔离,默认 `localhost:50051`)。
 
 ## 功能
 
@@ -60,10 +60,10 @@
 - 将 `service` 生成为客户端调用接口(`<Name>Client`,流式方向用 `AsyncIterable` 表达)
 - 根据多个 `.proto` 文件之间的类型引用生成 TypeScript `import type`(默认带 `.ts` 后缀;跨模块同名类型自动取别名,避免重复标识符)
 - 单文件生成或一键全量生成全部 proto
-- 在 rpc 方法上方提供「▶ 调用」CodeLens,一键打开 RPC 工作台并预选方法
+- 在 rpc 方法上方提供「▶ 调用」CodeLens,一键打开 RPC 工作台并预选方法;`protoUtils.runner.protoDir` 之外的文件还会把工作台收窄到该文件,做到零配置直接调用
 - RPC 工作台:按 proto schema 自动生成请求表单,提供 Timestamp/Duration/wrapper 输入助手;支持一元、服务端流、客户端流与双向流;响应折叠树、请求历史与「复制为 grpcurl」
 - 环境变量:在 `.proto-utils/environments.json` 定义并切换变量集,服务器地址、请求字段与 Headers 可用 `{{name}}`（含密钥的环境文件请勿提交版本库）
-- 调用序列:把若干方法依次执行,调用或断言失败即中止;后步可用 `{{stepN.path}}` 与环境变量,服务端流可引 `chunks[i]`;命名序列持久化到 `.proto-utils/sequences.json`,可存/载/删
+- 调用序列:把若干方法依次执行,调用或断言失败即中止;后步可用 `{{stepN.path}}` 与环境变量,服务端流可引 `chunks[i]`;每步可配响应断言(`eq` / `neq` / `contains` / `exists` / `notExists` / `lt` / `gt`);命名序列持久化到 `.proto-utils/sequences.json`,可存/载/删
 - 项目级配置：`.proto-utils/settings.json`（进版本库、团队共享）可覆盖任意 `protoUtils.*` 设置——扁平点分键、不带 `protoUtils.` 前缀；优先级：工作台顶栏地址 > 项目文件 > VS Code 设置 > 默认值。用命令 **Proto Utils: 创建项目配置文件** 生成
 - 保存 `.proto` 文件或工作台加载 proto 后报告诊断:语法错就地飘红(可收窄到出错 token),缺失类型/重名在引用处与声明处飘红;工作台错误卡片同步以红色波浪线标出出错点
 
@@ -99,7 +99,7 @@
 
 可以通过以下任一方式生成类型：
 
-1. 在编辑器或资源管理器中右键点击 `.proto` 文件，选择 **Proto Utils: Generate TypeScript Types**（仅当前文件）或 **Proto Utils: Generate TypeScript Types (All Protos)**（全部 proto，含跨文件 import 目标）。
+1. 在编辑器或资源管理器中右键点击 `.proto` 文件，选择 **Proto Utils: 生成 TypeScript 类型**（仅当前文件）或 **Proto Utils: 生成 TypeScript 类型(全部 proto)**（全部 proto，含跨文件 import 目标）。
 2. 打开命令面板运行同名命令。使用命令面板的单文件命令时，应先打开目标 `.proto` 文件。
 
 默认情况下，生成文件写入工作区的 `generated/` 目录。若 Proto 文件为 `protos/account/user.proto`（且 proto 都在 `protos/` 下）：
@@ -149,15 +149,27 @@ export interface User {
 
 ### 调用 RPC(RPC 工作台)
 
-在 `.proto` 文件中,每个 rpc 方法上方都会出现「▶ 调用」CodeLens。点击后 RPC 工作台打开并预选该方法;也可以通过命令面板运行 **Proto Utils: Open RPC Workbench**,或右键 `.proto` 编辑器选择同名命令,手动选择服务和方法。
+在 `.proto` 文件中,每个 rpc 方法上方都会出现「▶ 调用」CodeLens。点击后 RPC 工作台打开并预选该方法;若该文件在 `protoUtils.runner.protoDir` 之外,工作台还会收窄到这一个文件(见下)。也可以通过命令面板运行 **Proto Utils: 打开 RPC 工作台**,或右键 `.proto` 编辑器选择同名命令,手动选择服务和方法。
 
 - 表单按请求消息的字段 schema 自动生成,嵌套 message 以 JSON/JSON5 编辑(支持注释、尾逗号、单引号、裸键名)。
 - 一元调用在响应区以可折叠 JSON 树展示结果,嵌套对象/数组默认收起、逐级展开,长字符串截断,附「全部展开/全部收起」快捷按钮;服务端流调用按 chunk 折叠展示,可随时取消;长流只保留最近 200 条的折叠数据与原始 JSON(计数仍为真实总量),防止内存与页面被无限撑大。原始 JSON 仍可一键复制。流方法可配「最大消息数」(缺省 100,`0` = 不限),收满自动停止并按「完成」展示。
 - 响应区带「Response metadata / 响应 metadata」折叠块,展示服务器返回的 headers 与 trailers(二进制 `-bin` 键以 base64 显示),有数据才出现。
 - proto 文件变更(保存、外部修改)会自动刷新服务列表,不丢表单状态。
 - 搜索框为模糊匹配(子序列,大小写不敏感):`ldp` 可命中 `ExecuteOpenLDProg`;子串命中仍然有效。
-- client-streaming 与双向流暂不支持(见 `docs/adr/0007`)。
+- client-streaming 与双向流走显式会话(见 `docs/adr/0013`):先「打开流」,把当前表单逐条「发送消息」,最后「结束发送」;bidi 的响应与服务端流一样按 chunk 折叠、随时可取消。
 - 工作台界面配色自动跟随 VS Code 明/暗主题(暗色为 GitHub Dark、亮色为 GitHub Light 固定配色,见 `docs/adr/0011`)。
+- Headers 编辑器默认折叠并带行数徽标;各折叠热区(服务、方法、schema、headers、历史、响应 metadata、chunk、序列步骤)都可键盘 Enter/Space 操作并暴露 `aria-expanded`;toast 为 `aria-live` 且按结果着色;`prefers-reduced-motion` 下降级转圈与平滑滚动。
+
+#### 接口来源(单文件作用域)
+
+在 `protoUtils.runner.protoDir` **之外**的文件(或根本没配 proto 目录)上点「▶ 调用」,工作台会收窄到这一个文件:服务列表只列它声明的接口,调用与「复制为 grpcurl」也都按它解析。已在 `protoDir` 内的文件不收窄——目录扫描本就覆盖它,收窄只会白白藏起其他服务。
+
+- 顶栏出现「来源」标识,显示文件名(悬浮看完整路径);点它即清除作用域,回到 proto 目录下的全部服务。
+- 作用域文件里没有 `service` 时,空态会说清是这一个文件没声明服务并给「显示全部服务」按钮,而不是让你去改 `protoDir`。
+- 跨目录 `import` 仍需把 `protoUtils.runner.protoDir` 指到 import 根;此类 import 失败时错误卡片直接给出这条指引并提示点刷新。
+- 作用域文件被单独监听,即使在工作区之外,外部修改也会刷新列表(与工作区全局 watcher 共用 500ms 防抖);文件被删则按路径点名报错。
+- 作用域态下不能运行序列——序列可能引用当前筛选之外的服务,工作台会请你先清除来源,而不是把有效步骤报成「方法失效」。
+- 序列运行期间来源锁定:此时点别的文件的「▶ 调用」会保持现状并说明原因。
 
 #### 调用序列(依次执行多个方法)
 
@@ -167,9 +179,11 @@ export interface User {
 - 每步入参沿用表单 / JSON 双模式编辑,与单方法调用一致;步骤默认折叠,展开后可编辑。
 - 每步可配「Headers 覆盖」:运行时按 key 合并于全局 `runner.metadata` 之上,同名 key 步级优先、异 key 追加。
 - 流接收上限:每步可配「最大消息数」(缺省 100,`0` = 不限);收满即自动结束该流步骤(成功)并推进下一步。
+- 每步可配断言:对该步输出的路径(`data.id`、`chunks[i].data.x`、`count`、`dropped`、`durationMs`)做 `eq` / `neq` / `contains` / `exists` / `notExists` / `lt` / `gt` 判定;断言失败与调用报错一样中止整条,并在报告里点名。
 - 数据管道:后步入参里写 `{{stepN.path}}` 引用第 N 步的响应,如 `{{step0.data.token}}`、`{{step0.chunks[1].data.id}}`(服务端流按 chunk 索引)。占位符独占整个值时保留原始 JSON 类型,嵌在字符串中则做拼接;取不到值该步失败并中止整条。前向/自引用在编辑时即标红。
 - 服务端流步骤在自然结束或点「结束并继续」后推进下一步;任意时刻可点「停止」中止整条。
-- 任一步失败(gRPC 错误 / 占位符取空)即中止,后续不执行;启动前整体校验所有步的方法是否仍存在,有失效步则不启动并点名。
+- 任一步失败(gRPC 错误 / 占位符取空 / 断言不通过)即中止,后续不执行;启动前整体校验所有步的方法是否仍存在,有失效步则不启动并点名。
+- 序列按全量服务列表运行:工作台处于单文件作用域时,先点顶栏「来源」标识清除(见「接口来源」)。
 - 运行报告逐步展示状态、耗时与响应体(流为各 chunk),可整段复制。
 - 命名序列持久化到工作区 `.proto-utils/sequences.json`(进版本库、可团队共享),支持保存 / 加载 / 删除;未打开工作区时持久化不可用,但运行不受影响。
 

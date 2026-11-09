@@ -25,17 +25,25 @@ _Avoid_: parser、自研解析器(已随 ADR-0002 退役)
 _Avoid_: 解析器、AST、符号索引(旧 symbolIndex 的接替者,但不是同一物)
 
 **工作台(Workbench)**:
-发起和管理 RPC 调用的 Webview 面板:填参表单(支持「表单|JSON」双模式直输)、发起调用、查看响应(含服务端流的流式追加)。由编辑器里 rpc 方法上方的「▶ 调用」CodeLens 唤起并预选方法,也可独立命令打开。代码在 `src/runner/`。
+发起和管理 RPC 调用的 Webview 面板:填参表单(支持「表单|JSON」双模式直输)、发起调用(一元与服务端流,client/bidi 走显式流会话)、查看响应(流式追加、按 chunk 折叠)。由编辑器里 rpc 方法上方的「▶ 调用」CodeLens 唤起并预选方法,也可独立命令打开;CodeLens 点到的文件若在 protoDir 之外,工作台进入单文件作用域。代码在 `src/runner/`。
 _Avoid_: 面板、页面、EJS 页面(旧实现,已废弃)
 
+**作用域(Scope)/ 来源(Source)**:
+工作台当前只看一个 proto 文件的状态。`runner.protoDir` 之外的文件被「▶ 调用」点中时钉住(代码里 `ServiceRegistry.pinnedFile`):服务列表只含该文件声明的接口,调用与 grpcurl 导出同口径解析。顶栏「来源」标识点击即清除,回到 protoDir 全量;目录内的文件不钉,多次点击是替换而非叠加。作用域态下不跑序列,序列运行中不换来源(见 ADR-0015)。
+_Avoid_: 过滤、锁定文件、pin 态(内部字段可叫 pinnedFile,面向用户一律说「来源」或「作用域」)
+
 **调用面(Call Plane)**:
-`src/runner/` 下从 schema 提取到发 RPC 的整条链路:ServiceRegistry(服务/字段提取)→ CallRunner(表单值→请求对象→调用)→ GrpcClient(grpc-js 通讯,一元 + 四种流方向)。与编辑面(位置索引层、emitter)并列,共享语义前端。
+`src/runner/` 下从 schema 提取到发 RPC 的整条链路:ServiceRegistry(服务/字段提取)→ CallRunner(表单值→请求对象→调用)→ GrpcClient(grpc-js 通讯:一元 + 服务端流 / 客户端流 / 双向流)。与编辑面(位置索引层、emitter)并列,共享语义前端。
 _Avoid_: runner 服务、后端
 
 **调用序列(Sequence)**:
-在工作台里把若干方法按序排成一条、一次触发依次执行的编排单位。支持数据管道(后步引用前步响应)与命名持久化;整条中止于首个失败步。
+在工作台里把若干方法按序排成一条、一次触发依次执行的编排单位。支持数据管道(后步引用前步响应)、步级 Headers 覆盖、流接收上限与步级断言;命名序列持久化到工作区;整条中止于首个失败步(调用报错、占位符取空或断言不通过)。
 _Avoid_: 工作流、编排、播放列表、套件
 
 **步(Step)**:
 调用序列里的一个执行单元,自带入参快照。以步序号(而非方法名)标识,故同一方法可在一条序列里重复出现。
 _Avoid_: 节点、任务、条目
+
+**环境(Environment)**:
+一组命名的自由变量,存在工作区 `.proto-utils/environments.json`,工作台顶栏可切换。`{{name}}` 在服务器地址、请求字段与 Headers 上全链替换,文件改动热重载;含密钥的环境文件不进版本库。
+_Avoid_: 配置集、profile、上下文(与「作用域」无关,别混用)
