@@ -133,6 +133,18 @@ export interface User {
 
 Each generation run overwrites the output file — do not manually edit generated files.
 
+#### Naming and Self-containment
+
+Generated files are standalone-compilable: every export name is unique and every reference resolves.
+
+- Nested types are flattened to top-level exports. When two types would share a name (e.g. `Foo.Request` and `Bar.Request`), they get deterministic qualified names (`FooRequest`, `BarRequest`); top-level types keep their original names, and remaining collisions take numeric suffixes. Cross-file imports always use the target file's actual export names.
+- Fields folded to the same camelCase name (e.g. `foo_bar` and `fooBar`) are both kept: one stays camelCase, the other falls back to its written name.
+- Type names that are TypeScript reserved words or shadow built-ins used by the output (`Record`, `Promise`, `AsyncIterable`, `Uint8Array`) get a `_` suffix (e.g. `Record_`).
+- Bundled well-known types (`google.protobuf.Timestamp`, `Struct`, …) are emitted as local declarations in each file that uses them — including the `Struct`/`Value` recursive closure — so no dangling imports; a WKT colliding with a local type takes a `GoogleProtobuf` prefix.
+- Map keys that are not valid `Record` keys — `bigint` (from `int64Style: "bigint"`) and `bool` — fall back to `string`; an empty enum in union style becomes `never`.
+
+The batch command runs in a cancellable progress notification and reports per-file failures without aborting the rest. Both commands refuse to write when two protos map to the same output file, and `codeGen.outputDir` must be a relative path inside the workspace.
+
 #### Service Client Interface Generation
 
 Each `service` generates a `<Name>Client` interface with method signatures inferred by streaming direction:

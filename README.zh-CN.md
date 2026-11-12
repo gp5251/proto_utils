@@ -134,6 +134,18 @@ export interface User {
 
 每次执行生成命令都会覆盖对应的输出文件，请勿手动修改生成文件。
 
+#### 命名与自包含
+
+产物可独立编译:导出名唯一、引用全部可解析。
+
+- 嵌套类型平铺为顶层导出。两个类型将同名时(如 `Foo.Request` 与 `Bar.Request`)取确定性限定名(`FooRequest`、`BarRequest`);顶层类型保持原名,仍撞名加数字后缀。跨文件 import 恒用目标文件的实际导出名。
+- camelCase 折叠撞名的字段(如 `foo_bar` 与 `fooBar`)两者都保留:一个维持 camelCase,另一个回退原始书写名。
+- 类型名命中 TS 保留字或遮蔽产物依赖的内建类型(`Record`、`Promise`、`AsyncIterable`、`Uint8Array`)时加 `_` 后缀(如 `Record_`)。
+- 内建 well-known 类型(`google.protobuf.Timestamp`、`Struct` 等)在每个引用它的文件里就地生成本地声明(含 `Struct`/`Value` 递归闭包),不产生悬空 import;与本地类型同名时取 `GoogleProtobuf` 前缀。
+- 不能作 `Record` 键的 map 键(`int64Style: "bigint"` 的 `bigint`、`bool`)一律回退 `string`;union 风格的空 enum 产 `never`。
+
+全量命令在可取消的进度通知中执行,单文件写失败不中断其余文件、结束后点名汇总。两个命令都会在多个 proto 映射到同一输出文件时拒绝落盘;`codeGen.outputDir` 必须是工作区内的相对路径。
+
 #### service 生成客户端调用接口
 
 每个 `service` 生成一个 `<Name>Client` 接口,方法签名的请求/响应类型按流式方向推导:
