@@ -17,6 +17,7 @@
   var STRING_DEFAULTS = {
     copy: 'Copy',
     copied: 'Copied',
+    locate: 'Locate in full list',
     refreshed: 'Refreshed · {count} services',
     refreshedErrors: 'Refreshed · {count} services · {errors} parse errors',
     chunkCount: '{count} messages',
@@ -1291,13 +1292,40 @@
         var key = this.methodKey(id, method.name);
         this.ensureFormValues(key, method);
         this.expandedMethod = key;
+        this.scrollToMethodRow(id, method.name, 'start');
+        return true;
+      },
+
+      // 滚动到方法行锚点(openMethod/locateMethod 共享,0.3.90 抽取)。
+      // block 决定落点:openMethod 用 start 给下方表单让位;locateMethod 用
+      // center 让目标上下的邻近方法都可见。onEl 在滚动后回调,供定位挂瞬时高亮。
+      scrollToMethodRow: function (id, methodName, block, onEl) {
         this.$nextTick(function () {
-          var el = document.getElementById('method-' + id + '-' + method.name);
+          var el = document.getElementById('method-' + id + '-' + methodName);
           // 0.3.84:尊重系统「减少动态效果」,平滑滚动改瞬时
           var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-          if (el) el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+          if (el) {
+            el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: block });
+            if (onEl) onEl(el);
+          }
         });
-        return true;
+      },
+
+      // 搜索过滤定位(0.3.90):清过滤恢复全量树 → 展开所在服务卡 → 居中滚动 +
+      // 行闪高亮,让用户看到目标方法上下的邻近方法。与 openMethod 的差异:
+      // 不展开方法表单(目标是浏览上下文而非填参),也无需按名查找(调用方已持 svc/m)。
+      locateMethod: function (svc, m) {
+        var id = this.svcId(svc);
+        // 不清过滤词则兄弟方法仍被搜索隐藏,「看邻近」落空;
+        // 与 tryApplyPrefill CodeLens 跳入清词同一先例。
+        Alpine.store('search').query = '';
+        this.expandedServices = Object.assign({}, this.expandedServices, { [id]: true });
+        this.scrollToMethodRow(id, m.name, 'center', function (el) {
+          // 瞬时锚点:几十个兄弟方法里让眼睛立即锁定目标;
+          // 不复用 method-row-active(那是表单展开语义)。
+          el.classList.add('locate-flash');
+          setTimeout(function () { el.classList.remove('locate-flash'); }, 1200);
+        });
       },
 
       ensureFormValues: function (key, method) {

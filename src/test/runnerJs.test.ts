@@ -541,3 +541,32 @@ test('序列报告折叠树(0.3.81):一元建树+根行种子展开,流式 chunk
   assert.ok(htmlSrc.includes('seqChunkSections(entry.index)'), '模板流式须走 seqChunkSections');
   assert.ok(!htmlSrc.includes('isSeqReportOpen'), '模板不得残留整行折叠调用');
 });
+
+test('搜索过滤定位(0.3.90):locateMethod 清词+展开卡+center 滚动+闪高亮,不展开表单', () => {
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const start = src.indexOf('locateMethod: function');
+  assert.ok(start >= 0, '缺 locateMethod');
+  const end = src.indexOf('ensureFormValues: function', start);
+  const body = src.slice(start, end);
+  // 不清过滤词则兄弟方法仍被隐藏,「看邻近」落空(与 tryApplyPrefill 清词同先例)
+  assert.ok(body.includes("Alpine.store('search').query = ''"), '定位必须清搜索词恢复全量树');
+  assert.ok(body.includes('expandedServices'), '定位必须展开所在服务卡');
+  assert.ok(body.includes("'center'"), '定位必须 center 滚动,上下邻近方法可见');
+  assert.ok(body.includes('locate-flash'), '定位必须挂瞬时闪高亮');
+  assert.ok(!body.includes('expandedMethod'), '定位不得展开方法表单(浏览上下文而非填参)');
+
+  // 共享滚动 helper:openMethod 保持 start 落点 + 表单展开,locate 复用 center
+  assert.ok(src.includes('scrollToMethodRow: function'), '缺 scrollToMethodRow 共享 helper');
+  const openStart = src.indexOf('openMethod: function');
+  const openBody = src.slice(openStart, src.indexOf('scrollToMethodRow: function', openStart));
+  assert.ok(openBody.includes("this.scrollToMethodRow(id, method.name, 'start')"), 'openMethod 须保持 start 落点');
+  assert.ok(openBody.includes('this.expandedMethod = key'), 'openMethod 须保持表单展开');
+
+  // 模板侧:定位图标仅搜索态可见,.stop 防触发行展开,文案走 boot.strings
+  const htmlSrc = fs.readFileSync(path.resolve('src/runner/webviewHtml.ts'), 'utf8');
+  assert.ok(htmlSrc.includes('@click.stop="locateMethod(svc, m)"'), '模板缺定位入口');
+  assert.ok(htmlSrc.includes('x-show="query.trim()"'), '定位图标须仅搜索词非空时显示');
+  assert.ok(htmlSrc.includes("locate: l10n.t('Locate in full list')"), '定位文案须经 boot.strings 下发');
+  const zh = JSON.parse(fs.readFileSync(path.resolve('l10n/bundle.l10n.zh-cn.json'), 'utf8')) as Record<string, string>;
+  assert.equal(zh['Locate in full list'], '在全量列表中定位');
+});

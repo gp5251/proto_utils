@@ -167,6 +167,7 @@ In `.proto` files, a "▶ Call" CodeLens appears above each rpc method. Clicking
 - Response area includes a "Response metadata" collapsible section showing server headers and trailers (binary `-bin` keys displayed as base64); appears only when data exists.
 - Proto file changes (save, external modification) auto-refresh the service list without losing form state.
 - Search box uses fuzzy matching (subsequence, case-insensitive): `ldp` matches `ExecuteOpenLDProg`; substring matching still works.
+- While the search filter is active, a locate icon appears on each method row: clicking it clears the filter to restore the full list, expands the owning service, and scrolls the target to center with a brief highlight, so you can browse the methods around it (0.3.90).
 - Client-streaming and bidirectional calls use an explicit session (see `docs/adr/0013`): **Open stream**, write the current form as one message at a time, then **End sending**; bidi responses fold by chunk and cancel exactly like server streams.
 - Workbench UI colors follow VS Code light/dark theme automatically (GitHub Dark / GitHub Light fixed palettes, see `docs/adr/0011`).
 - Headers editor collapses by default with a row-count badge; every collapse hotspot (service, method, schema, headers, history, response metadata, chunk, sequence step) is keyboard-operable via Enter/Space and exposes `aria-expanded`; toasts are `aria-live` and colored by outcome; spinners and smooth scrolling step down under `prefers-reduced-motion`.

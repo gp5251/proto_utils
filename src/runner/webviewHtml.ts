@@ -50,6 +50,10 @@ export function escapeInlineJson(value: unknown): string {
 const COPY_ICON_SVG =
   '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2"/></svg>';
 
+/** 定位 icon(十字准星,0.3.90):搜索态方法行显示,点击清过滤并滚动回全量树原位 */
+const LOCATE_ICON_SVG =
+  '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="4.5"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2"/></svg>';
+
 /** 回到顶部浮动按钮图标(0.3.67):向上箭头 */
 const BACK_TOP_ICON_SVG =
   '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3"/><path d="M3.5 7.5 8 3l4.5 4.5"/></svg>';
@@ -163,6 +167,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
   const strings = {
     copy: l10n.t('Copy'),
     copied: l10n.t('Copied'),
+    // 0.3.90:搜索态定位按钮 tooltip(:title 运行时求值,走 boot.strings)
+    locate: l10n.t('Locate in full list'),
     // 0.3.73:Raw/折叠树切换按钮文案经 x-text 动态求值,必须走 boot.strings——
     // 放在静态 S 里 webview 取不到($store.str.rawTab = undefined),按钮渲染为空。
     rawTab: l10n.t('Raw JSON'),
@@ -402,6 +408,18 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                   >${COPY_ICON_SVG}</span>
                   <span x-show="isMethodCopied(svcId(svc), m.name)" class="copy-badge">${S.copiedBadge}</span>
                 </span>
+                <!-- 0.3.90:搜索态定位入口。清过滤+展开+居中滚动+闪高亮,看目标邻近方法;
+                     .stop 防触发行展开;键盘可达沿用 0.3.84 折叠热区模式 -->
+                <span
+                  class="copy-icon locate-icon"
+                  role="button"
+                  tabindex="0"
+                  x-show="query.trim()"
+                  :title="$store.str.locate"
+                  @click.stop="locateMethod(svc, m)"
+                  @keydown.enter.prevent.stop="locateMethod(svc, m)"
+                  @keydown.space.prevent.stop="locateMethod(svc, m)"
+                >${LOCATE_ICON_SVG}</span>
                 <span x-show="m.responseStream && !m.requestStream" class="method-stream-badge">stream</span>
                 <span x-show="m.requestStream" class="method-stream-badge" x-text="m.responseStream ? 'bidi' : 'client stream'"></span>
                 <button
