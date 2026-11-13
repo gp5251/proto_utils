@@ -542,7 +542,7 @@ test('序列报告折叠树(0.3.81):一元建树+根行种子展开,流式 chunk
   assert.ok(!htmlSrc.includes('isSeqReportOpen'), '模板不得残留整行折叠调用');
 });
 
-test('搜索过滤定位(0.3.90):locateMethod 清词+展开卡+center 滚动+闪高亮,不展开表单', () => {
+test('搜索过滤定位(0.3.90):locateMethod 清词+展开卡+展开目标方法+center 滚动+闪高亮', () => {
   const src = fs.readFileSync(RUNNER_JS, 'utf8');
   const start = src.indexOf('locateMethod: function');
   assert.ok(start >= 0, '缺 locateMethod');
@@ -553,7 +553,9 @@ test('搜索过滤定位(0.3.90):locateMethod 清词+展开卡+center 滚动+闪
   assert.ok(body.includes('expandedServices'), '定位必须展开所在服务卡');
   assert.ok(body.includes("'center'"), '定位必须 center 滚动,上下邻近方法可见');
   assert.ok(body.includes('locate-flash'), '定位必须挂瞬时闪高亮');
-  assert.ok(!body.includes('expandedMethod'), '定位不得展开方法表单(浏览上下文而非填参)');
+  // 用户修订:跳转后展开目标方法(定位即要看入参),表单初始化与 openMethod 同套
+  assert.ok(body.includes('this.ensureFormValues(key, m)'), '展开前必须初始化表单值');
+  assert.ok(body.includes('this.expandedMethod = key'), '跳转后必须展开目标方法');
 
   // 共享滚动 helper:openMethod 保持 start 落点 + 表单展开,locate 复用 center
   assert.ok(src.includes('scrollToMethodRow: function'), '缺 scrollToMethodRow 共享 helper');

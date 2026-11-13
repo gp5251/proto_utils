@@ -168,7 +168,7 @@ export interface User {
 - 响应区带「Response metadata / 响应 metadata」折叠块,展示服务器返回的 headers 与 trailers(二进制 `-bin` 键以 base64 显示),有数据才出现。
 - proto 文件变更(保存、外部修改)会自动刷新服务列表,不丢表单状态。
 - 搜索框为模糊匹配(子序列,大小写不敏感):`ldp` 可命中 `ExecuteOpenLDProg`;子串命中仍然有效。
-- 搜索过滤后方法行出现定位图标:点击清除过滤恢复全量列表、展开所在服务、居中滚动并瞬时高亮目标行,方便查看目标上下的邻近方法(0.3.90)。
+- 搜索过滤后方法行出现定位图标:点击清除过滤恢复全量列表、展开所在服务与目标方法、居中滚动并瞬时高亮目标行,方便查看目标上下的邻近方法(0.3.90)。
 - client-streaming 与双向流走显式会话(见 `docs/adr/0013`):先「打开流」,把当前表单逐条「发送消息」,最后「结束发送」;bidi 的响应与服务端流一样按 chunk 折叠、随时可取消。
 - 工作台界面配色自动跟随 VS Code 明/暗主题(暗色为 GitHub Dark、亮色为 GitHub Light 固定配色,见 `docs/adr/0011`)。
 - Headers 编辑器默认折叠并带行数徽标;各折叠热区(服务、方法、schema、headers、历史、响应 metadata、chunk、序列步骤)都可键盘 Enter/Space 操作并暴露 `aria-expanded`;toast 为 `aria-live` 且按结果着色;`prefers-reduced-motion` 下降级转圈与平滑滚动。

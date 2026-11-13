@@ -1311,15 +1311,20 @@
         });
       },
 
-      // 搜索过滤定位(0.3.90):清过滤恢复全量树 → 展开所在服务卡 → 居中滚动 +
-      // 行闪高亮,让用户看到目标方法上下的邻近方法。与 openMethod 的差异:
-      // 不展开方法表单(目标是浏览上下文而非填参),也无需按名查找(调用方已持 svc/m)。
+      // 搜索过滤定位(0.3.90):清过滤恢复全量树 → 展开所在服务卡与目标方法 →
+      // 居中滚动 + 行闪高亮,让用户看到目标方法上下的邻近方法。与 openMethod 的差异:
+      // 清过滤词、center 落点、闪高亮(openMethod 不清词、start、无高亮);
+      // 无需按名查找(调用方已持 svc/m)。
       locateMethod: function (svc, m) {
         var id = this.svcId(svc);
         // 不清过滤词则兄弟方法仍被搜索隐藏,「看邻近」落空;
         // 与 tryApplyPrefill CodeLens 跳入清词同一先例。
         Alpine.store('search').query = '';
         this.expandedServices = Object.assign({}, this.expandedServices, { [id]: true });
+        // 跳转后展开目标方法(用户修订):定位即要看入参,表单初始化与 openMethod 同套
+        var key = this.methodKey(id, m.name);
+        this.ensureFormValues(key, m);
+        this.expandedMethod = key;
         this.scrollToMethodRow(id, m.name, 'center', function (el) {
           // 瞬时锚点:几十个兄弟方法里让眼睛立即锁定目标;
           // 不复用 method-row-active(那是表单展开语义)。
