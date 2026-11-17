@@ -30,6 +30,9 @@ export class SymbolIndex {
    */
   private globalIndex: Map<string, { uri: vscode.Uri; symbol: SymbolEntry }> | null = null;
 
+  /** 0.3.91(H5):dispose 终止标志——初索引期间 deactivate 时,build 不得再建 watcher。 */
+  private disposed = false;
+
   /**
    * excludes:用户配置的 scan.excludeDirs(0.3.44 起生效)。此前只排除内建
    * 构建产物目录,与调用面/语义前端的扫描口径不一致;现在三层同源。
@@ -45,10 +48,13 @@ export class SymbolIndex {
     // 批间 setImmediate 让出后编辑器请求可插队;watcher 增量仍走 indexFile 单文件。
     const BATCH = 16;
     for (let i = 0; i < files.length; i += BATCH) {
+      if (this.disposed) return;
       await Promise.all(files.slice(i, i + BATCH).map(uri => this.indexFile(uri)));
       await new Promise<void>(resolve => setImmediate(resolve));
     }
 
+    // 0.3.91(H5):dispose 可能发生在上面的 await 期间;此后建 watcher 即泄漏且继续索引
+    if (this.disposed) return;
     this.watcher = vscode.workspace.createFileSystemWatcher('**/*.proto');
     this.watcher.onDidCreate(uri => this.indexFile(uri));
     this.watcher.onDidChange(uri => this.indexFile(uri));
@@ -59,6 +65,7 @@ export class SymbolIndex {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.watcher?.dispose();
   }
 

@@ -169,6 +169,7 @@ export interface User {
 - proto 文件变更(保存、外部修改)会自动刷新服务列表,不丢表单状态。
 - 搜索框为模糊匹配(子序列,大小写不敏感):`ldp` 可命中 `ExecuteOpenLDProg`;子串命中仍然有效。
 - 搜索过滤后方法行出现定位图标:点击清除过滤恢复全量列表、展开所在服务与目标方法、居中滚动并瞬时高亮目标行,方便查看目标上下的邻近方法(0.3.90)。
+- 审计修复批次(0.3.91):枚举下拉在方法重展开/定位跳入后保留已选值;序列启动时 proto 加载失败给可见报错而非运行/停止卡死;运行报告不再错位(运行中禁移/删/加载步,加载序列清旧报告);sequences.json 原子写、损坏可备份重建;JSON 模式显式空嵌套 message 保留;剪贴板失败有提示、报告复制有成功反馈;Reset/Remove 带撤销;校验文案本地化;JSON 树字符串改用语法色而非报错红;方法计数复数正确;不可达红字恢复后不再残留。
 - client-streaming 与双向流走显式会话(见 `docs/adr/0013`):先「打开流」,把当前表单逐条「发送消息」,最后「结束发送」;bidi 的响应与服务端流一样按 chunk 折叠、随时可取消。
 - 工作台界面配色自动跟随 VS Code 明/暗主题(暗色为 GitHub Dark、亮色为 GitHub Light 固定配色,见 `docs/adr/0011`)。
 - Headers 编辑器默认折叠并带行数徽标;各折叠热区(服务、方法、schema、headers、历史、响应 metadata、chunk、序列步骤)都可键盘 Enter/Space 操作并暴露 `aria-expanded`;toast 为 `aria-live` 且按结果着色;`prefers-reduced-motion` 下降级转圈与平滑滚动。

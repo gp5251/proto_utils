@@ -2,6 +2,19 @@ import { FieldInfo } from '../core/types';
 import JSON5 from 'json5';
 
 /**
+ * 0.3.91(W3):校验文案走 boot.strings(webview 本地化),Node 测试回退英文源串。
+ * key 即英文源串,与 webviewHtml 的 l10n.t / zh 包同键;{N} 占位按序替换。
+ */
+function msg(key: string, ...args: string[]): string {
+  const g = globalThis as { window?: { __PROTO_UTILS_BOOT__?: { strings?: Record<string, string> } } };
+  let m = g.window?.__PROTO_UTILS_BOOT__?.strings?.[key] ?? key;
+  args.forEach((a, i) => {
+    m = m.split(`{${i}}`).join(a);
+  });
+  return m;
+}
+
+/**
  * JSON ↔ 表单值映射层(纯函数,无 DOM/Alpine 依赖)。
  * 移植自 rpc_runner client/formMapping.js(commit 702879a),语义逐条对齐;
  * 浏览器经 build.mjs 打成 media/runner/formMapping.js(iife,window.FormMapping),
@@ -124,7 +137,7 @@ function jsonToFormValue(
   // 非 repeated 且带子表单的 message:递归合并
   if (field.protoType === 'TYPE_MESSAGE' && field.label !== 'repeated' && field.nestedFields?.length) {
     if (!isPlainObject(v)) {
-      warnings.push(`${path}（应为对象，已忽略）`);
+      warnings.push(msg('{0} (expected an object, ignored)', path));
       return currentValue;
     }
     const merged = mergeObjectIntoValues(
@@ -213,10 +226,10 @@ export function validateJsonText(text: string): JsonValidation {
   try {
     parsed = JSON5.parse(trimmed);
   } catch (e) {
-    return { ok: false, error: `JSON 解析失败：${e instanceof Error ? e.message : String(e)}` };
+    return { ok: false, error: msg('JSON parse failed: {0}', e instanceof Error ? e.message : String(e)) };
   }
   if (!isPlainObject(parsed)) {
-    return { ok: false, error: '顶层必须是 JSON 对象' };
+    return { ok: false, error: msg('Top level must be a JSON object') };
   }
   return { ok: true };
 }
@@ -263,13 +276,13 @@ export function validateFormValues(fields: FieldInfo[], values: FormValues): str
         if (typeof v !== 'string') continue;
         const t = v.trim();
         if (!t.startsWith('[')) {
-          problems.push(`${path}: 应为 JSON 数组，如 [1,2]`);
+          problems.push(msg('{0}: expected a JSON array, e.g. [1,2]', path));
           continue;
         }
         try {
-          if (!Array.isArray(JSON5.parse(t))) problems.push(`${path}: 应为 JSON 数组，如 [1,2]`);
+          if (!Array.isArray(JSON5.parse(t))) problems.push(msg('{0}: expected a JSON array, e.g. [1,2]', path));
         } catch {
-          problems.push(`${path}: JSON 数组解析失败`);
+          problems.push(msg('{0}: JSON array parse failed', path));
         }
         continue;
       }
@@ -280,13 +293,13 @@ export function validateFormValues(fields: FieldInfo[], values: FormValues): str
       if (f.protoType === 'TYPE_BYTES') {
         const s = String(v).trim();
         if (s.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(s)) {
-          problems.push(`${path}: 应为 base64 编码`);
+          problems.push(msg('{0}: expected base64 encoding', path));
         }
         continue;
       }
 
       if (f.type === 'number') {
-        if (Number.isNaN(Number(String(v)))) problems.push(`${path}: 不是合法数字`);
+        if (Number.isNaN(Number(String(v)))) problems.push(msg('{0}: not a valid number', path));
         continue;
       }
 
@@ -297,10 +310,10 @@ export function validateFormValues(fields: FieldInfo[], values: FormValues): str
         try {
           parsed = JSON5.parse(v);
         } catch {
-          problems.push(`${path}: JSON 解析失败`);
+          problems.push(msg('{0}: JSON parse failed', path));
           continue;
         }
-        if (!isPlainObject(parsed) && !Array.isArray(parsed)) problems.push(`${path}: 应为 JSON 对象`);
+        if (!isPlainObject(parsed) && !Array.isArray(parsed)) problems.push(msg('{0}: expected a JSON object', path));
         continue;
       }
     }

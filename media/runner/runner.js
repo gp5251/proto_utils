@@ -185,14 +185,9 @@
         var prevConn = connStore.connState;
         var nextConn = msg.state === 'ok' ? 'ok' : 'fail';
         connStore.connState = nextConn;
-        // ponytail: 长寿 webview 会话里 conn-hint 的 x-show 效果偶发不收敛(实证:通知与状态点已转可达,
-        // 红字「服务器不可达」残留),在唯一写入点命令式同步显隐兜底;天花板:仅覆盖顶栏 .conn-hint,
-        // 其余同源 x-show(表单/序列区 svcUnavailable)仍依赖 Alpine 效果。健康效果随后 flush 写同值,不冲突。
-        var hintEl = document.querySelector('.conn-hint');
-        if (hintEl) {
-          hintEl.style.display = nextConn === 'fail' ? '' : 'none';
-        }
-        // 0.3.57:跃迁瞬时提醒——fail→ok 恢复,ok→fail 断开;unknown 首探不打扰
+        // 0.3.91(W8):conn-hint/svcUnavailable 已改 x-if(增删元素),内联 display 残留类
+        // 结构性消除,0.3.69 的命令式 display 兜底退役;跃迁瞬时提醒保留。
+        // 0.3.57:fail→ok 恢复,ok→fail 断开;unknown 首探不打扰
         if (prevConn === 'fail' && nextConn === 'ok') showNotice(connStore, str('connRestored'), 'ok');
         if (prevConn === 'ok' && nextConn === 'fail') showNotice(connStore, str('connLost'), 'err');
         break;
@@ -224,8 +219,9 @@
         break;
       case 'grpcurl':
         if (typeof msg.command === 'string') {
-          navigator.clipboard.writeText(msg.command);
-          showNotice(workbenchStore(), str('grpcurlCopied'), 'ok');
+          copyText(msg.command).then(function (ok) {
+            if (ok) showNotice(workbenchStore(), str('grpcurlCopied'), 'ok');
+          });
         } else {
           showNotice(workbenchStore(), str('grpcurlFailed', { error: msg.error || '' }), 'err');
         }
@@ -275,12 +271,26 @@
   // 0.3.84 kind 决定 toast 语义色(ok=绿/warn=黄/err=红)——此前成败共用成功绿,
   // 「Connection lost」也渲染成绿胶囊。
   var noticeTimer = 0;
-  function showNotice(store, notice, kind) {
+  // 0.3.91(W6):通知撤销回调闭包(Reset/Remove 快照恢复),模块级持有
+  var noticeUndoFn = null;
+  // 0.3.91(W5):统一剪贴板出口——成功 true;拒绝弹可见通知并 false,
+  // 徽章只挂成功,杜绝「失败仍显 Copied」与零反馈两类问题。
+  function copyText(text) {
+    return navigator.clipboard.writeText(text).then(function () { return true; }, function () {
+      showNotice(workbenchStore(), str('copyFailed'), 'err');
+      return false;
+    });
+  }
+  function showNotice(store, notice, kind, undoFn) {
     store.refreshNotice = notice;
     store.refreshNoticeKind = kind === 'warn' || kind === 'err' ? kind : 'ok';
+    store.refreshNoticeUndo = !!undoFn;
+    noticeUndoFn = undoFn || null;
     clearTimeout(noticeTimer);
     noticeTimer = setTimeout(function () {
       store.refreshNotice = '';
+      store.refreshNoticeUndo = false;
+      noticeUndoFn = null;
       noticeTimer = 0;
     }, 2500);
   }
@@ -333,6 +343,8 @@
       refreshNotice: '',
       // 0.3.84 toast 语义色(ok/warn/err),模板拼 .refresh-notice-<kind>
       refreshNoticeKind: 'ok',
+      // 0.3.91(W6):通知带撤销按钮(Reset/Remove 快照恢复)
+      refreshNoticeUndo: false,
       // 后端连通性:unknown=未探测(灰),host 推 connState 后转 ok(绿)/fail(红)
       connState: 'unknown',
       // 顶视图切换(0.3.59):'services' 方法浏览 | 'sequence' 调用序列
@@ -345,6 +357,14 @@
       envActive: null,
       envVars: {},
       envError: '',
+      // 0.3.91(W6):通知撤销入口(Reset/Remove 快照恢复);回调闭包模块级持有,执行即弃防重复。
+      // 必须挂在 store 上:撤销按钮在 pageMeta 组件作用域,经 $store.workbench.undoNotice() 调用。
+      undoNotice: function () {
+        var f = noticeUndoFn;
+        noticeUndoFn = null;
+        workbenchStore().refreshNoticeUndo = false;
+        if (f) f();
+      },
     });
 
     // 顶栏刷新区:@alpinejs/csp 表达式见不到 window 全局(0.3.19 前的 postRefresh 全局入口因此从未生效),
@@ -868,6 +888,9 @@
       // ---- 表单重置(0.3.70):长表单填错想重来,不必逐字段手删 ----
 
       resetForm: function (key, method) {
+        // 0.3.91(W6):清空前快照,通知带撤销,误触可恢复(与序列存删确认同口径)
+        var prevValues = this.formValues[key];
+        var prevJson = this.jsonText[key];
         var base = method.requestFields.length ? this.initFieldValues(method.requestFields) : {};
         this.formValues = Object.assign({}, this.formValues, { [key]: base });
         // JSON 页同步复位:否则切过去还是旧文本,可能直接发出
@@ -875,6 +898,12 @@
         this.setJsonError(key, null);
         this.setJsonWarnings(key, []);
         this.setFormError(key, '');
+        var self = this;
+        showNotice(workbenchStore(), str('formReset'), 'ok', function () {
+          self.formValues = Object.assign({}, self.formValues, { [key]: prevValues });
+          self.setJsonText(key, prevJson);
+          showNotice(workbenchStore(), str('undoDone'), 'ok');
+        });
       },
 
       setJsonText: function (key, value) {
@@ -1127,7 +1156,7 @@
           // 表单页签:发送前逐字段校验(数字/base64/JSON 数组/嵌套 message),问题清单就地展示
           var problems = window.FormMapping.validateFormValues(method.requestFields, this.formValues[key] || {});
           if (problems.length) {
-            this.setFormError(key, problems.join('；'));
+            this.setFormError(key, problems.join(str('listSeparator')));
             return;
           }
         }
@@ -1330,6 +1359,10 @@
           // 不复用 method-row-active(那是表单展开语义)。
           el.classList.add('locate-flash');
           setTimeout(function () { el.classList.remove('locate-flash'); }, 1200);
+          // 0.3.91(W7):清词会隐藏正聚焦的定位图标,焦点落回 body;
+          // 移交目标行,键盘用户 Tab 从落点继续而非文档头。
+          el.setAttribute('tabindex', '-1');
+          el.focus({ preventScroll: true });
         });
       },
 
@@ -1348,6 +1381,11 @@
 
       isMethodOpen: function (svcName, methodName) {
         return this.expandedMethod === this.methodKey(svcName, methodName);
+      },
+
+      // 0.3.91(W11):服务卡方法计数复数(1 method / n methods;中文同「个方法」)
+      methodCountLabel: function (n) {
+        return n + (n === 1 ? str('methodCountOne') : str('methodCountMany'));
       },
 
       toggleRow: function (path) {
@@ -1655,12 +1693,14 @@
         var key = this.methodKey(svcName, methodName);
         var body = this.getStreamBody(svcName, methodName);
         if (!body) return;
-        navigator.clipboard.writeText(body);
-        this.setCopied(key, true);
         var self = this;
-        setTimeout(function () {
-          self.setCopied(key, false);
-        }, 2000);
+        copyText(body).then(function (ok) {
+          if (!ok) return;
+          self.setCopied(key, true);
+          setTimeout(function () {
+            self.setCopied(key, false);
+          }, 2000);
+        });
       },
 
       copyResult: function (svcName, methodName) {
@@ -1668,22 +1708,26 @@
         var result = this.getResult(svcName, methodName);
         var body = result ? result.resultBody : null;
         if (!body) return;
-        navigator.clipboard.writeText(body);
-        this.setCopied(key, true);
         var self = this;
-        setTimeout(function () {
-          self.setCopied(key, false);
-        }, 2000);
+        copyText(body).then(function (ok) {
+          if (!ok) return;
+          self.setCopied(key, true);
+          setTimeout(function () {
+            self.setCopied(key, false);
+          }, 2000);
+        });
       },
 
       copyMethodName: function (svcName, methodName) {
         var key = this.methodKey(svcName, methodName);
-        navigator.clipboard.writeText(methodName);
-        this.copiedMethodKey = key;
         var self = this;
-        setTimeout(function () {
-          self.copiedMethodKey = null;
-        }, 2000);
+        copyText(methodName).then(function (ok) {
+          if (!ok) return;
+          self.copiedMethodKey = key;
+          setTimeout(function () {
+            self.copiedMethodKey = null;
+          }, 2000);
+        });
       },
 
       isMethodCopied: function (svcName, methodName) {
@@ -1692,12 +1736,14 @@
 
       copyServiceName: function (svc) {
         // 徽标态按身份记;剪贴板复制显示短名
-        navigator.clipboard.writeText(svc.name);
-        this.copiedServiceName = this.svcId(svc);
         var self = this;
-        setTimeout(function () {
-          self.copiedServiceName = null;
-        }, 2000);
+        copyText(svc.name).then(function (ok) {
+          if (!ok) return;
+          self.copiedServiceName = self.svcId(svc);
+          setTimeout(function () {
+            self.copiedServiceName = null;
+          }, 2000);
+        });
       },
 
       isServiceCopied: function (svc) {
@@ -1764,10 +1810,23 @@
       },
 
       removeStep: function (i) {
+        // 0.3.91(W2):运行中报告按当前步索引对齐,删步即错位;模板按钮亦已禁用,此为 choke point
+        if (this.seqRunning) return;
+        // 0.3.91(W6):步级 maps 按 id 保留未删,原位插回即完整恢复
+        var removed = this.seqSteps[i];
         this.seqSteps = this.seqSteps.filter(function (_s, idx) { return idx !== i; });
+        var self = this;
+        showNotice(workbenchStore(), str('stepRemoved'), 'ok', function () {
+          var arr = self.seqSteps.slice();
+          arr.splice(Math.min(i, arr.length), 0, removed);
+          self.seqSteps = arr;
+          showNotice(workbenchStore(), str('undoDone'), 'ok');
+        });
       },
 
       moveStep: function (i, dir) {
+        // 0.3.91(W2):运行中移步即报告错位;与 removeStep 同守卫
+        if (this.seqRunning) return;
         var j = i + dir;
         if (j < 0 || j >= this.seqSteps.length) return;
         var arr = this.seqSteps.slice();
@@ -1881,6 +1940,8 @@
 
       applySequenceLoaded: function (seq) {
         if (!seq) { this.showSeqNotice(str('seqLoadMiss'), 'warn'); return; }
+        // 0.3.91(W2):旧报告按步索引对齐,加载新序列必须清,否则错挂到新步上
+        this.seqReport = {};
         var self = this;
         this.seqName = seq.name || '';
         this.seqSteps = [];
@@ -1919,6 +1980,10 @@
         switch (ev.type) {
           case 'validationFailed':
             this.showSeqNotice(str('seqValidationFailed', { count: (ev.missing || []).length }), 'err');
+            break;
+          // 0.3.91(H1):引擎运行前配置/首载抛错的可见通知;seqRunning 由随后的 end 复位
+          case 'runError':
+            this.showSeqNotice(str('seqRunError', { message: ev.message || '' }), 'err');
             break;
           case 'stepStart':
             rep = Object.assign({}, this.seqReport);
@@ -2241,7 +2306,9 @@
           return head + (asserts ? '\n' + asserts : '') + '\n' + (body || e.error || '');
         }).join('\n\n');
         if (!text) return;
-        navigator.clipboard.writeText(text);
+        copyText(text).then(function (ok) {
+          if (ok) showNotice(workbenchStore(), str('seqReportCopied'), 'ok');
+        });
       },
     };
     });

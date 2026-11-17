@@ -139,7 +139,14 @@ function reportDuplicateNameSites(
   if (dup.kind === 'Enum' || dup.kind === 'Service') return false;
   let found = false;
   for (const file of frontend.scan()) {
-    const result = scanProto(readProtoFile(file));
+    // 0.3.91(H3):与 reportUnresolvedTypeRefs 同守卫——git 切分支并发删文件时
+    // readProtoFile 抛 ENOENT,裸调用会逃出 trigger 的 catch 成未捕获异常。
+    let result: ReturnType<typeof scanProto>;
+    try {
+      result = scanProto(readProtoFile(file));
+    } catch {
+      continue;
+    }
     const diags = [...(diagnostics.get?.(vscode.Uri.file(file)) ?? [])];
     for (const sym of result.symbols) {
       if (sym.name !== dup.name) continue;

@@ -76,9 +76,12 @@ export function getPackageDefinition(
   protoDir: string,
 ): protoLoader.PackageDefinition {
   const absPath = path.resolve(protoFile);
+  // 0.3.91(H2):键含 protoDir——同主文件换 includeDirs 时内容指纹不变,
+  // 仅 absPath 作键会命中旧目录解析结果,import 绑错同名文件。
+  const cacheKey = `${absPath}::${path.resolve(protoDir)}`;
   // 热路径:只对已缓存的闭包清单 stat,不读文件。闭包形状(import 边)只随成员文件
   // 内容变化,而内容变化必体现为该成员 stamp 失配——故仅 stat 旧清单即可闭环判定。
-  const cached = cache.get(absPath);
+  const cached = cache.get(cacheKey);
   if (cached) {
     const stamp = closureStamp(cached.closure);
     if (stamp !== null && stamp === cached.stamp) {
@@ -103,7 +106,7 @@ export function getPackageDefinition(
   });
   // 闭包 stat 残缺(成员读得到 stat 不到)时退化为顶层指纹:宁可多重析,不缓存错 stamp
   const st = fs.statSync(absPath);
-  cache.set(absPath, { def, stamp: stamp ?? `${st.mtimeMs}:${st.size}`, closure });
+  cache.set(cacheKey, { def, stamp: stamp ?? `${st.mtimeMs}:${st.size}`, closure });
   return def;
 }
 

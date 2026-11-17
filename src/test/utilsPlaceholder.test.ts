@@ -143,3 +143,21 @@ test('resolveDeep:遍历对象/数组解析字符串叶,非字符串标量原样
     nested: { arr: [9, 'lit', { deep: 'x' }] },
   });
 });
+
+test('占位符标红文案(0.3.91):webview 随 boot.strings 本地化,Node 回退英文', () => {
+  // 审计 W3 同族:bad reason 此前硬编码中文。
+  const g = globalThis as Record<string, unknown>;
+  g.window = {
+    __PROTO_UTILS_BOOT__: {
+      strings: { 'Cannot reference a later step that has not run yet': '不能引用尚未执行的后续步' },
+    },
+  };
+  try {
+    const bad = findInvalidRefs('{{step9.a}}', 1);
+    assert.equal(bad[0].reason, '不能引用尚未执行的后续步');
+  } finally {
+    delete g.window;
+  }
+  const bad2 = findInvalidRefs('{{step9.a}}', 1);
+  assert.equal(bad2[0].reason, 'Cannot reference a later step that has not run yet');
+});

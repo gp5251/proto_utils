@@ -44,6 +44,9 @@ export class ProjectConfig {
     return this.file;
   }
 
+  /** 0.3.91(H7):reload 序号守卫,过期读结果丢弃。 */
+  private reloadSeq = 0;
+
   constructor(
     workspaceRoot: string,
     private readonly fs: SequenceStoreFs = realFs,
@@ -52,27 +55,35 @@ export class ProjectConfig {
   }
 
   async reload(): Promise<void> {
-    this.data = {};
-    this.lastError = undefined;
+    // 0.3.91(H7):与 environments 同族——局部构建 + 序号守卫,旧读不得覆新
+    const seq = ++this.reloadSeq;
     let text: string;
     try {
       text = await this.fs.readFile(this.file);
     } catch (err) {
-      if (!isNotFound(err)) this.lastError = err instanceof Error ? err.message : String(err);
+      if (seq !== this.reloadSeq) return;
+      this.data = {};
+      this.lastError = isNotFound(err) ? undefined : err instanceof Error ? err.message : String(err);
       return;
     }
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
     } catch {
+      if (seq !== this.reloadSeq) return;
+      this.data = {};
       this.lastError = `${SETTINGS_FILE} is not valid JSON`;
       return;
     }
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      if (seq !== this.reloadSeq) return;
+      this.data = {};
       this.lastError = `${SETTINGS_FILE} top level must be an object`;
       return;
     }
+    if (seq !== this.reloadSeq) return;
     this.data = parsed as Record<string, unknown>;
+    this.lastError = undefined;
   }
 
   /** 命中返回值原样(可能是 null/false 等);未命中 undefined。分层方用 ?? 组合(null 也回退)。 */

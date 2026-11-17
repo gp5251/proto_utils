@@ -95,7 +95,11 @@ export function buildRequestFromValues(
           ? raw as Record<string, unknown>
           : {};
       const nested = buildRequestFromValues(field.nestedFields, nestedValues);
-      if (Object.keys(nested).length > 0) {
+      // 0.3.91(H4):显式空对象(零键 plain object,来自 JSON 的 {})保留 presence;
+      // 表单初始化产生的全空子树(有键但值全空)仍省略,维持 proto3 未设语义。
+      const explicitEmpty =
+        typeof raw === 'object' && raw !== null && !Array.isArray(raw) && Object.keys(raw).length === 0;
+      if (Object.keys(nested).length > 0 || explicitEmpty) {
         request[field.name] = nested;
       }
       continue;

@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import path from 'node:path';
 import type { MetadataEntry } from './config';
 
@@ -57,11 +57,14 @@ export interface SequenceStoreFs {
   readFile(file: string): Promise<string>;
   writeFile(file: string, data: string): Promise<void>;
   mkdir(dir: string): Promise<void>;
+  /** 0.3.91(H6):原子落盘用,临时文件 rename 到主文件。 */
+  rename(from: string, to: string): Promise<void>;
 }
 
 export const realFs: SequenceStoreFs = {
   readFile: (file) => readFile(file, 'utf8'),
   writeFile: (file, data) => writeFile(file, data, 'utf8'),
+  rename: (from, to) => rename(from, to),
   mkdir: (dir) => mkdir(dir, { recursive: true }).then(() => undefined),
 };
 
@@ -173,7 +176,13 @@ export class SequenceStore {
     try {
       parsed = JSON.parse(text);
     } catch {
-      throw new SequenceStoreError(`${path.basename(this.file)} is not valid JSON`);
+      // 0.3.91(H6):损坏文件备份后重置空态,错误指明备份名;否则 list() 恒抛、
+      // 序列功能全废且无恢复路径,损坏文件还会随版本库扩散。
+      const backup = `${this.file}.corrupt-${Date.now()}`;
+      await this.fs.rename(this.file, backup);
+      throw new SequenceStoreError(
+        `${path.basename(this.file)} is corrupt; backed up to ${path.basename(backup)} and reset to empty. Restore entries from the backup if needed.`,
+      );
     }
     if (!Array.isArray(parsed)) {
       throw new SequenceStoreError(`${path.basename(this.file)} top level must be an array`);
@@ -192,29 +201,44 @@ export class SequenceStore {
     return all.find((s) => s.name === name) ?? null;
   }
 
+  /** 0.3.91(H6):读-改-写串行队列,并发 save/delete 不再丢更新。 */
+  private queue: Promise<unknown> = Promise.resolve();
+  private enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(task, task);
+    this.queue = run.catch(() => {});
+    return run;
+  }
+
   /** 存一条:同名覆盖,否则追加。写前确保目录存在。 */
   async save(seq: Sequence): Promise<void> {
     const normalized = normalizeSequence(seq);
     if (!normalized) throw new SequenceStoreError('Sequence is missing name or steps');
-    const all = await this.list();
-    const idx = all.findIndex((s) => s.name === normalized.name);
-    if (idx >= 0) all[idx] = normalized;
-    else all.push(normalized);
-    await this.write(all);
+    return this.enqueue(async () => {
+      const all = await this.list();
+      const idx = all.findIndex((s) => s.name === normalized.name);
+      if (idx >= 0) all[idx] = normalized;
+      else all.push(normalized);
+      await this.write(all);
+    });
   }
 
   /** 按名删除;返回是否删掉了存在的条目。 */
   async delete(name: string): Promise<boolean> {
-    const all = await this.list();
-    const next = all.filter((s) => s.name !== name);
-    if (next.length === all.length) return false;
-    await this.write(next);
-    return true;
+    return this.enqueue(async () => {
+      const all = await this.list();
+      const next = all.filter((s) => s.name !== name);
+      if (next.length === all.length) return false;
+      await this.write(next);
+      return true;
+    });
   }
 
   private async write(all: Sequence[]): Promise<void> {
     await this.fs.mkdir(this.dir);
-    await this.fs.writeFile(this.file, JSON.stringify(all, null, 2));
+    // 0.3.91(H6):临时文件 + rename 原子落盘,中途崩溃不再留半截主文件
+    const tmp = `${this.file}.tmp-${process.pid}-${Date.now()}`;
+    await this.fs.writeFile(tmp, JSON.stringify(all, null, 2));
+    await this.fs.rename(tmp, this.file);
   }
 }
 

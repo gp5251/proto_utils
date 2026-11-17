@@ -24,6 +24,11 @@
   --success: #3fb950;
   --warning: #d4a72c;
   --warning-bg: #3d2e0033;
+  /* 0.3.91(W10):JSON 树语法色独立 token——此前字符串挪用 --danger,成功响应形似报错 */
+  --syn-string: #ce9178;
+  --syn-number: #b5cea8;
+  --syn-boolean: #569cd6;
+  --syn-null: #808080;
   --btn-bg: #238636;
   --btn-hover: #2ea043;
   --btn-border: #2ea043;
@@ -52,6 +57,11 @@ body.vscode-high-contrast-light {
   --success: #1a7f37;
   --warning: #9a6700;
   --warning-bg: #fff8c5;
+  /* 0.3.91(W10):亮色语法色,参考编辑器字符串/数字色,与 danger 区分 */
+  --syn-string: #a31515;
+  --syn-number: #098658;
+  --syn-boolean: #0000ff;
+  --syn-null: #8250df;
   --btn-bg: #1f883d;
   --btn-hover: #1a7f37;
   --btn-border: #1a7f37;
@@ -502,11 +512,17 @@ input[type="checkbox"] {
   box-shadow: 0 2px 8px rgb(0 0 0 / 30%);
   font-size: 12px;
   text-align: center;
+  /* 0.3.91(W6):toast 内并列撤销按钮;单孩子时与原文案居中观感一致 */
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 /* 0.3.84 toast 语义色:成败/告警不再共用成功绿(此前「Connection lost」也是绿胶囊) */
 .refresh-notice-ok { color: var(--success); }
 .refresh-notice-warn { color: var(--warning); border-color: var(--warning); }
 .refresh-notice-err { color: var(--danger); border-color: var(--danger); }
+/* 0.3.91(W6):toast 内撤销按钮,不撑破胶囊 */
+.notice-undo { flex: none; }
 .btn-xs {
   padding: 4px 10px;
   font-size: 12px;
@@ -774,10 +790,10 @@ input[type="checkbox"] {
   word-break: break-all;
   min-width: 0;
 }
-.tree-value-string { color: var(--danger); }
-.tree-value-number { color: var(--accent); }
-.tree-value-boolean { color: var(--warning); }
-.tree-value-null { color: var(--text-faint); font-style: italic; }
+.tree-value-string { color: var(--syn-string); }
+.tree-value-number { color: var(--syn-number); }
+.tree-value-boolean { color: var(--syn-boolean); }
+.tree-value-null { color: var(--syn-null); font-style: italic; }
 .tree-value-truncated { color: var(--text-faint); }
 .tree-count { color: var(--text-faint); font-size: 12px; flex-shrink: 0; }
 .chunk-section + .chunk-section { border-top: 1px solid var(--border); }

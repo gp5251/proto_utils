@@ -426,3 +426,23 @@ test('步级 metadata 按 key 合并全局(0.3.64):同 key 步级优先,异 key 
     { key: 'extra', value: 'e' },
   ]);
 });
+
+test('运行前 load 抛错(0.3.91):run 不 reject,发 runError + end(aborted),零调用', async () => {
+  // 审计 H1:首载 await 在 try 外时 load 抛错 → 无 end 事件 → webview seqRunning 永真。
+  const events: SequenceEvent[] = [];
+  const fake = new FakeRunner(() => ok({}));
+  const runner = new SequenceRunner({
+    runner: fake,
+    registry: { load: async () => { throw new Error('EACCES: permission denied'); } },
+    getConfig: () => ({ protoDir: 'x', metadata: [] }),
+    onEvent: (e) => events.push(e),
+  });
+  await runner.run({
+    name: 's',
+    steps: [{ service: 'A', method: 'B', mode: 'form', responseStream: false }],
+  });
+  const re = events.find((e) => e.type === 'runError');
+  assert.ok(re, 'load 抛错必须发 runError 事件供 webview 弹可见通知');
+  assert.deepEqual(events[events.length - 1], { type: 'end', status: 'aborted' });
+  assert.equal(fake.unary.length, 0);
+});

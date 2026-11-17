@@ -71,8 +71,12 @@ export function evaluateAssertions(
         return { ...base, ok: same(v, exp) };
       case 'neq':
         return { ...base, ok: !same(v, exp) };
-      case 'contains':
-        return { ...base, ok: Array.isArray(v) ? v.some((item) => same(item, exp)) : text(v).includes(String(exp)) };
+      case 'contains': {
+        // 0.3.91(H8):整值占位符可把 expected 解析成对象,String() 得 "[object Object]" 恒假;
+        // 对象期望值按 JSON 序列化后 contains,与 text(v) 的序列化口径一致。
+        const needle = typeof exp === 'object' && exp !== null ? JSON.stringify(exp) : String(exp);
+        return { ...base, ok: Array.isArray(v) ? v.some((item) => same(item, exp)) : text(v).includes(needle) };
+      }
       case 'lt':
       case 'gt': {
         const x = Number(v);

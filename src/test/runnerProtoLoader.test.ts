@@ -547,3 +547,27 @@ test('同 fullName 方法分散两处:钉住态下列表与调用口径一致(�
     '调用面解析到的正是列表来源的同一个文件',
   );
 });
+
+test('protoDir 切换(0.3.91):同主文件换 includeDirs 不得命中旧解析缓存', () => {
+  // 审计 H2:缓存键仅 absPath + 内容指纹,改 protoDir 而文件未变 → 旧 includeDirs 的 def,
+  // import 绑到错误的同名文件。
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proto-cache-'));
+  try {
+    const dirA = path.join(root, 'a');
+    const dirB = path.join(root, 'b');
+    fs.mkdirSync(dirA);
+    fs.mkdirSync(dirB);
+    const main = path.join(root, 'main.proto');
+    fs.writeFileSync(main, 'syntax = "proto3";\nimport "dep.proto";\nmessage Main { Dep d = 1; }\n');
+    fs.writeFileSync(path.join(dirA, 'dep.proto'), 'syntax = "proto3";\nmessage Dep { string from_a = 1; }\n');
+    fs.writeFileSync(path.join(dirB, 'dep.proto'), 'syntax = "proto3";\nmessage Dep { string from_b = 1; }\n');
+    const defA = getPackageDefinition(main, dirA);
+    assert.ok(JSON.stringify(defA).includes('fromA'), 'keepCase:false 字段名为 camelCase');
+    const defB = getPackageDefinition(main, dirB);
+    const jsonB = JSON.stringify(defB);
+    assert.ok(jsonB.includes('fromB'), '换目录后必须按新 includeDirs 重解析');
+    assert.ok(!jsonB.includes('fromA'), '不得返回旧目录的解析结果');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

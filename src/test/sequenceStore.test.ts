@@ -27,6 +27,10 @@ function fakeFs(initial: Record<string, string> = {}): { fs: SequenceStoreFs; fi
       async writeFile(file, data) {
         files.set(file, data);
       },
+      async rename(from, to) {
+        files.set(to, files.get(from)!);
+        files.delete(from);
+      },
       async mkdir(dir) {
         mkdirs.push(dir);
       },
@@ -142,4 +146,52 @@ test('步级 metadata/maxMessages 持久化往返(0.3.64):坏条目剔除,全空
   const st1 = all[0].steps[1];
   assert.equal(st1.metadata, undefined, '全空不写字段(旧文件兼容)');
   assert.equal(st1.maxMessages, undefined, '负数不写');
+});
+
+test('并发 save(0.3.91):串行队列不丢更新', async () => {
+  // 审计 H6:读-改-写无串行化,并发 save 交错即丢更新。
+  const { s } = store();
+  const a: Sequence = { name: 'a', steps: [{ service: 'S', method: 'M', mode: 'form', responseStream: false }] };
+  const b: Sequence = { name: 'b', steps: [{ service: 'S', method: 'M', mode: 'form', responseStream: false }] };
+  const a2: Sequence = { name: 'a', steps: [{ service: 'S', method: 'M2', mode: 'form', responseStream: false }] };
+  await Promise.all([s.save(a), s.save(b), s.save(a2)]);
+  const all = await s.list();
+  assert.deepEqual(all.map((x) => x.name).sort(), ['a', 'b']);
+  assert.equal(all.find((x) => x.name === 'a')!.steps[0].method, 'M2', '同名覆盖须保留最后一次');
+});
+
+test('原子写(0.3.91):临时文件 + rename,主文件不被直写半截', async () => {
+  // 审计 H6:writeFile 直写主文件,中途崩溃即损坏且进版本库扩散。
+  const f = fakeFs();
+  const renames: Array<[string, string]> = [];
+  const fs = {
+    ...f.fs,
+    rename: async (from: string, to: string) => {
+      renames.push([from, to]);
+      f.files.set(to, f.files.get(from)!);
+      f.files.delete(from);
+    },
+  };
+  const s = new SequenceStore(ROOT, fs);
+  await s.save(sample);
+  assert.equal(renames.length, 1, '必须经 rename 落盘');
+  assert.equal(renames[0][1], FILE);
+  assert.notEqual(renames[0][0], FILE, '不得直写主文件');
+  assert.ok(f.files.has(FILE));
+  assert.equal(f.files.size, 1, '临时文件不得残留');
+});
+
+test('损坏 sequences.json(0.3.91):备份 + 可操作错误,之后可重建', async () => {
+  // 审计 H6:损坏后 list() 恒抛 JSON.parse 错,序列功能全废且无恢复路径。
+  const { s, files } = store({ [FILE]: '{oops' });
+  await assert.rejects(
+    () => s.list(),
+    (e: unknown) => e instanceof SequenceStoreError && /corrupt/i.test((e as Error).message),
+  );
+  const backup = Array.from(files.keys()).find((k) => k.startsWith(FILE + '.corrupt'));
+  assert.ok(backup, '损坏文件必须备份而非静默丢弃');
+  assert.equal(files.get(backup!), '{oops');
+  assert.deepEqual(await s.list(), [], '备份后回到空态');
+  await s.save(sample);
+  assert.deepEqual((await s.list()).map((x) => x.name), [sample.name]);
 });

@@ -206,3 +206,18 @@ test("duplicate name:Enum 值重名不在 symbols 内 → 退 toast,不误伤同
   reportLoadError(fake as unknown as vscode.DiagnosticCollection, new ProtoFrontend([dir]), err);
   assert.equal(fake.calls.size, 0, '跨种类同名 message A 不得被误标');
 });
+
+test('重名诊断重扫(0.3.91):scan 清单含已删文件不得抛未捕获异常', () => {
+  // 审计 H3:reportDuplicateNameSites 裸 readProtoFile,git 切分支并发删文件时
+  // ENOENT 逃出 trigger 的 catch 成未捕获异常,且 lastError 去重致诊断卡死。
+  const dir = path.resolve('testdata/duplicate');
+  const err = loadErrorOf(dir);
+  const real = new ProtoFrontend([dir]);
+  const missing = path.join(dir, 'zz-deleted.proto');
+  const wrapped = { scan: () => [...real.scan(), missing] } as unknown as ProtoFrontend;
+  const fake = new FakeDiagnostics();
+  assert.doesNotThrow(() => {
+    reportLoadError(fake as unknown as vscode.DiagnosticCollection, wrapped, err);
+  }, '读不到的文件应跳过,不得炸定时器');
+  assert.ok(fake.calls.size > 0, '其余文件的重名引用仍须飘红');
+});

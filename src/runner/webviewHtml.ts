@@ -88,7 +88,6 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
       '. Only this file is in scope — click below to browse every service in the proto directory.',
     ),
     showAllServices: l10n.t('Show all services'),
-    methodCountSuffix: l10n.t(' methods'),
     copiedBadge: l10n.t('✓ Copied'),
     responseTypeLabel: l10n.t('Response Type'),
     noFields: l10n.t('(no fields)'),
@@ -200,6 +199,38 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     seqCompleted: l10n.t('Sequence completed'),
     seqAborted: l10n.t('Sequence aborted at a failed step'),
     seqStopped: l10n.t('Sequence stopped'),
+    seqRunError: l10n.t('Sequence run failed: {0}'),
+    undo: l10n.t('Undo'),
+    formReset: l10n.t('Form reset'),
+    stepRemoved: l10n.t('Step removed'),
+    undoDone: l10n.t('Restored'),
+    copyFailed: l10n.t('Copy failed — clipboard unavailable'),
+    seqReportCopied: l10n.t('Report copied'),
+    listSeparator: l10n.t('; '),
+    streamBadge: l10n.t('stream'),
+    bidiBadge: l10n.t('bidi'),
+    clientStreamBadge: l10n.t('client stream'),
+    methodCountOne: l10n.t(' method'),
+    methodCountMany: l10n.t(' methods'),
+    jsonParseFailed: l10n.t('JSON parse failed: {0}'),
+    topMustBeObject: l10n.t('Top level must be a JSON object'),
+    expectJsonArray: l10n.t('{0}: expected a JSON array, e.g. [1,2]'),
+    jsonArrayParseFailed: l10n.t('{0}: JSON array parse failed'),
+    expectBase64: l10n.t('{0}: expected base64 encoding'),
+    notANumber: l10n.t('{0}: not a valid number'),
+    jsonParseFailedPath: l10n.t('{0}: JSON parse failed'),
+    expectJsonObject: l10n.t('{0}: expected a JSON object'),
+    expectedObjectIgnored: l10n.t('{0} (expected an object, ignored)'),
+    badStepRef: l10n.t('Not a valid stepN reference'),
+    stepSep: l10n.t('step number must be followed by . or ['),
+    invalidPath: l10n.t('Invalid path'),
+    selfRef: l10n.t('Cannot reference the current step itself'),
+    futureRef: l10n.t('Cannot reference a later step that has not run yet'),
+    unclosedQuote: l10n.t('Unclosed quote'),
+    missingBracket: l10n.t('Missing ] after quoted key'),
+    unclosedBracket: l10n.t('Unclosed ['),
+    badIndex: l10n.t('Invalid array index "{0}"'),
+    emptySegment: l10n.t('Empty path segment'),
     // 0.3.78 动态文案(runner.js STRING_DEFAULTS 同键英文兜底)
     envFileError: l10n.t('environments.json: {error}'),
     grpcurlCopied: l10n.t('grpcurl command copied'),
@@ -279,7 +310,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
         <!-- 0.3.54:状态点绑定真实连通性(connState 由 host 探测推送;unknown=灰/ok=绿/fail=红) -->
         <!-- 0.3.84:状态点补 tooltip(三态语义此前全靠一个 7px 圆点传达) -->
         <!-- 0.3.75:地址可点击原地编辑(Enter/失焦确认、Esc 取消),确认经 setServer 消息持久化;赋值全走组件方法(@alpinejs/csp) -->
-        <span><span class="dot" :class="$store.workbench.connState" :title="connTitle()"></span><span class="server-addr" role="button" tabindex="0" title="${S.serverEditHint}" x-show="!editingServer" x-text="$store.workbench.server" @click="startEditServer()" @keydown.enter="startEditServer()"></span><input class="server-edit" type="text" spellcheck="false" autocomplete="off" x-show="editingServer" x-ref="serverInput" x-model="serverDraft" @keydown.enter="commitEditServer()" @keydown.escape="cancelEditServer()" @blur="commitEditServer()"><span class="conn-hint" x-show="$store.workbench.connState === 'fail'" x-text="$store.str.connUnreachable"></span></span>
+        <span><span class="dot" :class="$store.workbench.connState" :title="connTitle()"></span><span class="server-addr" role="button" tabindex="0" title="${S.serverEditHint}" x-show="!editingServer" x-text="$store.workbench.server" @click="startEditServer()" @keydown.enter="startEditServer()"></span><input class="server-edit" type="text" spellcheck="false" autocomplete="off" x-show="editingServer" x-ref="serverInput" x-model="serverDraft" @keydown.enter="commitEditServer()" @keydown.escape="cancelEditServer()" @blur="commitEditServer()"><template x-if="$store.workbench.connState === 'fail'"><span class="conn-hint" x-text="$store.str.connUnreachable"></span></template></span>
         <!-- 0.3.86:接口来源标识。作用域态(点 CodeLens「▶ 调用」进入)才显示,点击解除收窄回到
              protoDir 全量。用原生 button 而非 role=button 的 span:键盘可达性由浏览器负责,
              不必像 0.3.84 那批折叠热区一样手补 tabindex 与 Enter/Space。样式全在 runner.css。
@@ -300,7 +331,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
             </template>
           </select>
           <button type="button" class="btn btn-secondary btn-xs" @click="editEnvironments()">${S.envEdit}</button>
-          <span class="env-error" x-show="envErrorText()" x-text="envErrorText()"></span>
+          <span class="env-error" x-show="envErrorText()" x-text="envErrorText()" :title="envErrorText()"></span>
         </span>
         <!-- 0.3.76 刷新服务按钮移除:探测由打开首探/编辑地址后静默探/周期复探三路覆盖;「刷新 proto」保留 invalidate+重解析 -->
         <button type="button" class="btn btn-secondary btn-xs" :disabled="$store.workbench.refreshing" @click="refresh()">
@@ -309,7 +340,11 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
         </button>
         <!-- 0.3.70:全部收起服务卡片(大工作区逐个收太慢);0.3.84:序列视图无服务卡片,按钮一并隐藏 -->
         <button type="button" class="btn btn-secondary btn-xs" x-show="$store.workbench.view === 'services' && $store.workbench.services.length > 1" @click="collapseAllServices()">${S.collapseAllSvcs}</button>
-        <span class="refresh-notice" :class="'refresh-notice-' + $store.workbench.refreshNoticeKind" role="status" aria-live="polite" x-show="$store.workbench.refreshNotice" x-text="$store.workbench.refreshNotice" x-transition.opacity></span>
+        <!-- 0.3.91(W6):撤销按钮与 toast 同容器同生命周期;容器保持 fixed+auto margin 居中(0.3.71 守卫) -->
+        <div class="refresh-notice" :class="'refresh-notice-' + $store.workbench.refreshNoticeKind" role="status" aria-live="polite" x-show="$store.workbench.refreshNotice" x-transition.opacity>
+          <span x-text="$store.workbench.refreshNotice"></span>
+          <button type="button" class="btn btn-secondary btn-xs notice-undo" x-show="$store.workbench.refreshNoticeUndo" @click="$store.workbench.undoNotice()" x-text="$store.str.undo"></button>
+        </div>
       </div>
     </div>
 
@@ -367,13 +402,16 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
             <span
               class="copy-icon"
               role="button"
+              tabindex="0"
               :title="$store.str.copy"
               x-show="!isServiceCopied(svc)"
               @click.stop="copyServiceName(svc)"
+              @keydown.enter.prevent.stop="copyServiceName(svc)"
+              @keydown.space.prevent.stop="copyServiceName(svc)"
             >${COPY_ICON_SVG}</span>
             <span x-show="isServiceCopied(svc)" class="copy-badge">${S.copiedBadge}</span>
             <span style="font-weight:400;text-transform:none;color:var(--text-faint)">
-              — <span x-text="filteredMethods(svc).length"></span>${S.methodCountSuffix}
+              — <span x-text="methodCountLabel(filteredMethods(svc).length)"></span>
             </span>
           </span>
           <span class="collapse-icon" x-text="isServiceOpen(svcId(svc)) ? '▼' : '▶'"></span>
@@ -402,9 +440,12 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                   <span
                     class="copy-icon"
                     role="button"
+                    tabindex="0"
                     :title="$store.str.copy"
                     x-show="!isMethodCopied(svcId(svc), m.name)"
                     @click.stop="copyMethodName(svcId(svc), m.name)"
+                    @keydown.enter.prevent.stop="copyMethodName(svcId(svc), m.name)"
+                    @keydown.space.prevent.stop="copyMethodName(svcId(svc), m.name)"
                   >${COPY_ICON_SVG}</span>
                   <span x-show="isMethodCopied(svcId(svc), m.name)" class="copy-badge">${S.copiedBadge}</span>
                 </span>
@@ -420,8 +461,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                   @keydown.enter.prevent.stop="locateMethod(svc, m)"
                   @keydown.space.prevent.stop="locateMethod(svc, m)"
                 >${LOCATE_ICON_SVG}</span>
-                <span x-show="m.responseStream && !m.requestStream" class="method-stream-badge">stream</span>
-                <span x-show="m.requestStream" class="method-stream-badge" x-text="m.responseStream ? 'bidi' : 'client stream'"></span>
+                <span x-show="m.responseStream && !m.requestStream" class="method-stream-badge" x-text="$store.str.streamBadge"></span>
+                <span x-show="m.requestStream" class="method-stream-badge" x-text="m.responseStream ? $store.str.bidiBadge : $store.str.clientStreamBadge"></span>
                 <button
                   type="button"
                   class="btn btn-secondary btn-xs seq-add"
@@ -539,6 +580,9 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                             :class="{ 'method-field-row-expandable': (row.children && row.children.length) || (row.enumValues && row.enumValues.length) }"
                             :style="'padding-left:' + (row.depth * 14 + 8) + 'px'"
                             @click.stop="(row.children && row.children.length) || (row.enumValues && row.enumValues.length) ? toggleRow(rowKey('res', row.path)) : null"
+                            tabindex="0"
+                            @keydown.enter.prevent.stop="(row.children && row.children.length) || (row.enumValues && row.enumValues.length) ? toggleRow(rowKey('res', row.path)) : null"
+                            @keydown.space.prevent.stop="(row.children && row.children.length) || (row.enumValues && row.enumValues.length) ? toggleRow(rowKey('res', row.path)) : null"
                           >
                             <span class="method-field-name" x-text="row.name"></span>
                             <span class="method-field-meta">
@@ -619,6 +663,9 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                               x-show="(row.field.nestedFields && row.field.nestedFields.length) || (row.field.enumValues && row.field.enumValues.length)"
                               class="collapse-icon"
                               @click.stop="toggleRow(rowKey('reqf', row.path))"
+                              tabindex="0"
+                              @keydown.enter.prevent.stop="toggleRow(rowKey('reqf', row.path))"
+                              @keydown.space.prevent.stop="toggleRow(rowKey('reqf', row.path))"
                               x-text="isRowOpen(rowKey('reqf', row.path)) ? '▼' : '▶'"
                             ></span>
                           </label>
@@ -642,6 +689,9 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                                     :class="{ 'method-field-row-expandable': (sRow.children && sRow.children.length) || (sRow.enumValues && sRow.enumValues.length) }"
                                     :style="'padding-left:' + (sRow.depth * 14 + 8) + 'px'"
                                     @click.stop="(sRow.children && sRow.children.length) || (sRow.enumValues && sRow.enumValues.length) ? toggleRow(rowKey('reqs', sRow.path)) : null"
+                                    tabindex="0"
+                                    @keydown.enter.prevent.stop="(sRow.children && sRow.children.length) || (sRow.enumValues && sRow.enumValues.length) ? toggleRow(rowKey('reqs', sRow.path)) : null"
+                                    @keydown.space.prevent.stop="(sRow.children && sRow.children.length) || (sRow.enumValues && sRow.enumValues.length) ? toggleRow(rowKey('reqs', sRow.path)) : null"
                                   >
                                     <span class="method-field-name" x-text="sRow.name"></span>
                                     <span class="method-field-meta">
@@ -675,14 +725,16 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                             >
                           </template>
                           <template x-if="row.field.protoType === 'TYPE_ENUM' && row.field.enumValues && row.field.enumValues.length > 0">
+                            <!-- 0.3.91(W1):与序列模板 0.3.62 同款——select 级 :value 先于 x-for options
+                                 渲染赋值被浏览器丢弃,重展开/定位跳入已填枚举会显示占位符却发旧值。
+                                 改 option 级 :selected,各 option 渲染时自判选中,与渲染顺序无关。 -->
                             <select
                               class="enum-select"
-                              :value="getFieldValue(methodKey(svcId(svc), m.name), row.path)"
                               @change="setFieldValue(methodKey(svcId(svc), m.name), row.path, $event.target.value)"
                             >
-                              <option value="">${S.selectPlaceholder}</option>
+                              <option value="" :selected="!getFieldValue(methodKey(svcId(svc), m.name), row.path)">${S.selectPlaceholder}</option>
                               <template x-for="ev in row.field.enumValues" :key="ev.name">
-                                <option :value="ev.name" x-text="enumOptionLabel(ev, row.field.enumValues)"></option>
+                                <option :value="ev.name" :selected="getFieldValue(methodKey(svcId(svc), m.name), row.path) === ev.name" x-text="enumOptionLabel(ev, row.field.enumValues)"></option>
                               </template>
                             </select>
                           </template>
@@ -805,7 +857,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                       <!-- 0.3.70:在途实时计时(重置按钮已移至上方 表单/JSON 行右侧) -->
                       <span class="elapsed-hint" x-show="isLoading(svcId(svc), m.name)" x-text="elapsedText(methodKey(svcId(svc), m.name))"></span>
                       <!-- 0.3.54:探测不可达时禁发并就地提示;unknown(探测中)不拦,可达服务不吃 1.5s 探测闪断 -->
-                      <p x-show="$store.workbench.connState === 'fail'" class="unsupported-hint" x-text="$store.str.svcUnavailable"></p>
+                      <template x-if="$store.workbench.connState === 'fail'"><p class="unsupported-hint" x-text="$store.str.svcUnavailable"></p></template>
                     </div>
                   </form>
 
@@ -885,6 +937,9 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                             :class="{ 'tree-row-container': row.children && row.children.length }"
                             :style="'padding-left:' + (row.depth * 14 + 8) + 'px'"
                             @click.stop="row.children && row.children.length ? toggleTreeNode(svcId(svc), m.name, row.path) : null"
+                            tabindex="0"
+                            @keydown.enter.prevent.stop="row.children && row.children.length ? toggleTreeNode(svcId(svc), m.name, row.path) : null"
+                            @keydown.space.prevent.stop="row.children && row.children.length ? toggleTreeNode(svcId(svc), m.name, row.path) : null"
                           >
                             <span x-show="row.children && row.children.length" class="collapse-icon" x-text="isTreeNodeOpen(svcId(svc), m.name, row.path) ? '▼' : '▶'"></span>
                             <span x-show="!(row.children && row.children.length)" class="tree-spacer"></span>
@@ -1005,6 +1060,9 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                                   :class="{ 'tree-row-container': row.children && row.children.length }"
                                   :style="'padding-left:' + (row.depth * 14 + 8) + 'px'"
                                   @click.stop="row.children && row.children.length ? toggleTreeNode(svcId(svc), m.name, row.path) : null"
+                                  tabindex="0"
+                                  @keydown.enter.prevent.stop="row.children && row.children.length ? toggleTreeNode(svcId(svc), m.name, row.path) : null"
+                                  @keydown.space.prevent.stop="row.children && row.children.length ? toggleTreeNode(svcId(svc), m.name, row.path) : null"
                                 >
                                   <span x-show="row.children && row.children.length" class="collapse-icon" x-text="isTreeNodeOpen(svcId(svc), m.name, row.path) ? '▼' : '▶'"></span>
                                   <span x-show="!(row.children && row.children.length)" class="tree-spacer"></span>
@@ -1054,7 +1112,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
             <span x-show="seqStopping"><span class="proto-loading-spinner"></span>${S.seqStopping}</span>
           </button>
         </div>
-        <p x-show="$store.workbench.connState === 'fail'" class="unsupported-hint" x-text="$store.str.svcUnavailable"></p>
+        <template x-if="$store.workbench.connState === 'fail'"><p class="unsupported-hint" x-text="$store.str.svcUnavailable"></p></template>
         <p x-show="seqNotice" class="seq-notice" :class="'seq-notice-' + seqNoticeKind" role="status" aria-live="polite" x-text="seqNotice"></p>
       </div>
 
@@ -1071,7 +1129,7 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
           <div class="seq-saved-row">
             <span class="seq-saved-name" x-text="s.name"></span>
             <span class="seq-saved-count" x-text="s.steps.length"></span>
-            <button type="button" class="btn btn-secondary btn-xs" @click="loadSequence(s.name)">${S.seqLoad}</button>
+            <button type="button" class="btn btn-secondary btn-xs" :disabled="seqRunning" @click="loadSequence(s.name)">${S.seqLoad}</button>
             <button type="button" class="btn btn-secondary btn-xs" @click="deleteSequence(s.name)">${S.seqDelete}</button>
           </div>
         </template>
@@ -1102,9 +1160,9 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
             <span x-show="step.responseStream" class="method-stream-badge">stream</span>
             <span class="collapse-icon seq-step-toggle" @click="toggleSeqStep(step.id)" x-text="isSeqStepOpen(step.id) ? '▼' : '▶'"></span>
             <span class="seq-step-actions">
-              <button type="button" class="btn btn-secondary btn-xs" :disabled="sIdx === 0" @click="moveStep(sIdx, -1)">${S.seqStepUp}</button>
-              <button type="button" class="btn btn-secondary btn-xs" :disabled="sIdx === seqSteps.length - 1" @click="moveStep(sIdx, 1)">${S.seqStepDown}</button>
-              <button type="button" class="btn btn-secondary btn-xs" @click="removeStep(sIdx)">${S.seqStepRemove}</button>
+              <button type="button" class="btn btn-secondary btn-xs" :disabled="sIdx === 0 || seqRunning" @click="moveStep(sIdx, -1)">${S.seqStepUp}</button>
+              <button type="button" class="btn btn-secondary btn-xs" :disabled="sIdx === seqSteps.length - 1 || seqRunning" @click="moveStep(sIdx, 1)">${S.seqStepDown}</button>
+              <button type="button" class="btn btn-secondary btn-xs" :disabled="seqRunning" @click="removeStep(sIdx)">${S.seqStepRemove}</button>
             </span>
           </div>
           <p x-show="!stepMethod(step)" class="unsupported-hint">${S.seqMethodMissing}</p>

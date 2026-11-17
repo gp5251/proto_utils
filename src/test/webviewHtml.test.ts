@@ -315,10 +315,10 @@ test('不可达禁发(0.3.54):发送按钮 disabled 含 connState fail,就地提
     html.includes(":disabled=\"isLoading(svcId(svc), m.name) || m.requestStream || $store.workbench.connState === 'fail'\""),
     '发送按钮 disabled 必须含 connState fail 条件',
   );
-  // 提示与按钮同容器,复用 unsupported-hint 样式(CSS 零改动)
+  // 提示与按钮同容器,复用 unsupported-hint 样式(CSS 零改动);0.3.91(W8)改 x-if 增删
   assert.ok(
-    html.includes('x-show="$store.workbench.connState === \'fail\'" class="unsupported-hint" x-text="$store.str.svcUnavailable"'),
-    '缺不可达就地提示槽',
+    html.includes('<template x-if="$store.workbench.connState === \'fail\'"><p class="unsupported-hint" x-text="$store.str.svcUnavailable"></p></template>'),
+    '缺不可达就地提示槽(x-if 增删,结构性消除 display 残留)',
   );
   assert.ok(html.includes('Service unavailable'), 'boot.strings 缺禁发提示文案值');
   // 0.3.57:跃迁瞬时提醒文案
@@ -434,4 +434,25 @@ test('0.3.78 P0/P1 UI 锚点:环境、历史、grpcurl、WKT、断言与 client/
   ]) assert.ok(html.includes(anchor), `缺 UI 锚点: ${anchor}`);
   assert.ok(html.includes("m.responseStream || m.requestStream"), 'client/bidi 响应须复用流结果区');
   assert.ok(!html.includes('Client-streaming and bidi-streaming methods are not supported yet'), '旧的不支持提示必须移除');
+});
+
+test('服务表单枚举下拉(0.3.91):option 级 :selected 自判选中,弃 select 级 :value', () => {
+  // 审计 W1:select 级 :value 先于 x-for options 渲染赋值被浏览器丢弃 →
+  // 重展开/定位跳入已填枚举显示占位符但 Send 发旧值。序列模板 0.3.62 已用 option 级 :selected 修过同款。
+  const html = render();
+  const start = html.indexOf('class="enum-select"');
+  assert.ok(start >= 0, '缺枚举下拉');
+  const block = html.slice(start, html.indexOf('</select>', start));
+  assert.ok(block.includes(':selected="getFieldValue('), 'option 必须渲染时自判选中');
+  assert.ok(block.includes(':selected="!getFieldValue('), '占位 option 亦须 :selected 自判');
+  assert.ok(!block.includes(':value="getFieldValue('), 'select 级 :value 先于 options 渲染会被丢弃,不得保留');
+});
+
+test('connState 残留类(0.3.91):conn-hint 与 svcUnavailable 改 x-if,结构性消除 display 残留', () => {
+  // 审计 W8:x-show 靠内联 display 收敛,长会话曾实证残留; x-if 增删元素,无残留面。
+  const html = render();
+  const n = html.split('<template x-if="$store.workbench.connState === \'fail\'">').length - 1;
+  assert.ok(n >= 3, `conn-hint + 两处 svcUnavailable 须 x-if,实际 ${n}`);
+  assert.ok(!html.includes('class="conn-hint" x-show'), 'conn-hint 不得再靠 x-show');
+  assert.ok(!html.includes('x-show="$store.workbench.connState'), 'connState 显隐不得再靠 x-show');
 });

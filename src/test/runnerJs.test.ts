@@ -195,8 +195,12 @@ test('connState 跃迁提醒(0.3.57):fail→ok 提示恢复,ok→fail 提示断�
   assert.ok(src.includes('connRestored:') && src.includes('connLost:'), '缺跃迁文案默认串');
   // 提醒走 showNotice 瞬时通道(2.5s 自动消失),不得常驻 refreshNotice
   assert.ok(body.includes('showNotice('), '跃迁提醒必须走 showNotice');
-  // 0.3.69 显隐兜底:x-show 效果不收敛时红字残留,唯一写入点命令式同步 .conn-hint
-  assert.ok(body.includes("querySelector('.conn-hint')"), 'connState 写入点须命令式同步 conn-hint 显隐');
+  // 0.3.91(W8):x-if 接管显隐(增删元素,结构性消除残留类),0.3.69 命令式兜底退役
+  const htmlSrc = fs.readFileSync(path.resolve('src/runner/webviewHtml.ts'), 'utf8');
+  assert.ok(
+    htmlSrc.includes('<template x-if="$store.workbench.connState === \'fail\'"><span class="conn-hint"'),
+    'conn-hint 须 x-if 增删,不得再靠 x-show/命令式 display',
+  );
   // 0.3.76 刷新服务按钮移除:手动回执通道(probingServices/connProbeOk/Fail)随删
   assert.ok(!body.includes('probingServices'), 'connState 路由须移除 probingServices 回执');
   assert.ok(!src.includes('refreshServices'), 'pageMeta 不得残留 refreshServices');
@@ -571,4 +575,131 @@ test('搜索过滤定位(0.3.90):locateMethod 清词+展开卡+展开目标方�
   assert.ok(htmlSrc.includes("locate: l10n.t('Locate in full list')"), '定位文案须经 boot.strings 下发');
   const zh = JSON.parse(fs.readFileSync(path.resolve('l10n/bundle.l10n.zh-cn.json'), 'utf8')) as Record<string, string>;
   assert.equal(zh['Locate in full list'], '在全量列表中定位');
+});
+
+test('序列 runError 事件(0.3.91):applySeqEvent 收 runError 弹 err 通知,文案走 strings', () => {
+  // 审计 H1 webview 层:引擎首载抛错经 runError 事件可见化,end 事件复位 seqRunning。
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const start = src.indexOf('applySeqEvent: function');
+  assert.ok(start >= 0, '缺 applySeqEvent');
+  const body = src.slice(start, src.indexOf('seqReportEntries: function', start));
+  assert.ok(body.includes("'runError'"), '必须处理 runError 事件');
+  assert.ok(body.includes('seqRunError'), '通知文案必须走 boot.strings');
+  const htmlSrc = fs.readFileSync(path.resolve('src/runner/webviewHtml.ts'), 'utf8');
+  assert.ok(htmlSrc.includes("seqRunError: l10n.t("), 'seqRunError 须经 l10n 下发');
+  const zh2 = JSON.parse(fs.readFileSync(path.resolve('l10n/bundle.l10n.zh-cn.json'), 'utf8')) as Record<string, string>;
+  assert.ok(zh2['Sequence run failed: {0}'], 'zh 包必须含 seqRunError 源串');
+});
+
+test('序列运行态守卫(0.3.91):运行中删/移/加载禁用,加载清旧报告', () => {
+  // 审计 W2:报告按当前步索引对齐,运行中改步序或加载新序列都会挂错报告。
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  // 注意子串陷阱:'removeStep: function' 内含 'moveStep: function',锚点须带行首缩进
+  const rmStart = src.indexOf('removeStep: function');
+  const mvStart = src.indexOf('\n      moveStep: function');
+  const rm = src.slice(rmStart, mvStart);
+  assert.ok(rm.includes('seqRunning'), 'removeStep 须守卫运行态');
+  const mv = src.slice(mvStart, src.indexOf('saveSequence: function'));
+  assert.ok(mv.includes('seqRunning'), 'moveStep 须守卫运行态');
+  const ld = src.slice(src.indexOf('applySequenceLoaded: function'), src.indexOf('applySeqEvent: function'));
+  assert.ok(ld.includes('this.seqReport = {}'), '加载命名序列必须清旧报告');
+  const htmlSrc = fs.readFileSync(path.resolve('src/runner/webviewHtml.ts'), 'utf8');
+  assert.ok(htmlSrc.includes(':disabled="sIdx === 0 || seqRunning"'), 'Up 按钮运行中禁用');
+  assert.ok(htmlSrc.includes(':disabled="sIdx === seqSteps.length - 1 || seqRunning"'), 'Down 按钮运行中禁用');
+  assert.ok(htmlSrc.includes(':disabled="seqRunning" @click="removeStep(sIdx)"'), 'Remove 运行中禁用');
+  assert.ok(htmlSrc.includes(':disabled="seqRunning" @click="loadSequence(s.name)"'), '加载入口运行中禁用');
+});
+
+test('复制统一出口与撤销(0.3.91):拒绝有可见通知,徽章只挂成功,Reset/Remove 可撤销', () => {
+  // 审计 W5/W6:六处裸 writeText 无拒绝处理、报告复制零反馈;Reset/Remove 单击不可恢复。
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const ctStart = src.indexOf('function copyText(');
+  assert.ok(ctStart >= 0, '缺统一剪贴板出口 copyText');
+  const ctBody = src.slice(ctStart, src.indexOf('function showNotice(', ctStart));
+  assert.ok(ctBody.includes('copyFailed'), '拒绝必须弹可见通知');
+  assert.equal(src.split('navigator.clipboard.writeText').length - 1, 1, 'writeText 只允许出现在 copyText 内');
+  const cr = src.slice(src.indexOf('copySeqReport'), src.indexOf('copySeqReport') + 900);
+  assert.ok(cr.includes('seqReportCopied'), '报告复制成功须有反馈');
+  const rf = src.slice(src.indexOf('resetForm: function'), src.indexOf('removeStep: function'));
+  assert.ok(rf.includes("str('formReset')"), 'Reset 须弹带撤销的通知');
+  const rm = src.slice(src.indexOf('removeStep: function'), src.indexOf('\n      moveStep: function'));
+  assert.ok(rm.includes("str('stepRemoved')"), 'Remove 须弹带撤销的通知');
+  assert.ok(src.includes('function showNotice(store, notice, kind, undoFn)'), 'showNotice 须支持撤销回调');
+  assert.ok(src.includes('refreshNoticeUndo') && src.includes('undoNotice: function'), 'store 须暴露撤销入口');
+  const htmlSrc = fs.readFileSync(path.resolve('src/runner/webviewHtml.ts'), 'utf8');
+  assert.ok(htmlSrc.includes('@click="$store.workbench.undoNotice()"'), '通知区须有撤销按钮');
+  assert.ok(htmlSrc.includes("undo: l10n.t('Undo')"), '撤销文案经 l10n');
+  const zh = JSON.parse(fs.readFileSync(path.resolve('l10n/bundle.l10n.zh-cn.json'), 'utf8')) as Record<string, string>;
+  for (const k of ['Undo', 'Form reset', 'Step removed', 'Restored', 'Copy failed — clipboard unavailable', 'Report copied']) {
+    assert.ok(zh[k], `zh 包缺键: ${k}`);
+  }
+});
+
+test('G5 体验接线(0.3.91):键盘/焦点/文案/语法色/复数齐备', () => {
+  // 审计 W3/W4/W7/W9/W10/W11 的接线守卫。
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const htmlSrc = fs.readFileSync(path.resolve('src/runner/webviewHtml.ts'), 'utf8');
+  const css = fs.readFileSync(path.resolve('media/runner/runner.css'), 'utf8');
+  // W3:分隔符与 utils 文案走 strings
+  assert.ok(src.includes("join(str('listSeparator'))"), '问题清单分隔符须走 strings');
+  const fm = fs.readFileSync(path.resolve('src/runner/utils/formMapping.ts'), 'utf8');
+  assert.ok(!fm.includes('JSON 解析失败'), 'formMapping 不得直出中文');
+  const ph = fs.readFileSync(path.resolve('src/runner/utils/placeholder.ts'), 'utf8');
+  assert.ok(!ph.includes('不能引用'), 'placeholder 不得直出中文');
+  // W4:复制图标与树行键盘等价
+  const blocks = htmlSrc.split('class="copy-icon').slice(1).map((b) => b.slice(0, 260));
+  assert.ok(blocks.length >= 3 && blocks.every((b) => b.includes('tabindex="0"')), '复制图标须键盘可达');
+  for (const anchor of [
+    '@keydown.enter.prevent.stop="copyServiceName(svc)"',
+    '@keydown.enter.prevent.stop="copyMethodName(svcId(svc), m.name)"',
+    '@keydown.enter.prevent.stop="row.children && row.children.length ? toggleTreeNode(svcId(svc), m.name, row.path) : null"',
+    '@keydown.enter.prevent.stop="(row.children && row.children.length) || (row.enumValues && row.enumValues.length) ? toggleRow(rowKey(\'res\', row.path)) : null"',
+    '@keydown.enter.prevent.stop="(sRow.children && sRow.children.length) || (sRow.enumValues && sRow.enumValues.length) ? toggleRow(rowKey(\'reqs\', sRow.path)) : null"',
+  ]) {
+    assert.ok(htmlSrc.includes(anchor), `缺键盘等价: ${anchor}`);
+  }
+  // W7:定位后焦点移交目标行
+  const loc = src.slice(src.indexOf('locateMethod: function'), src.indexOf('ensureFormValues: function'));
+  assert.ok(loc.includes('el.focus({ preventScroll: true })'), '定位后焦点须移交目标行');
+  // W9:徽章入 strings + env-error 全文可达
+  assert.ok(htmlSrc.includes('x-text="$store.str.streamBadge"'), 'stream 徽章须走 strings');
+  assert.ok(htmlSrc.includes(':title="envErrorText()"'), 'env-error 截断须全文可达');
+  // W10:字符串值独立语法色
+  assert.ok(css.includes('--syn-string:'), '缺语法色 token');
+  assert.ok(css.includes('.tree-value-string { color: var(--syn-string); }'), '字符串值不得挪用 danger');
+  // W11:复数
+  assert.ok(src.includes('methodCountLabel: function'), '缺复数计数方法');
+  assert.ok(htmlSrc.includes('x-text="methodCountLabel(filteredMethods(svc).length)"'), '计数须走复数方法');
+  assert.ok(!htmlSrc.includes('methodCountSuffix'), '固定后缀须移除');
+  const zh = JSON.parse(fs.readFileSync(path.resolve('l10n/bundle.l10n.zh-cn.json'), 'utf8')) as Record<string, string>;
+  for (const k of [
+    'JSON parse failed: {0}', 'Top level must be a JSON object', '{0}: expected a JSON array, e.g. [1,2]',
+    '{0}: JSON array parse failed', '{0}: expected base64 encoding', '{0}: not a valid number',
+    'Not a valid stepN reference', 'Cannot reference the current step itself',
+    'Cannot reference a later step that has not run yet', '; ', 'stream', 'bidi', 'client stream', ' method',
+  ]) {
+    assert.ok(zh[k], `zh 包缺键: ${k}`);
+  }
+});
+
+test('撤销入口挂 store(0.3.91):pageMeta 作用域经 $store.workbench.undoNotice 触达', () => {
+  // 实测曾发现 undoNotice 误插 pageMeta 组件 → 按钮点击无效;守卫挂载位置。
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const storeStart = src.indexOf("Alpine.store('workbench'");
+  const metaStart = src.indexOf("Alpine.data('pageMeta'");
+  assert.ok(storeStart >= 0 && metaStart > storeStart, '缺 store/pageMeta 锚点');
+  const storeBlock = src.slice(storeStart, metaStart);
+  assert.ok(storeBlock.includes('undoNotice: function'), 'undoNotice 必须挂 workbench store');
+  const metaBlock = src.slice(metaStart, src.indexOf("Alpine.data('homePage'"));
+  assert.ok(!metaBlock.includes('undoNotice: function'), '不得误插 pageMeta 组件');
+});
+
+test('connState 命令式兜底退役(0.3.91):x-if 接管后不再手写 display', () => {
+  // 审计 W8:兜底只补一处是症状 fix;x-if 结构性消除后命令式 display 应退役。
+  const src = fs.readFileSync(RUNNER_JS, 'utf8');
+  const start = src.indexOf("case 'connState'");
+  assert.ok(start >= 0, '缺 connState 分支');
+  const body = src.slice(start, src.indexOf("case 'seqEvent'", start));
+  assert.ok(!body.includes('style.display'), '不得再命令式写 display');
+  assert.ok(body.includes('connRestored') && body.includes('connLost'), '跃迁通知保留');
 });

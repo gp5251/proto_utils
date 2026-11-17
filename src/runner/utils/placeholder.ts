@@ -72,9 +72,9 @@ function tokenizePath(path: string): PathSegment[] {
             i++;
           }
         }
-        if (path[i] !== q) throw new SyntaxError('未闭合的引号');
+        if (path[i] !== q) throw new SyntaxError(msg('Unclosed quote'));
         i++;
-        if (path[i] !== ']') throw new SyntaxError('引号键后缺少 ]');
+        if (path[i] !== ']') throw new SyntaxError(msg('Missing ] after quoted key'));
         i++;
         segs.push({ kind: 'key', key });
       } else {
@@ -83,9 +83,9 @@ function tokenizePath(path: string): PathSegment[] {
           num += path[i];
           i++;
         }
-        if (path[i] !== ']') throw new SyntaxError('未闭合的 [');
+        if (path[i] !== ']') throw new SyntaxError(msg('Unclosed ['));
         i++;
-        if (!/^\d+$/.test(num)) throw new SyntaxError(`非法数组索引 "${num}"`);
+        if (!/^\d+$/.test(num)) throw new SyntaxError(msg('Invalid array index "{0}"', num));
         segs.push({ kind: 'index', index: Number.parseInt(num, 10) });
       }
       continue;
@@ -96,7 +96,7 @@ function tokenizePath(path: string): PathSegment[] {
       id += path[i];
       i++;
     }
-    if (id === '') throw new SyntaxError('空路径段');
+    if (id === '') throw new SyntaxError(msg('Empty path segment'));
     segs.push({ kind: 'key', key: id });
   }
   return segs;
@@ -108,6 +108,19 @@ export type PathResult = { ok: true; value: unknown } | { ok: false };
  * 按 path 从 root 取值。任一段走不下去(键不存在/索引越界/对标量取键)→ { ok:false }。
  * null 是合法值(存在即返回);仅"路径不存在"才判失败。
  */
+/**
+ * 0.3.91(W3):标红/报错文案走 boot.strings(webview 本地化),Node 回退英文源串。
+ * key 即英文源串,与 webviewHtml 的 l10n.t / zh 包同键;{N} 占位按序替换。
+ */
+function msg(key: string, ...args: string[]): string {
+  const g = globalThis as { window?: { __PROTO_UTILS_BOOT__?: { strings?: Record<string, string> } } };
+  let m = g.window?.__PROTO_UTILS_BOOT__?.strings?.[key] ?? key;
+  args.forEach((a, i) => {
+    m = m.split(`{${i}}`).join(a);
+  });
+  return m;
+}
+
 export function getByPath(root: unknown, path: string): PathResult {
   let segs: PathSegment[];
   try {
@@ -138,19 +151,19 @@ function scan(text: string): { refs: PlaceholderRef[]; bad: BadRef[] } {
     const content = m[1].trim();
     const sm = STEP_RE.exec(content);
     if (!sm) {
-      bad.push({ raw, reason: '不是合法的 stepN 引用' });
+      bad.push({ raw, reason: msg('Not a valid stepN reference') });
       continue;
     }
     const path = sm[2];
     // path 非空时必须以 . 或 [ 开头(step0foo 视为非法)
     if (path !== '' && path[0] !== '.' && path[0] !== '[') {
-      bad.push({ raw, reason: 'step 序号后需接 . 或 [' });
+      bad.push({ raw, reason: msg('step number must be followed by . or [') });
       continue;
     }
     try {
       tokenizePath(path);
     } catch (e) {
-      bad.push({ raw, reason: e instanceof Error ? e.message : '路径非法' });
+      bad.push({ raw, reason: e instanceof Error ? e.message : msg('Invalid path') });
       continue;
     }
     refs.push({ raw, step: Number.parseInt(sm[1], 10), path });
@@ -169,7 +182,7 @@ export function findInvalidRefs(text: string, currentStep: number, vars?: Record
   const out = bad.slice();
   for (const r of refs) {
     if (r.step >= currentStep) {
-      out.push({ raw: r.raw, reason: r.step === currentStep ? '不能引用当前步自身' : '不能引用尚未执行的后续步' });
+      out.push({ raw: r.raw, reason: r.step === currentStep ? msg('Cannot reference the current step itself') : msg('Cannot reference a later step that has not run yet') });
     }
   }
   return out;

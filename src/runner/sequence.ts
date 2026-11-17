@@ -38,6 +38,8 @@ export type SequenceEvent =
   | { type: 'stepFailed'; index: number; error: string }
   /** 0.3.78 步骤断言结果(步成功且配了断言才发);任一 ok=false 即中止。 */
   | { type: 'stepAssertions'; index: number; results: AssertionResult[] }
+  /** 0.3.91 运行前配置/首载抛错:可见通知 + aborted,避免缺 end 致 webview seqRunning 永真。 */
+  | { type: 'runError'; message: string }
   /** 整条结束:completed=全成功,aborted=某步失败中止,stopped=用户停止。 */
   | { type: 'end'; status: 'completed' | 'aborted' | 'stopped' };
 
@@ -129,19 +131,28 @@ export class SequenceRunner {
     this.outputs = {};
     this.durations = {};
     this.activeStream = null;
-    const cfg = this.deps.getConfig();
-    const vars = cfg.vars ?? {};
-
     // 运行前整体校验:任一步方法失效则不启动(ADR/共识:跑一半才发现死方法太浪费)
-    const { services } = await this.deps.registry.load(cfg.protoDir);
-    const missing: MissingStep[] = [];
-    seq.steps.forEach((step, i) => {
-      if (!methodExists(services, step.service, step.method)) {
-        missing.push({ index: i, service: step.service, method: step.method });
+    // 0.3.91(H1):配置现读与首载纳入 try——此前 await load 在 try 外,抛错即 reject,
+    // 调用方无 catch 且无 end 事件,webview seqRunning 永真、运行/停止永久失效。
+    let cfg: ReturnType<SequenceRunnerDeps['getConfig']>;
+    let vars: Record<string, string>;
+    try {
+      cfg = this.deps.getConfig();
+      vars = cfg.vars ?? {};
+      const { services } = await this.deps.registry.load(cfg.protoDir);
+      const missing: MissingStep[] = [];
+      seq.steps.forEach((step, i) => {
+        if (!methodExists(services, step.service, step.method)) {
+          missing.push({ index: i, service: step.service, method: step.method });
+        }
+      });
+      if (missing.length > 0) {
+        this.deps.onEvent({ type: 'validationFailed', missing });
+        this.deps.onEvent({ type: 'end', status: 'aborted' });
+        return;
       }
-    });
-    if (missing.length > 0) {
-      this.deps.onEvent({ type: 'validationFailed', missing });
+    } catch (err) {
+      this.deps.onEvent({ type: 'runError', message: err instanceof Error ? err.message : String(err) });
       this.deps.onEvent({ type: 'end', status: 'aborted' });
       return;
     }

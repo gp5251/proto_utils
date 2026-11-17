@@ -253,3 +253,24 @@ test('indexes GBK-encoded proto files', async () => {
   assert.equal(entry.packageName, 'g');
   assert.ok(entry.symbols.some((s) => s.qualifiedName === 'Foo'));
 });
+
+test('初索引期间 deactivate(0.3.91):dispose 后不得再创建 watcher', async () => {
+  // 审计 H5:build() 末尾才建 watcher 且 dispose 无终止标志,
+  // 大仓初索引数秒内关窗口 → watcher 泄漏且继续索引。
+  process.env.PROTO_UTILS_STUB_ROOT = ROOT;
+  const orig = vscode.workspace.createFileSystemWatcher;
+  let created = 0;
+  vscode.workspace.createFileSystemWatcher = ((...args: unknown[]) => {
+    created++;
+    return (orig as (...a: unknown[]) => unknown)(...args);
+  }) as typeof orig;
+  try {
+    const index = new SymbolIndex();
+    const building = index.build();
+    index.dispose();
+    await building;
+    assert.equal(created, 0, 'dispose 后创建的 watcher 永不释放');
+  } finally {
+    vscode.workspace.createFileSystemWatcher = orig;
+  }
+});

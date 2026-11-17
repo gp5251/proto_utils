@@ -53,6 +53,7 @@ test('环境文件:读取、切换并把标量变量统一转为字符串', asyn
     },
     writeFile: async (file, data) => { files.set(file, data); },
     mkdir: async () => undefined,
+    rename: async (from, to) => { files.set(to, files.get(from)!); files.delete(from); },
   };
   const envs = new Environments('/workspace', state, fs);
   files.set(envs.filePath, JSON.stringify({ dev: { host: 'localhost:50051', retries: 2, secure: true, skip: null } }));
@@ -78,4 +79,44 @@ test('步骤断言:eq/contains/exists/数值比较支持环境变量与前序输
     { wanted: '7' },
   );
   assert.deepEqual(results.map((r) => r.ok), [true, true, true, true]);
+});
+
+test('contains 断言(0.3.91):整值占位符对象期望值按 JSON 序列化匹配,不再恒假', () => {
+  // 审计 H8:String(exp) 对对象得 "[object Object]",contains 必假 → 序列误中止。
+  const results = evaluateAssertions(
+    [{ path: 'data.obj', op: 'contains', expected: '{{step0.data.obj}}' }],
+    { data: { obj: { a: 1 } } },
+    1,
+    { 0: { data: { obj: { a: 1 } } } },
+    1,
+    {},
+  );
+  assert.deepEqual(results.map((r) => r.ok), [true]);
+});
+
+test('environments reload 并发(0.3.91):迟到的旧读不得覆盖新内容', async () => {
+  // 审计 H7:reload 先清空再 await 读,无版本守卫;旧读后到即覆新。
+  const state = new MemoryState();
+  const files = new Map<string, string>();
+  let call = 0;
+  const fs: SequenceStoreFs = {
+    readFile: async (f) => {
+      const snap = files.get(f);
+      if (snap === undefined) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      const delay = call++ === 0 ? 30 : 0;
+      await new Promise((r) => setTimeout(r, delay));
+      return snap;
+    },
+    writeFile: async (f, d) => { files.set(f, d); },
+    mkdir: async () => undefined,
+    rename: async (f, t) => { files.set(t, files.get(f)!); files.delete(f); },
+  };
+  const envs = new Environments('/workspace', state, fs);
+  files.set(envs.filePath, JSON.stringify({ dev: { host: 'old' } }));
+  const r1 = envs.reload();
+  files.set(envs.filePath, JSON.stringify({ dev: { host: 'new' } }));
+  const r2 = envs.reload();
+  await Promise.all([r1, r2]);
+  await envs.setActive('dev');
+  assert.equal(envs.snapshot().variables.host, 'new', '最终态必须是最后一次 reload 的内容');
 });

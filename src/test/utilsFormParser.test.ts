@@ -149,6 +149,28 @@ test('buildRequestFromValues builds nested message objects', () => {
   });
 });
 
+test('显式空嵌套 message(0.3.91):JSON 的 {} 保留 presence,表单全空仍省略', () => {
+  // 审计 H4:Object.keys(nested).length>0 把用户显式写的 {} 静默丢弃,
+  // 改变 proto3 message presence 语义;表单初始化产生的全空子树仍应省略。
+  const fields: FieldInfo[] = [{
+    name: 'node',
+    type: 'message',
+    required: false,
+    label: 'optional',
+    protoType: 'TYPE_MESSAGE',
+    refType: 'TreeNode',
+    nestedFields: [{
+      name: 'id',
+      type: 'number',
+      required: false,
+      label: 'optional',
+      protoType: 'TYPE_UINT32',
+    }],
+  }];
+  assert.deepEqual(buildRequestFromValues(fields, { node: {} }), { node: {} }, '显式空对象须保留');
+  assert.deepEqual(buildRequestFromValues(fields, { node: { id: '' } }), {}, '表单全空子树仍省略');
+});
+
 test('parseFormValue repeated 标量:JSON5 数组字符串(尾逗号)', () => {
   assert.deepEqual(parseFormValue(repeatedNumberField, '[1, 2,]'), [1, 2]);
 });

@@ -1264,3 +1264,64 @@ test('saveSequence 空名 → sequenceStoreError;无 store 时 save 降级报错
   assert.ok(noStore.posted.some((m) => m.type === 'sequenceStoreError'));
   assert.deepEqual((noStore.posted.find((m) => m.type === 'sequences') as { list: Sequence[] }).list, []);
 });
+
+test('runSequence 引擎 reject 兜底(0.3.91):panel catch 补 end(aborted),不留 seqRunning 悬空', async () => {
+  // 审计 H1 第二层:即便引擎未来再漏出 reject,panel 也必须兜底送 end,
+  // 否则 webview seqRunning 永真、运行/停止永久失效。
+  // 构造 reject:拦截 runError 事件的 send 使其抛错(引擎 catch 内再抛 → run reject),
+  // 不污染 getConfig/探测等共用通道。
+  const { deps } = makeDeps();
+  deps.registry.load = async () => { throw new Error('load boom'); };
+  const { host, posted, emit } = makeHost();
+  new WorkbenchSession(deps).attach(host);
+  emit({ type: 'ready' });
+  await nextTick();
+  posted.length = 0;
+  const origSend = host.postMessage.bind(host);
+  host.postMessage = (m: WorkbenchToWebview) => {
+    if (m.type === 'seqEvent' && (m as { event?: { type?: string } }).event?.type === 'runError') {
+      throw new Error('send boom');
+    }
+    origSend(m);
+  };
+  emit({
+    type: 'runSequence',
+    sequence: {
+      name: 's',
+      steps: [{ service: 'Greeter', method: 'SayHello', mode: 'form', values: {}, responseStream: false }],
+    },
+  });
+  await nextTick();
+  await nextTick();
+  const end = seqEvents(posted).find((e) => e.type === 'end');
+  assert.ok(end, '引擎 reject 时 panel 必须兜底送 end');
+  assert.equal(end.status, 'aborted');
+});
+
+test('运行中 loadSequence(0.3.91):拦住并给可见提示,不推 sequenceLoaded', async () => {
+  // 审计 W2 宿主层:运行中加载命名序列会替换步列表,报告按新索引错挂。
+  const { deps } = makeDeps({ runner: { callUnary: () => new Promise<never>(() => {}) } });
+  deps.registry.load = async () => ({
+    services: [{
+      name: 'Greeter', fullName: 'c.Greeter',
+      methods: [{ name: 'SayHello', requestType: 'R', responseType: 'R', requestStream: false, responseStream: false, requestFields: [], responseSchemaRows: [] }],
+    }],
+    errors: [],
+  });
+  const { host, posted, emit } = makeHost();
+  new WorkbenchSession(deps).attach(host);
+  emit({ type: 'ready' });
+  await nextTick();
+  posted.length = 0;
+  emit({
+    type: 'runSequence',
+    sequence: { name: 's', steps: [{ service: 'Greeter', method: 'SayHello', mode: 'form', values: {}, responseStream: false }] },
+  });
+  await nextTick();
+  emit({ type: 'loadSequence', name: 'other' });
+  await nextTick();
+  const notice = posted.find((m) => m.type === 'sequenceStoreError');
+  assert.ok(notice, '运行中加载必须给可见提示');
+  assert.match((notice as { message: string }).message, /running/i);
+  assert.ok(!posted.some((m) => m.type === 'sequenceLoaded'), '运行中不得推加载结果');
+});

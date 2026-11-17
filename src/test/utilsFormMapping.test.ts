@@ -106,7 +106,7 @@ test('applyJsonText: null 视为未提供,保留现值', () => {
 test('applyJsonText: 无效 JSON 拒绝且不碰 values', () => {
   const r = applyJsonText(fields, '{"fileId": ', { note: 'x' });
   assert.equal(r.ok, false);
-  if (!r.ok) assert.match(r.error, /JSON 解析失败/);
+  if (!r.ok) assert.match(r.error, /JSON parse failed/);
 });
 
 test('applyJsonText: 顶层非对象(数组/字符串)拒绝', () => {
@@ -284,4 +284,32 @@ test('WKT 输入助手:识别 Timestamp/Duration/wrapper 并与线上对象往�
   assert.deepEqual(wktToWire('Duration', '-1.5s'), { seconds: -1, nanos: -500000000 });
   assert.deepEqual(wktToWire('BoolValue', 'true'), { value: true });
   assert.equal(wktToWire('BoolValue', 'yes'), undefined);
+});
+
+test('校验文案(0.3.91):webview 随 boot.strings 本地化,Node 回退英文', () => {
+  // 审计 W3:校验红字此前硬编码中文,英文用户见中文报错。
+  const g = globalThis as Record<string, unknown>;
+  g.window = {
+    __PROTO_UTILS_BOOT__: {
+      strings: {
+        'JSON parse failed: {0}': 'JSON 解析失败：{0}',
+        '{0}: not a valid number': '{0}: 不是合法数字',
+      },
+    },
+  };
+  try {
+    const r = validateJsonText('{bad');
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.match(r.error, /^JSON 解析失败：/);
+    const probs = validateFormValues(
+      [{ name: 'n', type: 'number', required: false, label: 'optional', protoType: 'TYPE_INT32' }],
+      { n: 'abc' },
+    );
+    assert.match(probs[0], /^n: 不是合法数字/);
+  } finally {
+    delete g.window;
+  }
+  const r2 = validateJsonText('{bad');
+  assert.equal(r2.ok, false);
+  if (!r2.ok) assert.match(r2.error, /^JSON parse failed:/);
 });

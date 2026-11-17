@@ -796,8 +796,11 @@ export class WorkbenchSession {
       },
     });
     this.activeSequence = engine;
-    // run 内部全路径捕获,不会 reject;finally 仅作清空兜底(end 事件已先行送达)
-    void engine.run(seq).finally(() => {
+    // 0.3.91(H1):引擎内部全路径捕获是主防线;此处 catch 为第二层兜底——
+    // 即便引擎再漏出 reject,也补送 end(aborted),不让 webview seqRunning 悬空永真。
+    void engine.run(seq).catch(() => {
+      this.send({ type: 'seqEvent', event: { type: 'end', status: 'aborted' } });
+    }).finally(() => {
       if (this.activeSequence === engine) {
         this.activeSequence = null;
       }
@@ -848,6 +851,14 @@ export class WorkbenchSession {
   }
 
   private async loadSequence(name: string): Promise<void> {
+    // 0.3.91(W2):运行中加载会替换步列表,报告按新索引错挂;先拦住并给可见提示
+    if (this.activeSequence) {
+      this.send({
+        type: 'sequenceStoreError',
+        message: vscode.l10n.t('A sequence is running — stop it before loading another.'),
+      });
+      return;
+    }
     if (!this.deps.store) {
       this.send({ type: 'sequenceLoaded', sequence: null });
       return;

@@ -27,6 +27,8 @@ const TEMPLATE = {
 export class Environments {
   private envs: Record<string, Record<string, string>> = {};
   private error: string | undefined;
+  /** 0.3.91(H7):reload 序号守卫,过期读结果丢弃。 */
+  private reloadSeq = 0;
   readonly filePath: string;
 
   constructor(
@@ -38,34 +40,45 @@ export class Environments {
   }
 
   async reload(): Promise<void> {
-    this.envs = {};
-    this.error = undefined;
+    // 0.3.91(H7):读入局部变量成功后整体赋值 + 序号守卫——此前先清空再 await 读,
+    // 并发 reload 旧读后到即覆新,读窗口内 get() 还会回退 VS Code 设置。
+    const seq = ++this.reloadSeq;
     let text: string;
     try {
       text = await this.fs.readFile(this.filePath);
     } catch (err) {
-      if (!isNotFound(err)) this.error = err instanceof Error ? err.message : String(err);
+      if (seq !== this.reloadSeq) return;
+      this.envs = {};
+      this.error = isNotFound(err) ? undefined : err instanceof Error ? err.message : String(err);
       return;
     }
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
     } catch {
+      if (seq !== this.reloadSeq) return;
+      this.envs = {};
       this.error = `${ENV_FILE} is not valid JSON`;
       return;
     }
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      if (seq !== this.reloadSeq) return;
+      this.envs = {};
       this.error = `${ENV_FILE} top level must be an object`;
       return;
     }
+    const next: Record<string, Record<string, string>> = {};
     for (const [name, vars] of Object.entries(parsed)) {
       if (typeof vars !== 'object' || vars === null || Array.isArray(vars)) continue;
       const out: Record<string, string> = {};
       for (const [k, v] of Object.entries(vars)) {
         if (v !== null && typeof v !== 'object') out[k] = String(v);
       }
-      this.envs[name] = out;
+      next[name] = out;
     }
+    if (seq !== this.reloadSeq) return;
+    this.envs = next;
+    this.error = undefined;
   }
 
   private activeName(): string | null {

@@ -14,6 +14,7 @@ function memFs(files: Record<string, string> = {}): SequenceStoreFs & { files: R
     },
     writeFile: async (f, d) => void (files[f] = String(d)),
     mkdir: async () => undefined,
+    rename: async (f, t) => { files[t] = files[f]; delete files[f]; },
   };
 }
 
@@ -77,4 +78,23 @@ test('ensureFile:首次写模板(模板自身是合法 JSON);已存在不覆盖'
   fs.files[FILE] = '{"runner.protoDir":"mine"}';
   await pc.ensureFile();
   assert.equal(fs.files[FILE], '{"runner.protoDir":"mine"}');
+});
+
+test('projectConfig reload 并发(0.3.91):迟到的旧读不得覆盖新内容', async () => {
+  // 审计 H7 同族:读窗口内 get() 回退 VS Code 设置,旧读后到覆新。
+  const f = memFs({ [FILE]: '{"runner.server":"old:1"}' });
+  let call = 0;
+  f.readFile = async (p: string) => {
+    const snap = f.files[p];
+    if (snap === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    const delay = call++ === 0 ? 30 : 0;
+    await new Promise((r) => setTimeout(r, delay));
+    return snap;
+  };
+  const pc = new ProjectConfig(ROOT, f);
+  const r1 = pc.reload();
+  f.files[FILE] = '{"runner.server":"new:1"}';
+  const r2 = pc.reload();
+  await Promise.all([r1, r2]);
+  assert.equal(pc.get('runner.server'), 'new:1');
 });
