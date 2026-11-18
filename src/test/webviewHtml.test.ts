@@ -456,3 +456,23 @@ test('connState 残留类(0.3.91):conn-hint 与 svcUnavailable 改 x-if,结构�
   assert.ok(!html.includes('class="conn-hint" x-show'), 'conn-hint 不得再靠 x-show');
   assert.ok(!html.includes('x-show="$store.workbench.connState'), 'connState 显隐不得再靠 x-show');
 });
+
+test('流接收设置独立成盒(0.3.92):消息数与请求参数区一眼可分', () => {
+  // 用户修订:最大消息数此前裸排在参数区尾部,形似请求字段;改带标题的设置盒。
+  const html = render();
+  assert.ok(html.includes('<div class="stream-cap" x-show="m.responseStream">'), '服务页流接收盒');
+  assert.ok(html.includes('<div class="stream-cap" x-show="step.responseStream">'), '序列步流接收盒');
+  assert.ok(!html.includes('<div class="seq-maxmsgs"'), '裸容器须移除');
+  assert.ok(html.includes('class="stream-cap-head"'), '盒须有标题行');
+  assert.ok(html.includes('class="stream-cap-hint"'), '盒须有语义提示(收满自停/0 不限)');
+  const cap = html.indexOf('<div class="stream-cap" x-show="m.responseStream">');
+  assert.ok(cap > html.indexOf('class="json-editor"'), '须在参数编辑区之后');
+  assert.ok(cap < html.indexOf('@click="sendFromEditor(svcId(svc), m.name, m)"'), '须在发送动作之前');
+  const srcTs = fs.readFileSync(path.resolve('src/runner/webviewHtml.ts'), 'utf8');
+  assert.ok(srcTs.includes("streamCapTitle: l10n.t('Stream receive')"), '标题经 l10n');
+  // 设置盒在 form 内:计数输入框回车不得误触提交发送(参数区回车发送是既定便利,设置项不是)
+  assert.ok((html.match(/@keydown\.enter\.prevent\n/g) || []).length >= 2, '两处计数输入框须防回车误发送');
+  const zh = JSON.parse(fs.readFileSync(path.resolve('l10n/bundle.l10n.zh-cn.json'), 'utf8')) as Record<string, string>;
+  assert.ok(zh['Stream receive'], 'zh 包缺流接收标题');
+  assert.ok(zh['Auto-stops at limit · 0 = unlimited'], 'zh 包缺流接收提示');
+});

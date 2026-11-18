@@ -58,6 +58,10 @@ const LOCATE_ICON_SVG =
 const BACK_TOP_ICON_SVG =
   '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3"/><path d="M3.5 7.5 8 3l4.5 4.5"/></svg>';
 
+/** 流接收设置盒图标(0.3.92):双波形,与「流」徽章同语义组 */
+const STREAM_CAP_ICON_SVG =
+  '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 5.5c2-2 4-2 6 0s4 2 6 0"/><path d="M2 10.5c2-2 4-2 6 0s4 2 6 0"/></svg>';
+
 export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
   // 静态串 host 侧就地翻译;webview 内 Alpine 表达式求值的串经 boot.strings 下发,
   // webview 通过 $store.str.* / runner.js str() 读取({name} 占位符运行时替换)。
@@ -141,6 +145,8 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
     seqMethodMissing: l10n.t('Method not found. Click Refresh'),
     seqHeadersOverride: l10n.t('Headers overrides (same key wins over global)'),
     seqMaxMessages: l10n.t('Max messages'),
+    streamCapTitle: l10n.t('Stream receive'),
+    streamCapHint: l10n.t('Auto-stops at limit · 0 = unlimited'),
     seqStepsTab: l10n.t('Steps'),
     seqReportTab: l10n.t('Run report'),
     seqReportEmpty: l10n.t('Not run yet. Results appear here step by step after clicking Run sequence.'),
@@ -821,16 +827,25 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
                     ></div>
 
                     <!-- 0.3.64 服务页流方法接收上限:收满自动停并按「完成」展示;空 = 100,0 = 不限 -->
-                    <div class="seq-maxmsgs" x-show="m.responseStream">
-                      <span class="seq-maxmsgs-label">${S.seqMaxMessages}</span>
-                      <input
-                        type="number"
-                        min="0"
-                        class="seq-maxmsgs-input"
-                        :value="seqMaxMsgs[methodKey(svcId(svc), m.name)] || ''"
-                        @input="setSeqMaxMsgs(methodKey(svcId(svc), m.name), $event.target.value)"
-                        placeholder="100"
-                      >
+                    <!-- 0.3.92:独立设置盒(用户修订:消息数与请求参数区一眼可分);盒色借流徽章蓝,与「流」语义同组 -->
+                    <div class="stream-cap" x-show="m.responseStream">
+                      <div class="stream-cap-head">
+                        <span class="stream-cap-icon" aria-hidden="true">${STREAM_CAP_ICON_SVG}</span>
+                        <span class="headers-title">${S.streamCapTitle}</span>
+                      </div>
+                      <div class="stream-cap-row">
+                        <span class="seq-maxmsgs-label">${S.seqMaxMessages}</span>
+                        <input
+                          type="number"
+                          min="0"
+                          class="seq-maxmsgs-input"
+                          :value="seqMaxMsgs[methodKey(svcId(svc), m.name)] || ''"
+                          @input="setSeqMaxMsgs(methodKey(svcId(svc), m.name), $event.target.value)"
+                          @keydown.enter.prevent
+                          placeholder="100"
+                        >
+                        <span class="stream-cap-hint">${S.streamCapHint}</span>
+                      </div>
                     </div>
 
                       <div>
@@ -1275,16 +1290,25 @@ export function renderWorkbenchHtml(options: WorkbenchHtmlOptions): string {
               <div x-show="hasJsonWarnings(step.id)" class="json-warning" x-text="jsonWarningText(step.id)"></div>
 
               <!-- 0.3.64 序列步级流接收上限:收满自动结束该步并推进;空 = 100,0 = 不限 -->
-              <div class="seq-maxmsgs" x-show="step.responseStream">
-                <span class="seq-maxmsgs-label">${S.seqMaxMessages}</span>
-                <input
-                  type="number"
-                  min="0"
-                  class="seq-maxmsgs-input"
-                  :value="seqMaxMsgs[step.id] || ''"
-                  @input="setSeqMaxMsgs(step.id, $event.target.value)"
-                  placeholder="100"
-                >
+              <!-- 0.3.92:与服务页同套独立设置盒,消息数不再混排于参数区 -->
+              <div class="stream-cap" x-show="step.responseStream">
+                <div class="stream-cap-head">
+                  <span class="stream-cap-icon" aria-hidden="true">${STREAM_CAP_ICON_SVG}</span>
+                  <span class="headers-title">${S.streamCapTitle}</span>
+                </div>
+                <div class="stream-cap-row">
+                  <span class="seq-maxmsgs-label">${S.seqMaxMessages}</span>
+                  <input
+                    type="number"
+                    min="0"
+                    class="seq-maxmsgs-input"
+                    :value="seqMaxMsgs[step.id] || ''"
+                    @input="setSeqMaxMsgs(step.id, $event.target.value)"
+                    @keydown.enter.prevent
+                    placeholder="100"
+                  >
+                  <span class="stream-cap-hint">${S.streamCapHint}</span>
+                </div>
               </div>
 
               <!-- 0.3.78 步骤断言:路径相对 {data | chunks/count, durationMs};期望值可用 {{var}} / {{steps[i]...}} -->

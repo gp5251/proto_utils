@@ -682,6 +682,15 @@ test('G5 体验接线(0.3.91):键盘/焦点/文案/语法色/复数齐备', () =
   }
 });
 
+test('流接收盒样式(0.3.92):独立盒 chrome 与提示,裸容器规则退役', () => {
+  const css = fs.readFileSync(path.resolve('media/runner/runner.css'), 'utf8');
+  assert.ok(css.includes('.stream-cap {'), '缺流接收盒规则');
+  assert.ok(css.includes('.stream-cap-hint {'), '缺提示规则');
+  assert.ok(!css.includes('.seq-maxmsgs {'), '裸容器规则须退役');
+  assert.ok(css.includes('.seq-maxmsgs-input {'), '输入框样式保留');
+  assert.ok(css.includes('.stream-cap .seq-maxmsgs-input { width: 96px;'), '盒内计数框须紧凑宽,压过 input[type=number] 的全宽规则');
+});
+
 test('撤销入口挂 store(0.3.91):pageMeta 作用域经 $store.workbench.undoNotice 触达', () => {
   // 实测曾发现 undoNotice 误插 pageMeta 组件 → 按钮点击无效;守卫挂载位置。
   const src = fs.readFileSync(RUNNER_JS, 'utf8');

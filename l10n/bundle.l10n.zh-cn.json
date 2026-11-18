@@ -182,6 +182,8 @@
   "Unclosed [": "未闭合的 [",
   "Invalid array index \"{0}\"": "非法数组索引 \"{0}\"",
   "Empty path segment": "空路径段",
+  "Stream receive": "流接收",
+  "Auto-stops at limit · 0 = unlimited": "收满自动停止 · 0 = 不限",
   "Invalid sequence": "序列无效",
   "A non-empty sequence name is required to save": "保存需要非空的序列名称",
   "Sequence persistence is unavailable without a workspace folder": "未打开工作区文件夹，序列持久化不可用",
