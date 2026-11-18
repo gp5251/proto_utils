@@ -12,7 +12,7 @@
 2. **跳转到定义** — 同文件、跨文件（import 链）、package 命名空间全解析
 3. **Code-gen** — 从 proto 生成纯 TS interface/type/enum 与 `<Name>Client` 调用接口，`codeGen.*` 共 9 项可配置行为，右键菜单 + 命令面板触发
 4. **RPC 工作台** — 编辑器内直接发起 gRPC 调用（一元 / 服务端流 / 客户端流 / 双向流），rpc 方法上方 CodeLens 入口；点到的文件若在 `runner.protoDir` 之外，工作台收窄为单文件作用域（见 docs/adr 0001~0007、0011、0013、0015）
-5. **调用序列** — 把若干方法排成一条依序执行，后步以 `{{stepN.path}}` 引用前步响应（数据管道），步级 Headers 覆盖 / 流接收上限 / 响应断言，首个失败步即中止整条；命名序列持久化到工作区（ADR-0012）
+5. **调用序列** — 把若干方法排成一条依序执行，后步以 `{{stepN.path}}` 引用前步响应（数据管道），步级 Headers 覆盖 / 流接收上限 / 响应断言，首个失败步即中止整条；运行中禁移/删/加载步、加载清旧报告（0.3.91）；命名序列持久化到工作区（ADR-0012）
 6. **配置与数据分层** — `.proto-utils/settings.json` 项目级设置（ADR-0014）、`.proto-utils/environments.json` 环境变量、`.proto-utils/sequences.json` 命名序列；服务器地址自 0.3.75 起不是配置项，存 extension workspaceState
 
 > 依赖说明（2026-07-31 修订，ADR-0002/0004）：编辑面（高亮/跳转/codegen）保持零外部运行时依赖；调用面（RPC 工作台）引入 `@grpc/grpc-js` 与 `@grpc/proto-loader`，经懒加载隔离，首次打开工作台时才载入。原「零外部依赖/内置 proto3 parser」表述随自研 parser 退役废止。
@@ -74,7 +74,7 @@
    - 服务器地址(0.3.75 起非配置项):工作台顶栏原地编辑,存 extension workspaceState(按工作区隔离);回退链 = 持久化值 ?? 老 `runner.server` 设置残值 ?? `localhost:50051`
    - `scan.excludeDirs` (string[], default `[]`,runner 与 codegen 共用)
    - 项目级配置(ADR-0014):`.proto-utils/settings.json` 以去掉 `protoUtils.` 前缀的扁平点分键覆盖任意设置;优先级 = 工作台顶栏地址 > 项目文件 > VS Code 设置(工作区 > 用户) > 默认值;`runner.protoDir` / `scan.excludeDirs` 改动需 reload 窗口(与 VS Code 设置同款限制)
-   - 工作区数据文件:`.proto-utils/environments.json`(自由变量,`{{name}}` 在服务器地址 / 请求字段 / Headers 全链替换,文件 watcher 热重载)、`.proto-utils/sequences.json`(命名序列)
+   - 工作区数据文件:`.proto-utils/environments.json`(自由变量,`{{name}}` 在服务器地址 / 请求字段 / Headers 全链替换,文件 watcher 热重载)、`.proto-utils/sequences.json`(命名序列;原子写 + 串行队列,损坏备份可重建,0.3.91)
 
 8. **Trigger mechanisms** — Code-gen is triggered via: (a) right-click context menu on `.proto` files in the editor and explorer, (b) command palette command `protoUtils.generateTypes`.
 
@@ -105,8 +105,8 @@
 
 **Seam 3: 调用面(`ServiceRegistry` / `CallHandler` / `GrpcClient` / `SequenceRunner`,ADR-0001/0012/0013/0015)**
 - Input: 真实 proto 文件(`testdata/`)+ 配置对象 + 桩化通道与文件系统
-- Assert: 服务/方法提取形状、单文件作用域的三分支(目录外钉住 / 目录内不收窄 / 文件不存在不动既有作用域)、占位符与环境变量解析、步级断言求值、序列事件流(`end` / `aborted`)、grpcurl 命令文本、gRPC 错误格式化
-- Coverage targets: 作用域文件已删与跨目录 import 失败的指引文案、序列运行中锁来源、流接收上限与 chunk 有界窗口
+- Assert: 服务/方法提取形状、单文件作用域的三分支(目录外钉住 / 目录内不收窄 / 文件不存在不动既有作用域)、占位符与环境变量解析、步级断言求值(含 contains 对象期望值)、序列事件流(`end` / `aborted` / `runError`)、grpcurl 命令文本、gRPC 错误格式化、序列存储原子写/并发串行/损坏备份恢复、运行态守卫与报告对齐(0.3.91)
+- Coverage targets: 作用域文件已删与跨目录 import 失败的指引文案、序列运行中锁来源、流接收上限与 chunk 有界窗口、sequences.json 半截崩溃与并发 save/delete(0.3.91)
 
 **Seam 4: Webview 契约(`webviewHtml` / `webviewPanel`)**
 - Input: 渲染选项与 boot 载荷 / 入站消息序列(桩 webview)
@@ -118,7 +118,7 @@
 
 **手写 media 代码的守卫:** `media/runner/runner.js` 无 Alpine 夹具(仓库既定),以「语法可解析 + 关键调用顺序的源码断言」防错位编辑吞行(0.3.41 的 `applyCallResult` 事故)。
 
-**l10n 守护:** `src` 下所有 `vscode.l10n.t('...')` 源串必须出现在 `l10n/bundle.l10n.zh-cn.json`,且翻译包不得残留源码已删的键——双向校验。
+**l10n 守护:** `src` 下所有 `vscode.l10n.t('...')` 源串必须出现在 `l10n/bundle.l10n.zh-cn.json`,且翻译包不得残留源码已删的键——双向校验。webview 侧 utils(formMapping/placeholder)的校验文案以同一批英文源串为键、经 boot.strings 本地化,Node 测试回退英文源串(0.3.91)。
 
 **Partially unit-tested:** VSCode providers (semantic tokens, definition, hover, CodeLens) — pure selection logic is tested against a `vscode` stub (`scripts/vscodeStub.ts`); full editor integration is validated via manual extension host debugging.
 

@@ -171,7 +171,7 @@ In `.proto` files, a "▶ Call" CodeLens appears above each rpc method. Clicking
 - Audit-fix batch (0.3.91): enum selects keep their chosen value when a method is re-expanded or located; a failing proto load at sequence start shows a visible error instead of leaving Run/Stop stuck; run reports stay aligned (step move/remove/load are blocked while running, loading a sequence clears stale reports); `sequences.json` writes are atomic with corruption backup-and-recover; explicit empty nested messages in JSON mode are preserved; clipboard failures are reported and report-copy confirms success; Reset/Remove offer Undo; validation texts are localized; JSON tree strings use syntax colors instead of error red; method counts pluralize; unreachable hints can no longer linger after recovery.
 - Client-streaming and bidirectional calls use an explicit session (see `docs/adr/0013`): **Open stream**, write the current form as one message at a time, then **End sending**; bidi responses fold by chunk and cancel exactly like server streams.
 - Workbench UI colors follow VS Code light/dark theme automatically (GitHub Dark / GitHub Light fixed palettes, see `docs/adr/0011`).
-- Headers editor collapses by default with a row-count badge; every collapse hotspot (service, method, schema, headers, history, response metadata, chunk, sequence step) is keyboard-operable via Enter/Space and exposes `aria-expanded`; toasts are `aria-live` and colored by outcome; spinners and smooth scrolling step down under `prefers-reduced-motion`.
+- Headers editor collapses by default with a row-count badge; every collapse hotspot (service, method, schema, headers, history, response metadata, chunk, sequence step) is keyboard-operable via Enter/Space and exposes `aria-expanded`, and copy icons / JSON tree rows share the same keyboard contract (0.3.91); toasts are `aria-live`, colored by outcome, and offer Undo for Reset/Remove; spinners and smooth scrolling step down under `prefers-reduced-motion`.
 
 #### Interface Source (Single-file Scope)
 
@@ -198,7 +198,7 @@ The "Sequence" tab at the top of the workbench organizes multiple rpc methods in
 - Any step failure (gRPC error / empty placeholder / failed assertion) aborts immediately, skipping remaining steps; pre-run validation checks all steps' methods still exist — invalid steps prevent launch and are named.
 - Sequences run against the full service list: if the workbench is scoped to a single file, clear the header **Source** chip first (see "Interface Source").
 - Run report shows per-step status, duration, and response body (streams show each chunk); entire report copyable.
-- Named sequences persist to workspace `.proto-utils/sequences.json` (version-controlled, team-shareable) with save / load / delete; persistence unavailable without an open workspace, but execution is unaffected.
+- Named sequences persist to workspace `.proto-utils/sequences.json` (version-controlled, team-shareable) with save / load / delete; persistence unavailable without an open workspace, but execution is unaffected. Writes are atomic (temp file + rename) and serialized; a corrupt file is backed up beside it and reset with an actionable error (0.3.91).
 
 Workbench settings:
 

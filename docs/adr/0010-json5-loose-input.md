@@ -16,3 +16,8 @@ JSON5 是 JSON 的严格超集:既有合法 JSON 输入行为逐字节不变,错
 - 不换 JSON5.stringify:输出仍用 `JSON.stringify`,生成物保持标准 JSON。
 
 否决:手写「去注释/尾逗号」预处理(注释/字符串边界易错);自研宽松解析器(违背最小依赖,且 json5 是事实标准)。
+
+## 修订(0.3.91)
+
+- **显式空嵌套 message 保留 presence**:`formParser.buildRequestFromValues` 此前对 `Object.keys(nested).length === 0` 一律省略,JSON 模式显式写的 `"foo": {}` 被静默丢弃;现区分「raw 为零键 plain object」(保留 `{}`)与「表单初始化的全空子树」(仍省略)。proto3 message「发空对象」与「不发」是两种语义。
+- **错误文案本地化**:原文「错误消息沿用『JSON 解析失败』」退役——校验文案(含占位符标红与 tokenizePath 报错)以英文源串为键,webview 经 boot.strings 本地化、Node 回退英文,与 l10n 包同键集(SPEC l10n 守护)。
